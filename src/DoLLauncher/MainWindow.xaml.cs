@@ -2289,7 +2289,9 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            UpdateStatusText.Text = "检查更新失败：" + ex.Message;
+            UpdateStatusText.Text = ex.Message.Contains("404")
+                ? "仓库还没有发布任何 Release。"
+                : "检查更新失败：" + ex.Message;
             Log("检查更新失败：" + ex.Message);
         }
         finally
