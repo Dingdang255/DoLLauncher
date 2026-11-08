@@ -1,0 +1,18 @@
+# 构建产物
+bin/
+obj/
+_publish/
+_dist/
+*.exe
+*.pdb
+*.dll
+
+# IDE / 用户配置
+.vs/
+.vscode/
+*.user
+*.suo
+
+# 日志与临时文件
+*.log
+.tmp/

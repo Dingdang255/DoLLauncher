@@ -1,0 +1,311 @@
+<Window x:Class="DoLLauncher.ConflictDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="可能存在问题"
+        Icon="pack://application:,,,/Assets/dol.ico"
+        Height="620" Width="760" MinHeight="480" MinWidth="600"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{DynamicResource BgBrush}"
+        Foreground="{DynamicResource TextBrush}"
+        FontFamily="Microsoft YaHei UI, Segoe UI"
+        FontSize="13">
+    <Window.Resources>
+        <!-- 自绘分页头：不使用系统默认 TabItem 样式（深色下会整块发亮） -->
+        <Style TargetType="TabControl">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabControl">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1"
+                                    Padding="0,0,0,8">
+                                <TabPanel IsItemsHost="True" />
+                            </Border>
+                            <ContentPresenter Grid.Row="1" x:Name="PART_SelectedContentHost"
+                                              ContentSource="SelectedContent" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="TabItem">
+            <Setter Property="Foreground" Value="{DynamicResource TabChipIdleFgBrush}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="TextElement.Foreground" Value="{DynamicResource TabChipIdleFgBrush}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="bd" Background="Transparent" CornerRadius="7" Padding="12,5"
+                                Margin="0,0,6,0">
+                            <ContentPresenter ContentSource="Header" HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="{DynamicResource TabChipHoverBgBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                                <Setter Property="TextElement.Foreground" Value="{DynamicResource TextBrush}" />
+                            </Trigger>
+                            <!-- 放在悬停之后，保证选中态悬停时不会被灰底覆盖 -->
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="{DynamicResource TabChipActiveBgBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource TabChipActiveFgBrush}" />
+                                <Setter Property="TextElement.Foreground" Value="{DynamicResource TabChipActiveFgBrush}" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="HeaderText" Text="可能存在问题" FontSize="18" FontWeight="SemiBold"
+                   Foreground="{DynamicResource DangerBrush}" />
+        <TextBlock x:Name="IntroText" Grid.Row="1" Style="{StaticResource MutedText}" Margin="0,8,0,0" TextWrapping="Wrap"
+                   Text="冲突来自模组简介或 README 的声明；版本不匹配与缺少前置按目标游戏版本和 boot.json 的依赖判断。这里只做提示，不会阻止启动。" />
+
+        <TabControl x:Name="ProblemTabs" Grid.Row="2" Margin="0,14,0,0" Padding="0"
+                    Background="Transparent" BorderThickness="0,1,0,0"
+                    SelectionChanged="ProblemTabs_SelectionChanged">
+            <TabItem x:Name="ConflictTab" Header="模组冲突">
+                <ScrollViewer Margin="0,10,0,0" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel>
+                        <StackPanel x:Name="ActiveSection">
+                            <TextBlock Text="未解决的冲突" Style="{StaticResource SectionTitle}" />
+                            <ItemsControl x:Name="ActiveList" Margin="0,10,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                                                BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,0,0,10">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding Detail}" Style="{StaticResource MutedText}"
+                                                           Margin="0,4,0,0" TextWrapping="Wrap" />
+                                                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                                    <Button Content="{Binding LeftDisableText}"
+                                                            Style="{StaticResource FlatButton}" FontSize="12" Padding="10,4"
+                                                            Tag="{Binding}" Click="DisableLeft_Click" />
+                                                    <Button Content="{Binding RightDisableText}"
+                                                            Style="{StaticResource FlatButton}" FontSize="12" Padding="10,4"
+                                                            Margin="8,0,0,0" Tag="{Binding}" Click="DisableRight_Click" />
+                                                    <Button Content="我已知晓风险，忽略" Style="{StaticResource FlatButton}"
+                                                            FontSize="12" Padding="10,4" Margin="8,0,0,0"
+                                                            Foreground="{DynamicResource WarnBrush}"
+                                                            Tag="{Binding}" Click="Ignore_Click" />
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+
+                        <StackPanel x:Name="IgnoredSection" Margin="0,6,0,0">
+                            <TextBlock Text="已忽略的冲突" Style="{StaticResource SectionTitle}" />
+                            <ItemsControl x:Name="IgnoredList" Margin="0,8,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <DockPanel Margin="0,0,0,6">
+                                            <Button DockPanel.Dock="Right" Content="撤销忽略" Style="{StaticResource FlatButton}"
+                                                    FontSize="12" Padding="10,2" Tag="{Binding}" Click="Restore_Click" />
+                                            <TextBlock Text="{Binding Title}" Style="{StaticResource MutedText}"
+                                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+
+                        <TextBlock x:Name="EmptyText" Text="暂未检测到模组冲突。"
+                                   Style="{StaticResource MutedText}" Foreground="{DynamicResource TextBrush}"
+                                   FontSize="13" TextWrapping="Wrap" Margin="0,6,0,0"
+                                   Visibility="Collapsed" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem x:Name="VersionTab" Header="模组版本不匹配">
+                <ScrollViewer Margin="0,10,0,0" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel>
+                        <ItemsControl x:Name="VersionList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,0,0,10">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource WarnBrush}" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Severity}" Value="Red">
+                                                                <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock Text="{Binding Detail}" Style="{StaticResource MutedText}"
+                                                       Margin="0,4,0,0" TextWrapping="Wrap" />
+                                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                                <Button Content="{Binding DisableText}" Style="{StaticResource FlatButton}"
+                                                        FontSize="12" Padding="10,4" Tag="{Binding}" Click="DisableVersion_Click" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock x:Name="VersionEmpty" Text="没有发现版本差异过大的模组。"
+                                   Style="{StaticResource MutedText}" Foreground="{DynamicResource TextBrush}"
+                                   FontSize="13" TextWrapping="Wrap" Visibility="Collapsed" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem x:Name="DependencyTab" Header="模组前置缺失">
+                <ScrollViewer Margin="0,10,0,0" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel>
+                        <ItemsControl x:Name="DependencyList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,0,0,10">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Detail}" Style="{StaticResource MutedText}"
+                                                       Margin="0,4,0,0" TextWrapping="Wrap" />
+                                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                                <Button Content="{Binding EnableText}" Tag="{Binding}"
+                                                        Click="EnableDependency_Click" FontSize="12" Padding="10,4">
+                                                    <Button.Style>
+                                                        <Style TargetType="Button" BasedOn="{StaticResource FlatButton}">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Disabled}" Value="True">
+                                                                    <Setter Property="Visibility" Value="Visible" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Button.Style>
+                                                </Button>
+                                                <Button Content="{Binding DisableText}" Style="{StaticResource FlatButton}"
+                                                        FontSize="12" Padding="10,4" Margin="8,0,0,0"
+                                                        Tag="{Binding}" Click="DisableDependency_Click" />
+                                                <Button Content="去下载中心" Style="{StaticResource FlatButton}"
+                                                        FontSize="12" Padding="10,4" Margin="8,0,0,0"
+                                                        Tag="{Binding}" Click="LocateDependency_Click" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock x:Name="DependencyEmpty" Text="所有已启用模组的前置都已满足。"
+                                   Style="{StaticResource MutedText}" Foreground="{DynamicResource TextBrush}"
+                                   FontSize="13" TextWrapping="Wrap" Visibility="Collapsed" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+            <TabItem x:Name="DuplicateTab" Header="模组重复">
+                <ScrollViewer Margin="0,10,0,0" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel>
+                        <ItemsControl x:Name="DuplicateList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,0,0,10">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Detail}" Style="{StaticResource MutedText}"
+                                                       Margin="0,4,0,0" TextWrapping="Wrap" />
+
+                                            <ItemsControl ItemsSource="{Binding Members}" Margin="0,9,0,0">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Border Background="{DynamicResource BgBrush}" CornerRadius="6"
+                                                                Padding="9,6" Margin="0,0,0,6">
+                                                            <DockPanel>
+                                                                <Button DockPanel.Dock="Right" Content="{Binding DisableText}"
+                                                                        Style="{StaticResource FlatButton}" FontSize="12"
+                                                                        Padding="10,3" Tag="{Binding}"
+                                                                        Click="DisableDuplicateMember_Click" />
+                                                                <Border DockPanel.Dock="Left" CornerRadius="4" Padding="6,1"
+                                                                        Margin="0,0,8,0" VerticalAlignment="Center"
+                                                                        Background="{DynamicResource AccentPaleBrush}">
+                                                                    <Border.Style>
+                                                                        <Style TargetType="Border">
+                                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                                            <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding IsNewest}" Value="True">
+                                                                                    <Setter Property="Visibility" Value="Visible" />
+                                                                                </DataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </Border.Style>
+                                                                    <TextBlock Text="最新" FontSize="11"
+                                                                               Foreground="{DynamicResource AccentBrush}" />
+                                                                </Border>
+                                                                <TextBlock Text="{Binding Title}" VerticalAlignment="Center"
+                                                                           Foreground="{DynamicResource TextBrush}"
+                                                                           TextTrimming="CharacterEllipsis" Margin="0,0,8,0" />
+                                                            </DockPanel>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+
+                                            <Button Content="{Binding KeepNewestText}" Style="{StaticResource FlatButton}"
+                                                    FontSize="12" Padding="10,4" HorizontalAlignment="Left"
+                                                    Margin="0,5,0,0" Tag="{Binding}" Click="KeepNewestDuplicate_Click" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock x:Name="DuplicateEmpty" Text="没有发现同时启用的同名模组。"
+                                   Style="{StaticResource MutedText}" Foreground="{DynamicResource TextBrush}"
+                                   FontSize="13" TextWrapping="Wrap" Visibility="Collapsed" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+
+        <TextBlock x:Name="HintText" Grid.Row="3" Style="{StaticResource MutedText}"
+                   Margin="0,12,0,0" TextWrapping="Wrap"
+                   Text="停用相关模组后问题会自然消失；忽略记录只作用于当前版本的模组冲突。" />
+
+        <WrapPanel Grid.Row="4" HorizontalAlignment="Right" Margin="0,8,0,0">
+            <Button x:Name="IgnoreAllBtn" Content="全部忽略" Style="{StaticResource FlatButton}" MinWidth="104"
+                    Click="IgnoreAll_Click" Margin="0,0,10,8" />
+            <Button x:Name="CloseBtn" Content="关闭" Style="{StaticResource FlatButton}" MinWidth="92"
+                    Margin="0,0,10,8" Click="Close_Click" IsCancel="True" />
+            <Button x:Name="LaunchBtn" Content="仍然启动（忽略并启动）" Style="{StaticResource PrimaryButton}"
+                    Margin="0,0,0,8" Click="Launch_Click" />
+        </WrapPanel>
+    </Grid>
+</Window>
