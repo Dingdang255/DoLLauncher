@@ -53,9 +53,27 @@ jobs:
           path: DoL-Launcher-win-x64.zip
           if-no-files-found: error
 
+      - name: Extract release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $body = ''
+          if (Test-Path CHANGELOG.md) {
+            $lines = Get-Content CHANGELOG.md
+            $start = ($lines | Select-String -SimpleMatch "## $tag").LineNumber
+            if ($start) {
+              $rest = @($lines[$start..($lines.Count - 1)])
+              $next = $rest | Select-String '^## v' | Select-Object -First 1
+              $body = if ($next) { ($rest[0..($next.LineNumber - 2)] -join "`n") } else { ($rest -join "`n") }
+            }
+          }
+          if (-not $body.Trim()) { $body = "该版本未编写更新日志，详见提交历史。" }
+          $body | Out-File -FilePath release-notes.md -Encoding utf8
+
       - name: Create release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: DoL-Launcher-win-x64.zip
-          generate_release_notes: true
+          body_path: release-notes.md
