@@ -44,8 +44,8 @@ if (Test-Path -LiteralPath $dist) { Remove-Item -LiteralPath $dist -Recurse -For
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 
 Copy-Item -LiteralPath $exe -Destination $stage
-Copy-Item -LiteralPath (Join-Path $runtime 'DoL.bat') -Destination $stage
-Copy-Item -LiteralPath (Join-Path $runtime 'launcher.ps1') -Destination $stage
+Copy-Item -LiteralPath (Join-Path $root 'tools\scripts\DoL.bat') -Destination $stage
+Copy-Item -LiteralPath (Join-Path $root 'tools\scripts\launcher.ps1') -Destination $stage
 Copy-Item -LiteralPath (Join-Path $root 'README.md') -Destination $stage
 
 if ($IncludeVersions) {

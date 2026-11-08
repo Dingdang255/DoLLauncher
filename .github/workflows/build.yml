@@ -35,7 +35,8 @@ jobs:
           New-Item -ItemType Directory -Force stage | Out-Null
           Copy-Item _publish/DoLLauncher.exe stage/
           Copy-Item README.md, LICENSE stage/
-          Compress-Archive -Path stage/DoLLauncher.exe, stage/README.md, stage/LICENSE -DestinationPath DoL-Launcher-win-x64.zip -Force
+          Copy-Item tools/scripts/DoL.bat, tools/scripts/launcher.ps1 stage/
+          Compress-Archive -Path stage/DoLLauncher.exe, stage/README.md, stage/LICENSE, stage/DoL.bat, stage/launcher.ps1 -DestinationPath DoL-Launcher-win-x64.zip -Force
 
       - uses: actions/upload-artifact@v4
         with:

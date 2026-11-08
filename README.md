@@ -34,7 +34,7 @@
 ```
 .
 ├─ src/DoLLauncher/         ← WPF 启动器源码（Assets / Controls / Models / Services）
-├─ tools/                   ← 图标生成脚本、图标帧、Vrelicon.png
+├─ tools/                   ← icon/ 图标生成脚本与源图；scripts/ 分发用 DoL.bat、launcher.ps1
 ├─ .github/workflows/       ← CI：构建与 Release
 ├─ build.ps1                ← 本地构建 / 打包
 ├─ README.md
@@ -52,7 +52,7 @@ cd dev
 .\build.ps1 -NoZip           # 只生成 exe
 ```
 
-产物写入 `_publish/`；本地的 `build.ps1` 会把 exe 复制到同级运行时目录 `DoLLauncher/`（该目录不属于仓库），并打包分发 zip。CI 只构建单文件 exe，连带 README 与 LICENSE 打成 `DoL-Launcher-win-x64.zip`；推送 `v*` 标签会自动创建 Release（见 `.github/workflows/build.yml`）。开发者可用 `DoLLauncher.exe --selftest` 跑一次自检，结果写入 `self-test.log`。
+产物写入 `_publish/`；本地的 `build.ps1` 会把 exe 复制到同级运行时目录 `DoLLauncher/`（该目录不属于仓库），并从 `tools/scripts/` 取脚本打包分发 zip。CI 只构建单文件 exe，连带 README、LICENSE、`DoL.bat` 与 `launcher.ps1` 打成 `DoL-Launcher-win-x64.zip`；推送 `v*` 标签会自动创建 Release（见 `.github/workflows/build.yml`）。开发者可用 `DoLLauncher.exe --selftest` 跑一次自检，结果写入 `self-test.log`。
 
 ## 运行
 
@@ -60,7 +60,7 @@ cd dev
 2. 双击 `DoLLauncher.exe`，左侧选中版本后点「启动游戏」；
 3. 启动器在 `127.0.0.1:<端口>` 起内置服务器并用默认浏览器打开，关闭启动器时会询问是否一并停止服务器。
 
-自行构建的用户可直接使用运行时目录里的 `DoL.bat` / `launcher.ps1`（需 Python 3 在 PATH 中）；这两个脚本不随 Release 分发。
+自行构建的用户可直接使用仓库里的 `tools/scripts/DoL.bat` 与 `launcher.ps1`（需 Python 3 在 PATH 中）；打包时会被放到分发包根目录。
 
 ## 说明与边界
 
