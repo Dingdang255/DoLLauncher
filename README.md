@@ -27,28 +27,30 @@
 
 ```
 DoL/
-├─ DoLLauncher.exe          ← 图形启动器（双击即可）
-├─ DoL.bat                  ← 有 exe 时启动图形界面；带参数时走命令行
-├─ launcher.ps1             ← 命令行备用方案（需要 Python）
-├─ launcher-versions.json   ← 自动生成的「版本 ↔ 端口」记录
-├─ versions/                ← 所有游戏版本
-│  ├─ 0.5.12.13-v2.101.1/
-│  │  ├─ Degrees of Lewdity.html
-│  │  ├─ mods/              ← 该版本的模组（丢 zip 进来即可）
-│  │  ├─ modList.json       ← 启动器自动生成，不要手改
-│  │  └─ mods-state.json    ← 启动器记录的启停/顺序，不要手改
-│  └─ 0.5.8.10-v2.101.1-polyfill/
-├─ backups/                 ← 启动器备份（按版本分子目录）
-│  └─ <版本名>/
-│     ├─ snapshot-*.dolpack ← 整版快照
-│     ├─ mods-config-*.json ← 模组顺序与启停
-│     └─ saves/             ← 浏览器存档备份
-├─ logs/launcher.log        ← 启动器运行记录
-├─ plugins/
-│  └─ ModHub-v2.0.2.zip     ← ModHub 原始包（集成后可选保留）
-├─ src/DoLLauncher/         ← 启动器源码（分发包里不需要）
-└─ build.ps1                ← 重新构建 / 打包
+├─ dev/                     ← 源码仓库（git 仓库根目录）
+│  ├─ src/DoLLauncher/      ← WPF 启动器源码
+│  ├─ tools/                ← 图标生成脚本与中间产物
+│  ├─ build.ps1             ← 重新构建 / 打包
+│  ├─ README.md
+│  ├─ VERIFY.md
+│  └─ Vrelicon.png
+├─ DoLLauncher/             ← 运行时目录（启动器与游戏版本都在这里）
+│  ├─ DoLLauncher.exe       ← 图形启动器（双击即可）
+│  ├─ DoL.bat               ← 有 exe 时启动图形界面；带参数时走命令行
+│  ├─ launcher.ps1          ← 命令行备用方案（需要 Python）
+│  ├─ launcher-versions.json← 自动生成的「版本 ↔ 端口」记录
+│  ├─ versions/             ← 所有游戏版本
+│  │  └─ 0.5.12.13-v2.101.1/
+│  │     ├─ Degrees of Lewdity.html
+│  │     ├─ mods/           ← 该版本的模组（丢 zip 进来即可）
+│  │     ├─ modList.json    ← 启动器自动生成，不要手改
+│  │     └─ mods-state.json ← 启动器记录的启停/顺序，不要手改
+│  ├─ backups/              ← 启动器备份（按版本分子目录）
+│  └─ logs/launcher.log     ← 启动器运行记录
+└─ _archives/               ← 历史发布包 / 旧模组包，不参与运行
 ```
+
+构建产物会写到 `dev/_publish`，`build.ps1` 会把新的 `DoLLauncher.exe` 自动复制到 `DoLLauncher/` 并覆盖旧文件（覆盖前需要先关掉正在运行的启动器）。
 
 ## 快速开始
 
