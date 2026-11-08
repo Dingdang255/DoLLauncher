@@ -18,13 +18,23 @@ $publish = Join-Path $root '_publish'
 # 运行时目录（exe、versions、backups 都在这里），与源码目录 dev 同级
 $runtime = Join-Path (Split-Path $root -Parent) 'DoLLauncher'
 
+# 版本信息：tag|commit|构建时间，程序通过程序集 InformationalVersion 读取
+$tag = (git -C $root describe --tags --exact-match 2>$null | Out-String).Trim()
+if ($tag -eq '') { $tag = 'dev' }
+$commit = (git -C $root rev-parse --short HEAD 2>$null | Out-String).Trim()
+if ($commit -eq '') { $commit = 'local' }
+$buildTime = (Get-Date).ToString('yyyy-MM-dd HH:mm')
+$infoVersion = "$tag|$commit|$buildTime"
+
 Push-Location $project
 try {
     if ($FrameworkDependent) {
-        dotnet publish -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o $publish
+        dotnet publish -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true `
+            -p:InformationalVersion="$infoVersion" -o $publish
     } else {
         dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true `
-            -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o $publish
+            -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true `
+            -p:InformationalVersion="$infoVersion" -o $publish
     }
     if ($LASTEXITCODE -ne 0) { throw 'dotnet publish 失败' }
 } finally {

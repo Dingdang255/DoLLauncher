@@ -930,6 +930,33 @@
                                                        VerticalAlignment="Center" />
                                         </Grid>
                                     </Button>
+
+                                    <Button Style="{StaticResource SettingsCard}" Tag="版本信息"
+                                            Click="SettingsCategory_Click">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <Border Width="38" Height="38" CornerRadius="9"
+                                                    Background="{DynamicResource AccentPaleBrush}">
+                                                <TextBlock Text="&#xE946;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                                           FontSize="17" Foreground="{DynamicResource AccentBrush}"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            </Border>
+                                            <StackPanel Grid.Column="1" Margin="12,0,12,0" VerticalAlignment="Center">
+                                                <TextBlock Text="版本信息" FontSize="14" FontWeight="SemiBold" />
+                                                <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
+                                                           Margin="0,3,0,0"
+                                                           Text="启动器版本号、提交与构建时间，以及检查更新。" />
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="2" Text="&#xE76C;"
+                                                       FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                                       FontSize="14" Foreground="{DynamicResource MutedBrush}"
+                                                       VerticalAlignment="Center" />
+                                        </Grid>
+                                    </Button>
                                 </StackPanel>
 
                                 <!-- 网络下载 -->
@@ -1111,6 +1138,32 @@
                                             <Button Content="恢复默认布局尺寸" Tag="&#xE777;"
                                                     Style="{StaticResource IconButton}" HorizontalAlignment="Left"
                                                     Click="ResetLayout_Click" />
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+
+                                <!-- 版本信息 -->
+                                <StackPanel x:Name="SettingsVersionPanel" Visibility="Collapsed">
+                                    <Border Style="{StaticResource SettingsItemCard}">
+                                        <StackPanel>
+                                            <TextBlock Text="启动器版本" FontWeight="SemiBold" />
+                                            <TextBlock x:Name="VersionInfoText" Style="{StaticResource MutedText}"
+                                                       TextWrapping="Wrap" Margin="0,4,0,0"
+                                                       Text="正在读取版本信息…" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Style="{StaticResource SettingsItemCard}">
+                                        <StackPanel>
+                                            <TextBlock Text="检查更新" FontWeight="SemiBold" />
+                                            <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
+                                                       Margin="0,4,0,9"
+                                                       Text="从 GitHub Release 获取最新版本并与当前版本比较；只读取信息，不会自动下载。" />
+                                            <Button x:Name="CheckUpdateBtn" Content="检查更新" Tag="&#xE895;"
+                                                    Style="{StaticResource IconButton}" HorizontalAlignment="Left"
+                                                    Click="CheckUpdate_Click" />
+                                            <TextBlock x:Name="UpdateStatusText" Style="{StaticResource MutedText}"
+                                                       TextWrapping="Wrap" Margin="0,8,0,0" />
                                         </StackPanel>
                                     </Border>
                                 </StackPanel>

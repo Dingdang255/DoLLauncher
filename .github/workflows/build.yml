@@ -19,6 +19,14 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      - name: Resolve build info
+        shell: pwsh
+        run: |
+          $tag = if ('${{ github.ref_type }}' -eq 'tag') { '${{ github.ref_name }}' } else { 'dev' }
+          $sha = '${{ github.sha }}'.Substring(0, 7)
+          $time = (Get-Date).ToString('yyyy-MM-dd HH:mm')
+          "BUILD_INFO=$tag|$sha|$time" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Publish single-file exe
         shell: pwsh
         run: |
@@ -27,6 +35,7 @@ jobs:
             -p:IncludeNativeLibrariesForSelfExtract=true `
             -p:EnableCompressionInSingleFile=true `
             -p:DebugType=None -p:DebugSymbols=false `
+            -p:InformationalVersion="$env:BUILD_INFO" `
             -o _publish
 
       - name: Pack artifact

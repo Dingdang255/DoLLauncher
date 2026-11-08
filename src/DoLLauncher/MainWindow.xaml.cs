@@ -2240,10 +2240,61 @@ public partial class MainWindow : Window
 
             AnimationCheck.IsChecked = cfg.General.ShowAnimations;
             UiAnimations.Enabled = cfg.General.ShowAnimations;
+
+            VersionInfoText.Text = BuildInfo.Display;
         }
         finally
         {
             _loadingGeneralSettings = false;
+        }
+    }
+
+    private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        CheckUpdateBtn.IsEnabled = false;
+        UpdateStatusText.Text = "正在检查更新…";
+        Log("检查更新：开始");
+        try
+        {
+            var release = await UpdateService.CheckAsync();
+            if (release.Tag.Length == 0)
+            {
+                UpdateStatusText.Text = "没有可用的 Release 信息。";
+                return;
+            }
+
+            var hasUpdate = BuildInfo.Tag == "dev" || UpdateService.IsNewer(release.Tag, BuildInfo.Tag);
+            if (hasUpdate)
+            {
+                UpdateStatusText.Text = BuildInfo.Tag == "dev"
+                    ? $"当前为开发版构建，最新 Release 为 {release.Tag}。"
+                    : $"发现新版本 {release.Tag}（当前 {BuildInfo.Tag}）。";
+                Log("检查更新：发现新版本 " + release.Tag);
+                if (release.Url.Length > 0 &&
+                    AppDialog.Confirm(
+                        $"发现新版本 {release.Tag}（当前 {BuildInfo.Tag}）。\n要打开下载页面吗？",
+                        "检查更新", "打开下载页"))
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(release.Url)
+                    {
+                        UseShellExecute = true,
+                    });
+                }
+            }
+            else
+            {
+                UpdateStatusText.Text = $"已是最新版本（{BuildInfo.Tag}）。";
+                Log("检查更新：已是最新版本");
+            }
+        }
+        catch (Exception ex)
+        {
+            UpdateStatusText.Text = "检查更新失败：" + ex.Message;
+            Log("检查更新失败：" + ex.Message);
+        }
+        finally
+        {
+            CheckUpdateBtn.IsEnabled = true;
         }
     }
 
@@ -2368,6 +2419,7 @@ public partial class MainWindow : Window
         SettingsModInfoPanel.Visibility = Visibility.Collapsed;
         SettingsProblemPanel.Visibility = Visibility.Collapsed;
         SettingsAppearancePanel.Visibility = Visibility.Collapsed;
+        SettingsVersionPanel.Visibility = Visibility.Collapsed;
 
         var panel = SettingsPanelForPath();
         panel.Visibility = Visibility.Visible;
@@ -2388,6 +2440,7 @@ public partial class MainWindow : Window
             "数据与索引/模组信息" => SettingsModInfoPanel,
             "问题检查" => SettingsProblemPanel,
             "界面与外观" => SettingsAppearancePanel,
+            "版本信息" => SettingsVersionPanel,
             _ => SettingsRootPanel,
         };
     }
@@ -2403,6 +2456,7 @@ public partial class MainWindow : Window
             "数据与索引/模组信息" => "是否把索引里补全的作者 / 主页写回模组包。",
             "问题检查" => "「可能存在问题」里版本差异告警的敏感度。",
             "界面与外观" => "界面主题与过渡动画效果，修改后立即生效。",
+            "版本信息" => "当前启动器的版本、提交与构建时间，并可检查更新。",
             _ => "",
         };
     }
