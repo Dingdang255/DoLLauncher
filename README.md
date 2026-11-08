@@ -35,10 +35,9 @@
 DoL/
 ├─ dev/                     ← 本仓库（源码）
 │  ├─ src/DoLLauncher/      ← WPF 启动器源码
-│  ├─ tools/                ← 图标生成脚本与导出的图标帧
+│  ├─ tools/                ← 图标生成脚本、图标帧与 Vrelicon.png（大图标源图）
 │  ├─ build.ps1             ← 构建 / 打包
-│  ├─ README.md
-│  └─ Vrelicon.png
+│  └─ README.md
 ├─ DoLLauncher/             ← 运行时目录（exe、versions、backups、logs）
 │  ├─ DoLLauncher.exe
 │  ├─ versions/<游戏版本>-<modloader版本>/
@@ -75,6 +74,12 @@ cd dev
 - 启动器无法实时感知外部对 `mods/` 的修改；换端口也不会自动迁移旧的 `file://` 存档，需要用存档助手。
 - 仅支持 Windows（WPF + DWM），未适配 macOS / Linux。
 
+## 第三方资源与致谢
+
+- 启动器图标（`Assets/dol.ico`、`Assets/dol-favicon.png`）由 Degrees of Lewdity（作者 Vrelnir）游戏美术资源中的网页小图标，与 DoL 中文维基使用的站点图标去背景合成，仅用于标识本项目。相关图像版权归原权利方所有，**不包含在本仓库的 MIT 许可范围内**。
+- 游戏本体、模组、图片包与汉化资源均由各自作者发布，本仓库不再分发。
+- 下载中心引用的仓库与市场索引归各自维护者所有。
+
 ## 许可证
 
-[MIT](LICENSE)。游戏本体、模组及其资源不在此许可范围内。
+[MIT](LICENSE)，仅覆盖本仓库源码。游戏本体、模组、图标等第三方资源不在许可范围内，详见上一节。

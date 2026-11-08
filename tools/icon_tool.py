@@ -1,8 +1,8 @@
 """图标帧提取 / 重建。
 
-用法（在 E:\\h\\DoL 下）：
+用法（在 E:\\h\\DoL\\dev 下）：
   python tools\\icon_tool.py extract   # 把 Assets\\dol.ico 的每一帧导到 tools\\icon-frames\\<size>.png
-  python tools\\icon_tool.py build     # 重建 dol.ico：<=32 用 16px 原图最近邻放大，>32 用 Vrelicon.png 缩放
+  python tools\\icon_tool.py build     # 重建 dol.ico：<=32 用 16px 原图最近邻放大，>32 用 tools\\Vrelicon.png 缩放
 """
 import os
 import sys
@@ -10,7 +10,7 @@ from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ICO = os.path.join(ROOT, "src", "DoLLauncher", "Assets", "dol.ico")
-BIG = os.path.join(ROOT, "Vrelicon.png")
+BIG = os.path.join(ROOT, "tools", "Vrelicon.png")
 FRAMES = os.path.join(ROOT, "tools", "icon-frames")
 SMALL_SIZES = (16, 24, 32)
 BIG_SIZES = (48, 64, 128, 256)
