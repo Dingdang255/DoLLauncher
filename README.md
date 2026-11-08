@@ -57,7 +57,7 @@ cd dev
 .\build.ps1 -NoZip           # 只生成 exe
 ```
 
-产物写入 `dev/_publish/DoLLauncher.exe`，并自动复制到运行时目录 `DoLLauncher/`；分发包输出到 `DoL/DoL-Launcher.zip`。开发者可用 `DoLLauncher.exe --selftest` 跑一次自检，结果写入 `self-test.log`。
+产物写入 `dev/_publish/DoLLauncher.exe`，并自动复制到运行时目录 `DoLLauncher/`；分发包输出到 `DoL/DoL-Launcher.zip`。推送 `v*` 标签时，GitHub Actions 会自动构建单文件 exe 并创建 Release（见 `.github/workflows/build.yml`）。开发者可用 `DoLLauncher.exe --selftest` 跑一次自检，结果写入 `self-test.log`。
 
 ## 运行
 
@@ -76,6 +76,7 @@ cd dev
 
 ## 第三方资源与致谢
 
+- 本项目为非官方工具，与 Vrelnir 及 DoL 中文维基无隶属关系。
 - 启动器图标（`Assets/dol.ico`、`Assets/dol-favicon.png`）由 Degrees of Lewdity（作者 Vrelnir）游戏美术资源中的网页小图标，与 DoL 中文维基使用的站点图标去背景合成，仅用于标识本项目。相关图像版权归原权利方所有，**不包含在本仓库的 MIT 许可范围内**。
 - 游戏本体、模组、图片包与汉化资源均由各自作者发布，本仓库不再分发。
 - 下载中心引用的仓库与市场索引归各自维护者所有。
