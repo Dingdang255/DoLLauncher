@@ -28,7 +28,8 @@ public static class BuildInfo
     {
         var parts = Raw.Split('|');
         if (parts.Length < 3) return fallback;
-        var value = parts[index].Trim();
+        // 部分构建环境会给 InformationalVersion 追加「+提交哈希」，这里一并去掉
+        var value = parts[index].Split('+')[0].Trim();
         return value.Length == 0 ? fallback : value;
     }
 }
