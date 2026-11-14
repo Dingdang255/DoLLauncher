@@ -6,8 +6,8 @@ using System.Text.RegularExpressions;
 namespace DoLLauncher.Services;
 
 /// <summary>
-/// GitHub Star 数缓存：只有用户选择「按 Star 排序」时才按需拉取，结果缓存 24 小时，
-/// 避免频繁请求接口触发限流；拉取失败时保留旧值，不影响其它排序方式。
+/// GitHub Star 数缓存：只在打开模组详情时按需拉取单个仓库，结果缓存 24 小时，
+/// 避免频繁请求接口触发限流；拉取失败时保留旧值并返回 null。
 /// </summary>
 public static class ModStarService
 {
@@ -41,67 +41,43 @@ public static class ModStarService
         return RepoPattern.IsMatch(text) ? text : null;
     }
 
-    /// <summary>缓存中的 Star 数（可能已过期）；没有记录时返回 null。</summary>
-    public static int? GetCached(string? repo)
+    /// <summary>
+    /// 取仓库的 Star 数：24 小时缓存内直接用缓存，过期或没有记录时拉取一次并落盘。
+    /// 取不到（无仓库、限流、网络失败）返回 null。
+    /// </summary>
+    public static async Task<int?> TryGetAsync(string? repo, CancellationToken ct = default)
     {
         var key = NormalizeRepo(repo);
         if (key == null) return null;
+
         lock (Sync)
         {
-            return Load().Repos.TryGetValue(key, out var entry) ? entry.Stars : null;
+            if (Load().Repos.TryGetValue(key, out var cached) && DateTime.UtcNow - cached.FetchedAt < Ttl)
+                return cached.Stars;
         }
-    }
 
-    /// <summary>缓存是否仍在 24 小时有效期内。</summary>
-    public static bool IsFresh(string? repo)
-    {
-        var key = NormalizeRepo(repo);
-        if (key == null) return false;
-        lock (Sync)
+        try
         {
-            return Load().Repos.TryGetValue(key, out var entry) &&
-                   DateTime.UtcNow - entry.FetchedAt < Ttl;
-        }
-    }
-
-    /// <summary>顺序拉取缺失或过期的仓库，返回成功条数。限流或网络失败时保留旧缓存。</summary>
-    public static async Task<int> RefreshAsync(IEnumerable<string> repos, CancellationToken ct = default)
-    {
-        var keys = repos.Select(NormalizeRepo).Where(r => r != null).Select(r => r!)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Where(r => !IsFresh(r))
-            .ToList();
-        if (keys.Count == 0) return 0;
-
-        var ok = 0;
-        foreach (var key in keys)
-        {
-            ct.ThrowIfCancellationRequested();
-            try
+            var json = await DownloadService.GetGithubApiAsync("repos/" + key);
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("stargazers_count", out var stars) &&
+                stars.TryGetInt32(out var count))
             {
-                var json = await DownloadService.GetGithubApiAsync("repos/" + key);
-                using var doc = JsonDocument.Parse(json);
-                if (doc.RootElement.TryGetProperty("stargazers_count", out var stars) &&
-                    stars.TryGetInt32(out var count))
+                lock (Sync)
                 {
-                    lock (Sync)
-                    {
-                        var cache = Load();
-                        cache.Repos[key] = new StarEntry { Stars = count, FetchedAt = DateTime.UtcNow };
-                        Save(cache);
-                    }
-                    ok++;
+                    var cache = Load();
+                    cache.Repos[key] = new StarEntry { Stars = count, FetchedAt = DateTime.UtcNow };
+                    Save(cache);
                 }
+                return count;
             }
-            catch (Exception ex)
-            {
-                LogService.Append($"获取 GitHub Star 失败（{key}）：{ex.Message}");
-            }
-
-            // 轻微节流，避免瞬间打满接口
-            try { await Task.Delay(250, ct); } catch (OperationCanceledException) { break; }
         }
-        return ok;
+        catch (Exception ex)
+        {
+            LogService.Append($"获取 GitHub Star 失败（{key}）：{ex.Message}");
+        }
+
+        return null;
     }
 
     private static StarCache Load()
@@ -133,7 +109,7 @@ public static class ModStarService
         }
         catch
         {
-            // 写缓存失败不影响本次排序
+            // 写缓存失败不影响本次显示
         }
     }
 }

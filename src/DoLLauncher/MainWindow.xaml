@@ -19,14 +19,31 @@
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
+        <!-- 美化包主窗口背景（没有启用美化包时隐藏） -->
+        <Border x:Name="SkinBackdrop" Grid.ColumnSpan="3" IsHitTestVisible="False"
+                Visibility="Collapsed" />
+
         <!-- 左侧 PCL 式导航 -->
         <Border Grid.Column="0" Background="{DynamicResource PanelBrush}"
                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
             <DockPanel Margin="12,16,12,12">
                 <StackPanel DockPanel.Dock="Top">
                     <StackPanel Orientation="Horizontal" Margin="6,0,0,16">
-                        <Image Source="pack://application:,,,/Assets/dol-favicon.png" Width="32" Height="32"
-                               RenderOptions.BitmapScalingMode="HighQuality" />
+                        <Border x:Name="AvatarHost" Width="34" Height="34" CornerRadius="17"
+                                Background="{DynamicResource AccentPaleBrush}" Cursor="Hand"
+                                ToolTip="点击更换玩家头像" MouseLeftButtonUp="Avatar_Click"
+                                MouseEnter="Avatar_MouseEnter" MouseLeave="Avatar_MouseLeave">
+                            <Border.Clip>
+                                <EllipseGeometry Center="17,17" RadiusX="17" RadiusY="17" />
+                            </Border.Clip>
+                            <Grid>
+                                <Image x:Name="AvatarImage" Stretch="UniformToFill"
+                                       RenderOptions.BitmapScalingMode="HighQuality" />
+                                <!-- 悬停遮罩：让头像变暗，提示可点击更换 -->
+                                <Border x:Name="AvatarHoverMask" Background="#000000" Opacity="0"
+                                        IsHitTestVisible="False" />
+                            </Grid>
+                        </Border>
                         <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
                             <TextBlock Text="DoL 启动器" FontSize="15" FontWeight="SemiBold" />
                             <TextBlock x:Name="SubtitleText" Text="版本 · 模组 · 存档"
@@ -533,12 +550,10 @@
                                     <TextBlock Text="匹配" Style="{StaticResource MutedText}" VerticalAlignment="Center"
                                                Margin="0,0,6,0" />
                                     <ComboBox x:Name="MarketMatchBox" Style="{StaticResource FlatCombo}"
-                                              ItemContainerStyle="{StaticResource FlatComboItem}" Width="118"
+                                              ItemContainerStyle="{StaticResource FlatComboItem}" Width="150"
                                               SelectionChanged="MarketAdvanced_Changed">
                                         <ComboBoxItem Content="部分匹配" Tag="contains" IsSelected="True" />
-                                        <ComboBoxItem Content="全词匹配" Tag="word" />
-                                        <ComboBoxItem Content="命中任一标签" Tag="anytag" />
-                                        <ComboBoxItem Content="命中全部标签" Tag="alltags" />
+                                        <ComboBoxItem Content="完全匹配" Tag="exact" />
                                     </ComboBox>
                                     <TextBlock Text="范围" Style="{StaticResource MutedText}" VerticalAlignment="Center"
                                                Margin="12,0,6,0" />
@@ -549,6 +564,7 @@
                                         <ComboBoxItem Content="标题" Tag="title" />
                                         <ComboBoxItem Content="作者" Tag="author" />
                                         <ComboBoxItem Content="简介" Tag="description" />
+                                        <ComboBoxItem Content="标签" Tag="tag" />
                                     </ComboBox>
                                     <TextBlock Text="排序" Style="{StaticResource MutedText}" VerticalAlignment="Center"
                                                Margin="12,0,6,0" />
@@ -558,13 +574,9 @@
                                         <ComboBoxItem Content="默认排序" Tag="default" IsSelected="True" />
                                         <ComboBoxItem Content="最近更新" Tag="updated" />
                                         <ComboBoxItem Content="名称" Tag="name" />
-                                        <ComboBoxItem Content="GitHub Star" Tag="stars" />
                                     </ComboBox>
                                     <CheckBox x:Name="MarketSortDescCheck" Style="{StaticResource TextCheck}"
                                               Content="倒序" Margin="10,0,0,0" Click="MarketSortDesc_Changed" />
-                                    <TextBlock x:Name="MarketStarStatus" Style="{StaticResource MutedText}"
-                                               FontSize="10" VerticalAlignment="Center" Margin="12,0,0,0"
-                                               TextTrimming="CharacterEllipsis" />
                                 </DockPanel>
                                 </StackPanel>
 
@@ -1100,7 +1112,7 @@
                                                 <TextBlock Text="界面与外观" FontSize="14" FontWeight="SemiBold" />
                                                 <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
                                                            Margin="0,3,0,0"
-                                                           Text="深色 / 亮色 / 跟随系统主题，以及界面过渡动画开关。" />
+                                                           Text="深色 / 亮色 / 跟随系统主题、主题色、玩家头像、UI 美化包与界面过渡动画。" />
                                             </StackPanel>
                                             <TextBlock Grid.Column="2" Text="&#xE76C;"
                                                        FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
@@ -1399,7 +1411,7 @@
 
                                 <!-- 界面与外观 -->
                                 <StackPanel x:Name="SettingsAppearancePanel" Visibility="Collapsed">
-                                    <Border Style="{StaticResource SettingsItemCard}">
+                                    <Border x:Name="ThemeCard" Style="{StaticResource SettingsItemCard}">
                                         <StackPanel>
                                             <TextBlock Text="主题" FontWeight="SemiBold" />
                                             <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
@@ -1416,7 +1428,7 @@
                                         </StackPanel>
                                     </Border>
 
-                                    <Border Style="{StaticResource SettingsItemCard}">
+                                    <Border x:Name="AccentCard" Style="{StaticResource SettingsItemCard}">
                                         <StackPanel>
                                             <TextBlock Text="主题色" FontWeight="SemiBold" />
                                             <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
@@ -1465,6 +1477,54 @@
                                                 <TextBlock x:Name="AccentLightnessText" Style="{StaticResource MutedText}"
                                                            Width="44" VerticalAlignment="Center" Margin="10,0,0,0" />
                                             </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Style="{StaticResource SettingsItemCard}">
+                                        <StackPanel>
+                                            <TextBlock Text="玩家头像" FontWeight="SemiBold" />
+                                            <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
+                                                       Margin="0,4,0,9"
+                                                       Text="显示在左上角的圆形头像。可选择本地图片；从存档自动生成头像的数据接口已预留，后续版本开放。" />
+                                            <StackPanel Orientation="Horizontal">
+                                                <Border Width="44" Height="44" CornerRadius="22"
+                                                        Background="{DynamicResource AccentPaleBrush}">
+                                                    <Border.Clip>
+                                                        <EllipseGeometry Center="22,22" RadiusX="22" RadiusY="22" />
+                                                    </Border.Clip>
+                                                    <Image x:Name="AvatarPreviewImage" Stretch="UniformToFill"
+                                                           RenderOptions.BitmapScalingMode="HighQuality" />
+                                                </Border>
+                                                <Button Content="上传头像" Tag="&#xE8E5;"
+                                                        Style="{StaticResource IconButton}" Margin="12,0,0,0"
+                                                        Click="AvatarUpload_Click" />
+                                                <Button Content="恢复默认" Style="{StaticResource FlatButton}"
+                                                        Padding="12,4,12,4" Margin="8,0,0,0"
+                                                        Click="AvatarReset_Click" />
+                                            </StackPanel>
+                                            <TextBlock x:Name="AvatarStatusText" Style="{StaticResource MutedText}"
+                                                       TextWrapping="Wrap" Margin="0,8,0,0" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Style="{StaticResource SettingsItemCard}">
+                                        <StackPanel>
+                                            <TextBlock Text="UI 美化包" FontWeight="SemiBold" />
+                                            <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
+                                                       Margin="0,4,0,9"
+                                                       Text="支持本地 zip 美化包（skin.json + 图片），可覆盖窗口背景、弹窗背景、主题色与背景图片。优先级：美化包 &gt; 自定义主题色 &gt; 默认主题。" />
+                                            <StackPanel Orientation="Horizontal">
+                                                <Button Content="加载美化包" Tag="&#xE8E5;"
+                                                        Style="{StaticResource IconButton}" Click="SkinLoad_Click" />
+                                                <Button Content="卸载美化包" Tag="&#xE74D;"
+                                                        Style="{StaticResource IconButton}" Margin="8,0,0,0"
+                                                        Click="SkinUnload_Click" />
+                                                <Button Content="打开目录" Tag="&#xE8B7;"
+                                                        Style="{StaticResource IconButton}" Margin="8,0,0,0"
+                                                        Click="SkinOpenFolder_Click" />
+                                            </StackPanel>
+                                            <TextBlock x:Name="SkinStatusText" Style="{StaticResource MutedText}"
+                                                       TextWrapping="Wrap" Margin="0,8,0,0" />
                                         </StackPanel>
                                     </Border>
 
@@ -1524,6 +1584,18 @@
                                                            VerticalAlignment="Center" />
                                             </DockPanel>
                                             <StackPanel x:Name="CreditsPanel" Margin="0,12,0,0" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Style="{StaticResource SettingsItemCard}">
+                                        <StackPanel>
+                                            <TextBlock Text="反馈与建议" FontWeight="SemiBold" />
+                                            <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
+                                                       Margin="0,4,0,9"
+                                                       Text="遇到问题或有建议时，可跳转到 GitHub Issue 模板选择页；提交前建议附上诊断页导出的诊断包。" />
+                                            <Button Content="打开反馈页" Tag="&#xE774;"
+                                                    Style="{StaticResource IconButton}" HorizontalAlignment="Left"
+                                                    Click="Feedback_Click" />
                                         </StackPanel>
                                     </Border>
 

@@ -45,9 +45,12 @@ public static class AppDialog
             WindowStartupLocation = owner == null
                 ? WindowStartupLocation.CenterScreen
                 : WindowStartupLocation.CenterOwner,
-            Background = ResBrush("BgBrush") ?? Brushes.White,
-            Foreground = ResBrush("TextBrush") ?? Brushes.Black,
         };
+        // 弹窗可能正好在切换主题 / 美化包的过程中打开，用动态资源跟随调色板，避免拿到过渡前的旧色
+        var skinBackground = SkinService.DialogBackgroundBrush;
+        if (skinBackground != null) win.Background = skinBackground;
+        else win.SetResourceReference(Window.BackgroundProperty, "BgBrush");
+        win.SetResourceReference(Window.ForegroundProperty, "TextBrush");
         win.PreviewKeyDown += (_, e) =>
         {
             if (e.Key == Key.Escape) win.DialogResult = false;
@@ -64,31 +67,35 @@ public static class AppDialog
         body.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        body.Children.Add(new Border
+        var toneBar = new Border
         {
             Width = 3,
             CornerRadius = new CornerRadius(2),
             Margin = new Thickness(0, 1, 12, 0),
             VerticalAlignment = VerticalAlignment.Stretch,
-            Background = ResBrush(toneKey) ?? Brushes.Gray,
-        });
+        };
+        toneBar.SetResourceReference(Border.BackgroundProperty, toneKey);
+        body.Children.Add(toneBar);
 
         var texts = new StackPanel();
-        texts.Children.Add(new TextBlock
+        var titleText = new TextBlock
         {
             Text = title,
             FontSize = 15,
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
-            Foreground = ResBrush("TextBrush"),
-        });
-        texts.Children.Add(new TextBlock
+        };
+        titleText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
+        texts.Children.Add(titleText);
+
+        var messageText = new TextBlock
         {
             Text = message,
             Margin = new Thickness(0, 6, 0, 0),
             TextWrapping = TextWrapping.Wrap,
-            Foreground = ResBrush("TextBrush"),
-        });
+        };
+        messageText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
+        texts.Children.Add(messageText);
         Grid.SetColumn(texts, 1);
         body.Children.Add(texts);
         root.Children.Add(body);
@@ -120,9 +127,9 @@ public static class AppDialog
             Content = confirmText ?? "确定",
             Style = ResStyle("FlatButton"),
             MinWidth = 88,
-            Foreground = ResBrush(danger ? "DangerBrush" : "AccentBrush"),
-            BorderBrush = ResBrush(danger ? "DangerBorderBrush" : "AccentSoftBrush"),
         };
+        primary.SetResourceReference(Control.ForegroundProperty, danger ? "DangerBrush" : "AccentBrush");
+        primary.SetResourceReference(Control.BorderBrushProperty, danger ? "DangerBorderBrush" : "AccentSoftBrush");
         primary.Click += (_, _) => win.DialogResult = true;
         buttons.Children.Add(primary);
         root.Children.Add(buttons);
@@ -268,9 +275,6 @@ public static class AppDialog
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter,
         int x, int y, int width, int height, uint flags);
-
-    private static Brush? ResBrush(string key) =>
-        Application.Current?.TryFindResource(key) as Brush;
 
     private static Style? ResStyle(string key) =>
         Application.Current?.TryFindResource(key) as Style;

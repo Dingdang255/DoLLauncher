@@ -266,13 +266,15 @@ public static class DownloadService
                 if (verifiedName.Length == 0) verifiedName = FileNameFromUrl(PropString(verified, "sourceUrl"));
             }
 
+            var tags = PropStrings(item, "tags");
             var mod = new MarketMod
             {
                 Id = id,
                 Name = PropString(item, "name"),
                 Version = PropString(item, "version"),
                 Category = PropString(item, "category"),
-                Tags = string.Join(" · ", PropStrings(item, "tags")),
+                Tags = string.Join(" · ", tags),
+                TagList = tags,
                 Description = description,
                 Author = PropString(item, "author"),
                 Repo = repo,

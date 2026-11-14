@@ -21,24 +21,78 @@ public static class GameLogAnalysis
         public string Sample = string.Empty;
     }
 
+    /// <summary>分析结果：头部信息、错误组、警告组、结尾提示，分段返回便于流式展示。</summary>
+    private sealed class LogReport
+    {
+        public List<string> Header { get; } = new();
+        public List<string> ErrorBlocks { get; } = new();
+        public List<string> WarnBlocks { get; } = new();
+        public List<string> Footer { get; } = new();
+
+        public IEnumerable<string> Blocks()
+        {
+            foreach (var line in Header) yield return line;
+            if (ErrorBlocks.Count > 0)
+            {
+                yield return "";
+                yield return "== 错误（error / reject） ==";
+                foreach (var block in ErrorBlocks)
+                {
+                    yield return block;
+                    yield return "";
+                }
+            }
+            if (WarnBlocks.Count > 0)
+            {
+                yield return "";
+                yield return "== 警告（warn） ==";
+                foreach (var block in WarnBlocks)
+                {
+                    yield return block;
+                    yield return "";
+                }
+            }
+            foreach (var line in Footer) yield return line;
+        }
+
+        public string ToText() => string.Join(Environment.NewLine, Blocks());
+    }
+
     private static readonly Regex LinePattern = new(@"^(\S+) \[(log|info|warn|error|debug|reject)\] (.*)$",
         RegexOptions.Compiled);
 
-    public static string Analyze(VersionInfo version, int maxFiles = 5)
+    /// <summary>同步生成完整分析文本（用于导出 analysis.txt）。</summary>
+    public static string Analyze(VersionInfo version, int maxFiles = 5) => BuildReport(version, maxFiles).ToText();
+
+    /// <summary>
+    /// 流式分析：先把文件读进内存并在后台线程分组，然后一段一段地交给界面，
+    /// 避免一次塞入超长文本导致诊断页卡死。
+    /// </summary>
+    public static async Task AnalyzeStreamAsync(VersionInfo version, Action<string> append,
+        int maxFiles = 5, CancellationToken ct = default)
     {
-        var lines = new List<string>
+        var report = await Task.Run(() => BuildReport(version, maxFiles), ct);
+        foreach (var block in report.Blocks())
         {
-            "== 游戏日志报错分析 ==",
-            $"版本：{version.DisplayName}（{version.Folder}）",
-            $"时间：{DateTime.Now:yyyy-MM-dd HH:mm}",
-            "",
-        };
+            ct.ThrowIfCancellationRequested();
+            append(block);
+            await Task.Delay(1, ct);
+        }
+    }
+
+    private static LogReport BuildReport(VersionInfo version, int maxFiles)
+    {
+        var report = new LogReport();
+        report.Header.Add("== 游戏日志报错分析 ==");
+        report.Header.Add($"版本：{version.DisplayName}（{version.Folder}）");
+        report.Header.Add($"时间：{DateTime.Now:yyyy-MM-dd HH:mm}");
+        report.Header.Add("");
 
         var dir = GameLogService.Dir(version.FullPath);
         if (!Directory.Exists(dir))
         {
-            lines.Add("还没有游戏日志目录：请先在启动器里启动一次游戏。");
-            return string.Join(Environment.NewLine, lines);
+            report.Header.Add("还没有游戏日志目录：请先在启动器里启动一次游戏。");
+            return report;
         }
 
         var files = new DirectoryInfo(dir).GetFiles("game-*.log")
@@ -47,15 +101,15 @@ public static class GameLogAnalysis
             .ToList();
         if (files.Count == 0)
         {
-            lines.Add("日志目录里还没有 game-*.log 文件。");
-            return string.Join(Environment.NewLine, lines);
+            report.Header.Add("日志目录里还没有 game-*.log 文件。");
+            return report;
         }
 
-        lines.Add("分析文件：" + string.Join("、", files.Select(f => f.Name)));
-        lines.Add("");
+        report.Header.Add("分析文件：" + string.Join("、", files.Select(f => f.Name)));
+        report.Header.Add("");
 
         var findings = new Dictionary<string, Finding>(StringComparer.Ordinal);
-        int warnings = 0, errors = 0, total = 0;
+        int warnings = 0, errors = 0, rejects = 0, total = 0;
 
         foreach (var file in files)
         {
@@ -68,7 +122,9 @@ public static class GameLogAnalysis
                     if (!m.Success) continue;
                     var level = m.Groups[2].Value.ToLowerInvariant();
                     if (level != "warn" && level != "error" && level != "reject") continue;
-                    if (level == "warn") warnings++; else errors++;
+                    if (level == "warn") warnings++;
+                    else if (level == "error") errors++;
+                    else rejects++;
 
                     var message = m.Groups[3].Value;
                     var key = message.Length > 160 ? message[..160] : message;
@@ -84,35 +140,52 @@ public static class GameLogAnalysis
             }
             catch (Exception ex)
             {
-                lines.Add($"读取 {file.Name} 失败：{ex.Message}");
+                report.Header.Add($"读取 {file.Name} 失败：{ex.Message}");
             }
         }
 
-        lines.Add($"共读取 {total} 行：warning {warnings} 条，error/reject {errors} 条。");
-        lines.Add("");
+        report.Header.Add($"共读取 {total} 行：error {errors} 条，reject {rejects} 条，warning {warnings} 条。");
+        report.Header.Add($"同类问题共 {findings.Count} 组，按级别与出现次数排列。");
 
         if (findings.Count == 0)
         {
-            lines.Add("[完成] 没有发现 warning / error / reject 记录。");
-            return string.Join(Environment.NewLine, lines);
+            report.Header.Add("");
+            report.Header.Add("[完成] 没有发现 warning / error / reject 记录。");
+            return report;
         }
 
-        var ordered = findings.Values.OrderByDescending(f => f.Count).ToList();
+        // 错误（reject / error）优先，然后才是警告；同级按次数从多到少
+        var ordered = findings.Values
+            .OrderBy(f => LevelRank(f.Level))
+            .ThenByDescending(f => f.Count)
+            .ToList();
+
         var index = 0;
-        foreach (var f in ordered.Take(20))
+        foreach (var f in ordered)
         {
             index++;
-            lines.Add($"--- 问题 {index}（{f.Count} 次，{f.Level}）---");
-            lines.Add("时间：" + (f.First == f.Last ? f.First : f.First + " ~ " + f.Last));
-            lines.Add("内容：" + f.Sample);
-            foreach (var hint in Explain(f.Sample)) lines.Add("可能原因：" + hint);
-            lines.Add("");
+            var block = new StringBuilder();
+            block.AppendLine($"--- 问题 {index}（{f.Count} 次，{f.Level}）---");
+            block.AppendLine("时间：" + (f.First == f.Last ? f.First : f.First + " ~ " + f.Last));
+            block.AppendLine("内容：" + f.Sample);
+            foreach (var hint in Explain(f.Sample)) block.AppendLine("可能原因：" + hint);
+            block.AppendLine();
+            var text = block.ToString().TrimEnd();
+
+            if (f.Level == "warn") report.WarnBlocks.Add(text);
+            else report.ErrorBlocks.Add(text);
         }
 
-        if (ordered.Count > 20) lines.Add($"（同类问题较多，仅列出前 20 组，共 {ordered.Count} 组；完整内容见 logs 目录）");
-        lines.Add("提示：把导出的诊断包发给别人或 AI 时，logs\\game-*.log 与 analysis.txt 就是分析依据。");
-        return string.Join(Environment.NewLine, lines);
+        report.Footer.Add("提示：把导出的诊断包发给别人或 AI 时，logs\\game-*.log 与 analysis.txt 就是分析依据。");
+        return report;
     }
+
+    private static int LevelRank(string level) => level switch
+    {
+        "reject" => 0,
+        "error" => 1,
+        _ => 2,
+    };
 
     /// <summary>
     /// 单条样例最多保留 1200 字符：游戏里一条报错可能塞进整份模组源码（几十万字符），

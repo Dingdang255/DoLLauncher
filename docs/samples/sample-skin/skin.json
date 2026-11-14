@@ -1,0 +1,13 @@
+{
+  "format": "dolskin/1",
+  "id": "sample-skin",
+  "name": "示例美化包",
+  "author": "DoL Launcher",
+  "version": "1.0.0",
+  "description": "用于验证 dolskin/1 加载、主窗口背景、弹窗背景与主题色覆盖。",
+  "accentColor": "#FF6C8CFF",
+  "windowBackgroundImage": "window-bg.png",
+  "windowBackgroundColor": "#FF1E2A44",
+  "dialogBackgroundImage": "dialog-bg.png",
+  "dialogBackgroundColor": "#FF203044"
+}

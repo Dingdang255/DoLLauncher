@@ -165,7 +165,9 @@ public static class ThemeService
 
     private static void Apply()
     {
-        IsDark = _mode == ModeDark || (_mode == ModeSystem && SystemUsesDark());
+        IsDark = _mode == ModeDark
+            || SkinService.RequiresDarkPalette
+            || (_mode == ModeSystem && SystemUsesDark());
         var resources = Application.Current?.Resources;
         if (resources == null) return;
 
@@ -196,15 +198,25 @@ public static class ThemeService
     {
         string? accent = ThemePaletteBuilder.DefaultAccentColor;
         var saturation = 100;
-        try
+
+        // 优先级：美化包 > 自定义主题色 > 默认主题
+        var skinAccent = SkinService.AccentColor;
+        if (skinAccent != null)
         {
-            var general = AppConfig.Load().General;
-            if (!string.IsNullOrWhiteSpace(general.ThemeAccentColor)) accent = general.ThemeAccentColor;
-            saturation = general.ThemeAccentSaturation;
+            accent = skinAccent;
         }
-        catch
+        else
         {
-            // 配置读取失败时保持默认配色
+            try
+            {
+                var general = AppConfig.Load().General;
+                if (!string.IsNullOrWhiteSpace(general.ThemeAccentColor)) accent = general.ThemeAccentColor;
+                saturation = general.ThemeAccentSaturation;
+            }
+            catch
+            {
+                // 配置读取失败时保持默认配色
+            }
         }
 
         return ThemePaletteBuilder.Build(dark ? DarkPalette : LightPalette, accent, saturation);

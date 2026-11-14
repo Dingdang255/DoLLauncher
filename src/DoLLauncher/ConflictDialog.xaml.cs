@@ -41,6 +41,7 @@ public partial class ConflictDialog : Window
             IEnumerable<ModDuplicate> Duplicates)> loadProblems)
     {
         InitializeComponent();
+        SkinService.ApplyDialogBackground(this);
         _launchMode = launchMode;
         _disableByFile = disableByFile;
         _enableByFile = enableByFile;

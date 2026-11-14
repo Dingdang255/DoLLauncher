@@ -99,6 +99,9 @@ public sealed class MarketMod : INotifyPropertyChanged
     public string Version { get; set; } = "";
     public string Category { get; set; } = "";
     public string Tags { get; set; } = "";
+
+    /// <summary>索引里的标签原始列表，供标签匹配使用；为空时回退到 <see cref="Tags"/> 字符串。</summary>
+    public List<string> TagList { get; set; } = new();
     public string Description { get; set; } = "";
     public string Author { get; set; } = "";
     public string Repo { get; set; } = "";

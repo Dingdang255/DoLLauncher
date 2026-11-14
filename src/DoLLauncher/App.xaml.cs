@@ -36,6 +36,8 @@ public partial class App : Application
         UiAnimations.Enabled = AppConfig.Load().General.ShowAnimations;
         UiAnimations.Initialize();
         TextToolTip.Initialize();
+        // 美化包需要先于主题初始化，才能让包内主色参与调色板计算
+        SkinService.Initialize();
         ThemeService.Initialize();
         // 平台能力在主题初始化之后装配，供后续页面与服务通过接口访问
         PlatformServices.Initialize();

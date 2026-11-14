@@ -12,6 +12,7 @@ public partial class InstallCheckDialog : Window
     public InstallCheckDialog(MarketMod mod, VersionInfo target, InstallCheckResult check)
     {
         InitializeComponent();
+        SkinService.ApplyDialogBackground(this);
         _check = check;
         ThemeService.Attach(this);
         AppDialog.AttachDialogChrome(this, Width);

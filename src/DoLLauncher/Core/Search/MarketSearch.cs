@@ -4,10 +4,14 @@ namespace DoLLauncher.Core.Search;
 
 public enum MarketMatchMode
 {
+    /// <summary>部分匹配：关键词出现在文本任意位置即可。</summary>
     Contains,
-    WholeWord,
-    AnyTag,
-    AllTags,
+    /// <summary>完全匹配：关键词必须是完整词（两侧是空白、标点或分隔符）。</summary>
+    Exact,
+    /// <summary>标签范围下：结果标签包含全部搜索标签（允许有多余标签）。</summary>
+    TagAll,
+    /// <summary>标签范围下：结果标签包含任意一个搜索标签。</summary>
+    TagAny,
 }
 
 public enum MarketSearchScope
@@ -16,6 +20,8 @@ public enum MarketSearchScope
     Title,
     Author,
     Description,
+    /// <summary>标签范围：按模组标签列表匹配搜索词。</summary>
+    Tags,
 }
 
 public enum MarketSortMode
@@ -24,13 +30,12 @@ public enum MarketSortMode
     Default,
     UpdateDate,
     Name,
-    Stars,
 }
 
 /// <summary>模组市场的高级搜索：匹配模式 × 搜索范围 × 排序方式（平台无关）。</summary>
 public static class MarketSearch
 {
-    private static readonly char[] TagSeparators = { ' ', '\t', ',', '，', ';', '；', '/', '|' };
+    private static readonly char[] TagSeparators = { ' ', '\t', ',', '，', ';', '；', '/', '|', '·' };
     private static readonly char[] KeywordSeparators = { ' ', '\t', ',', '，' };
 
     public static IEnumerable<MarketMod> Filter(IEnumerable<MarketMod> mods, string? keyword,
@@ -43,19 +48,17 @@ public static class MarketSearch
         }
     }
 
-    public static List<MarketMod> Sort(IEnumerable<MarketMod> mods, MarketSortMode mode, bool descending,
-        Func<MarketMod, int?>? stars)
+    public static List<MarketMod> Sort(IEnumerable<MarketMod> mods, MarketSortMode mode, bool descending)
     {
         var list = mods.ToList();
         switch (mode)
         {
             case MarketSortMode.Default:
+                // 默认排序也支持倒序：直接反转索引里的原始顺序
+                if (descending) list.Reverse();
                 return list;
             case MarketSortMode.Name:
                 list.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
-                break;
-            case MarketSortMode.Stars:
-                list.Sort((a, b) => (stars?.Invoke(a) ?? -1).CompareTo(stars?.Invoke(b) ?? -1));
                 break;
             default:
                 list.Sort((a, b) => string.Compare(a.UpdateDate, b.UpdateDate, StringComparison.OrdinalIgnoreCase));
@@ -69,15 +72,24 @@ public static class MarketSearch
     {
         if (tokens.Length == 0) return true;
 
-        if (mode is MarketMatchMode.AnyTag or MarketMatchMode.AllTags)
+        // 标签范围：比较的是“标签列表”本身，而不是拼成一段文字
+        if (scope == MarketSearchScope.Tags)
         {
-            var tags = mod.Tags.Split(TagSeparators, StringSplitOptions.RemoveEmptyEntries)
-                .Select(t => t.Trim().ToLowerInvariant())
-                .Where(t => t.Length > 0)
-                .ToArray();
-            bool Hit(string token) => tags.Any(t =>
-                t.Contains(token, StringComparison.Ordinal) || token.Contains(t, StringComparison.Ordinal));
-            return mode == MarketMatchMode.AnyTag ? tokens.Any(Hit) : tokens.All(Hit);
+            var tags = mod.TagList.Count > 0
+                ? mod.TagList
+                : mod.Tags.Split(TagSeparators, StringSplitOptions.RemoveEmptyEntries).ToList();
+            var set = new HashSet<string>(
+                tags.Select(t => t.Trim()).Where(t => t.Length > 0), StringComparer.OrdinalIgnoreCase);
+
+            return mode switch
+            {
+                // 完全匹配：标签集合与搜索词集合完全一致
+                MarketMatchMode.Exact => set.SetEquals(tokens),
+                // 部分匹配 · 含全部：结果的标签包含所有搜索词，允许有多余标签
+                MarketMatchMode.TagAll => tokens.All(set.Contains),
+                // 部分匹配 · 含任一：结果只要命中任意一个搜索词
+                _ => tokens.Any(set.Contains),
+            };
         }
 
         var text = (scope switch
@@ -88,12 +100,17 @@ public static class MarketSearch
             _ => mod.SearchText,
         }).ToLowerInvariant();
 
-        return mode == MarketMatchMode.Contains
-            ? tokens.All(t => text.Contains(t, StringComparison.Ordinal))
-            : tokens.All(t => ContainsWholeWord(text, t));
+        return mode switch
+        {
+            MarketMatchMode.Exact => tokens.All(t => ContainsWholeWord(text, t)),
+            _ => tokens.All(t => text.Contains(t, StringComparison.Ordinal)),
+        };
     }
 
-    /// <summary>全词匹配：关键字两侧必须是分隔符；中文按单字算词边界，避免整段文字匹配不到。</summary>
+    /// <summary>
+    /// 完全匹配：关键字两侧必须是词边界（空白、标点、分隔符）。
+    /// 汉字、英文、数字都算词字符，所以「服装」不会命中「服装扩展」，但标签里的「服装」可以命中。
+    /// </summary>
     private static bool ContainsWholeWord(string text, string token)
     {
         var index = 0;
@@ -103,13 +120,13 @@ public static class MarketSearch
             if (hit < 0) return false;
             var before = hit == 0 ? ' ' : text[hit - 1];
             var after = hit + token.Length >= text.Length ? ' ' : text[hit + token.Length];
-            if (!IsAsciiWordChar(before) && !IsAsciiWordChar(after)) return true;
+            if (!IsWordChar(before) && !IsWordChar(after)) return true;
             index = hit + token.Length;
         }
         return false;
     }
 
-    private static bool IsAsciiWordChar(char c) => c < 128 && char.IsLetterOrDigit(c);
+    private static bool IsWordChar(char c) => char.IsLetterOrDigit(c);
 
     private static string[] SplitTokens(string? keyword) =>
         (keyword ?? string.Empty).Trim().ToLowerInvariant()

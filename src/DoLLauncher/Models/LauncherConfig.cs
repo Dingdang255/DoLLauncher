@@ -103,16 +103,22 @@ public sealed class GeneralSettings
     /// <summary>左上角启动器名称下方的副标题；空字符串表示使用默认文案「版本 · 模组 · 存档」。</summary>
     [JsonPropertyName("subtitle")] public string Subtitle { get; set; } = string.Empty;
 
+    /// <summary>玩家头像文件：相对启动器根目录或绝对路径；为空时使用内置占位图。</summary>
+    [JsonPropertyName("avatarPath")] public string AvatarPath { get; set; } = string.Empty;
+
+    /// <summary>当前启用的本地美化包目录名（skins\&lt;名称&gt;）；为空表示未启用。</summary>
+    [JsonPropertyName("skinFolder")] public string SkinFolder { get; set; } = string.Empty;
+
     /// <summary>自动调整布局：开启后各分区按设计比例随窗口等比缩放；关闭时沿用拖动出的像素尺寸。</summary>
     [JsonPropertyName("autoLayout")] public bool AutoLayout { get; set; }
 
-    /// <summary>模组市场高级搜索：匹配模式（contains / word / anytag / alltags）。</summary>
+    /// <summary>模组市场高级搜索：匹配模式（contains / exact / tagall / tagany）。</summary>
     [JsonPropertyName("marketMatch")] public string MarketMatchMode { get; set; } = "contains";
 
-    /// <summary>模组市场高级搜索：范围（all / title / author / description）。</summary>
+    /// <summary>模组市场高级搜索：范围（all / title / author / description / tag）。</summary>
     [JsonPropertyName("marketScope")] public string MarketSearchScope { get; set; } = "all";
 
-    /// <summary>模组市场排序方式（default / updated / name / stars）。</summary>
+    /// <summary>模组市场排序方式（default / updated / name）。</summary>
     [JsonPropertyName("marketSort")] public string MarketSortMode { get; set; } = "default";
 
     /// <summary>模组市场排序是否倒序；默认正序（配合默认排序保持 mods.json 原始顺序）。</summary>

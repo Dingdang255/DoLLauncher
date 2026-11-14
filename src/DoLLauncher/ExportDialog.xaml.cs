@@ -9,6 +9,7 @@ public partial class ExportDialog : Window
     public ExportDialog(VersionInfo version)
     {
         InitializeComponent();
+        SkinService.ApplyDialogBackground(this);
         ThemeService.Attach(this);
         AppDialog.AttachDialogChrome(this, Width);
         UiAnimations.AttachWindow(this);

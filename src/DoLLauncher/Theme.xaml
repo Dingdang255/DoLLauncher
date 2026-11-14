@@ -563,6 +563,34 @@
         </Setter>
     </Style>
 
+    <!-- 带二级菜单的下拉项：右侧多一个 ›，只在展开的下拉里显示，
+         收起后 ComboBox 显示的是 Content 纯文本，不会带上箭头 -->
+    <Style x:Key="SubmenuComboItem" TargetType="ComboBoxItem" BasedOn="{StaticResource FlatComboItem}">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBoxItem">
+                    <Border x:Name="item" Background="Transparent" CornerRadius="5" Margin="4,1"
+                            Padding="{TemplateBinding Padding}">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Right" Text="&#x203A;" FontSize="14" Opacity="0.6"
+                                       VerticalAlignment="Center" Margin="8,0,0,0" />
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </DockPanel>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter TargetName="item" Property="Background" Value="{DynamicResource AccentPaleBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="item" Property="Background" Value="{DynamicResource AccentPaleBrush}" />
+                            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- 下拉框里显示友好名称：自定义模板下 DisplayMemberPath 不生效，统一用 ItemTemplate -->
     <DataTemplate x:Key="VersionComboTemplate">
         <TextBlock Text="{Binding ComboName}" TextTrimming="CharacterEllipsis"

@@ -1,0 +1,71 @@
+name: Bug 反馈
+description: 启动器崩溃、功能异常、界面错位等问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！提交前请先确认已升级到最新版本，并尽量附上诊断页导出的诊断包。
+  - type: input
+    id: version
+    attributes:
+      label: 启动器版本
+      description: 设置 → 版本信息里的「启动器版本」整行内容
+      placeholder: 例如 1.0.0 | abcdefg | 2026-11-14 10:00
+    validations:
+      required: true
+  - type: input
+    id: game
+    attributes:
+      label: 游戏版本 / 模组加载器版本
+      placeholder: 例如 DoL 0.5.12.13 · ModLoader 2.101.1
+  - type: dropdown
+    id: area
+    attributes:
+      label: 出问题的区域
+      options:
+        - 版本管理 / 启动游戏
+        - 下载中心 / 模组市场
+        - 备份 / 诊断
+        - 设置 / 主题 / 美化包
+        - 日志与悬浮球
+        - 其它
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 越具体越好，能稳定复现的步骤最有帮助
+      placeholder: |
+        1. 打开启动器并选择版本 …
+        2. 点击 …
+        3. 出现 …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+      description: 有报错文本或截图时请一并粘贴
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 诊断包 / 日志
+      description: 诊断页「导出诊断包」生成的文件可拖到这里；也可以粘贴 logs 目录里的关键日志
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 我已搜索过现有 Issue，确认这不是重复问题
+          required: true
