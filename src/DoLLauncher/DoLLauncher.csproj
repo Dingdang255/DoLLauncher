@@ -10,7 +10,7 @@
     <AssemblyName>DoLLauncher</AssemblyName>
     <RootNamespace>DoLLauncher</RootNamespace>
     <Product>DoL 版本启动器</Product>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <!-- 版本信息由构建注入为 tag|commit|时间，不再由 SDK 追加 +提交哈希 -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
