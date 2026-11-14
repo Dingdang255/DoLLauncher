@@ -39,15 +39,22 @@ public sealed class PaneSplitter : Thumb
 
     private Border? _bar;
     private double _lastPrimary = double.NaN;
+    private double _lastRatio = double.NaN;
 
     public PaneSplitter()
     {
         Focusable = false;
         DragDelta += OnDragDelta;
         DragCompleted += OnDragCompleted;
-        Loaded += (_, _) => ApplySavedOrDefault();
+        Loaded += (_, _) => ApplyMode();
         UpdateShape();
     }
+
+    /// <summary>
+    /// 自动调整布局开关。设置项已按要求移除，这里固定关闭；
+    /// 比例模式的实现（ApplyRatio / DragWithRatio）保留，方便以后重新开放。
+    /// </summary>
+    private static bool AutoLayoutEnabled => false;
 
     public SplitAxis Axis
     {
@@ -132,7 +139,63 @@ public sealed class PaneSplitter : Thumb
         return true;
     }
 
+    private void ApplyMode()
+    {
+        if (AutoLayoutEnabled) ApplyRatio();
+        else ApplySavedOrDefault();
+    }
+
     private void ApplySavedOrDefault() => ApplySize(LayoutStore.Get(SettingKey) ?? DefaultSize);
+
+    /// <summary>自动布局：两侧都改为按比例分配，窗口缩放时保持设计比例。</summary>
+    private void ApplyRatio()
+    {
+        if (!Resolve(out var grid, out var prevColumn, out var nextColumn, out var prevRow, out var nextRow))
+            return;
+
+        if (Axis == SplitAxis.Columns)
+        {
+            if (prevColumn!.Width.IsAuto || nextColumn!.Width.IsAuto) return;
+            var available = Available(grid.ActualWidth, grid, Grid.GetColumn(this), SplitAxis.Columns);
+            if (double.IsNaN(available) || available <= 0) return;
+            var ratio = LayoutStore.GetRatio(SettingKey) ??
+                        DesignRatio(prevColumn.ActualWidth, nextColumn.ActualWidth);
+            if (double.IsNaN(ratio)) ratio = DesignRatio(DefaultSize, available - DefaultSize);
+            ApplyColumnRatio(prevColumn, nextColumn, ratio);
+            return;
+        }
+
+        if (prevRow!.Height.IsAuto || nextRow!.Height.IsAuto) return;
+        var availableRows = Available(grid.ActualHeight, grid, Grid.GetRow(this), SplitAxis.Rows);
+        if (double.IsNaN(availableRows) || availableRows <= 0) return;
+        var rowRatio = LayoutStore.GetRatio(SettingKey) ??
+                       DesignRatio(prevRow.ActualHeight, nextRow.ActualHeight);
+        if (double.IsNaN(rowRatio)) rowRatio = DesignRatio(DefaultSize, availableRows - DefaultSize);
+        ApplyRowRatio(prevRow, nextRow, rowRatio);
+    }
+
+    private static double DesignRatio(double previous, double next)
+    {
+        var total = previous + next;
+        if (total <= 0) return double.NaN;
+        return Math.Clamp(previous / total, 0.05, 0.95);
+    }
+
+    private static void ApplyColumnRatio(ColumnDefinition prev, ColumnDefinition next, double ratio)
+    {
+        if (double.IsNaN(ratio)) return;
+        ratio = Math.Clamp(ratio, 0.05, 0.95);
+        prev.Width = new GridLength(ratio, GridUnitType.Star);
+        next.Width = new GridLength(1 - ratio, GridUnitType.Star);
+    }
+
+    private static void ApplyRowRatio(RowDefinition prev, RowDefinition next, double ratio)
+    {
+        if (double.IsNaN(ratio)) return;
+        ratio = Math.Clamp(ratio, 0.05, 0.95);
+        prev.Height = new GridLength(ratio, GridUnitType.Star);
+        next.Height = new GridLength(1 - ratio, GridUnitType.Star);
+    }
 
     private void ApplySize(double size)
     {
@@ -185,6 +248,12 @@ public sealed class PaneSplitter : Thumb
     {
         if (!Resolve(out var grid, out var prevColumn, out var nextColumn, out var prevRow, out var nextRow))
             return;
+
+        if (AutoLayoutEnabled)
+        {
+            DragWithRatio(e);
+            return;
+        }
 
         if (Axis == SplitAxis.Columns)
         {
@@ -267,13 +336,57 @@ public sealed class PaneSplitter : Thumb
         }
     }
 
+    /// <summary>自动布局下拖动：把像素位移换算成比例并让两侧都按比例分配。</summary>
+    private void DragWithRatio(DragDeltaEventArgs e)
+    {
+        if (!Resolve(out var grid, out var prevColumn, out var nextColumn, out var prevRow, out var nextRow))
+            return;
+
+        if (Axis == SplitAxis.Columns)
+        {
+            if (prevColumn!.Width.IsAuto || nextColumn!.Width.IsAuto) return;
+            var available = Available(grid.ActualWidth, grid, Grid.GetColumn(this), SplitAxis.Columns);
+            if (double.IsNaN(available) || available <= 0) return;
+            var previous = prevColumn.ActualWidth;
+            var next = nextColumn.ActualWidth;
+            var primaryPrevious = PrimaryIsPrevious(prevColumn.Width.IsStar, nextColumn.Width.IsStar);
+            var primary = primaryPrevious
+                ? Math.Max(MinPrevious, Math.Min(previous + e.HorizontalChange, available - MinNext))
+                : Math.Max(MinNext, Math.Min(next - e.HorizontalChange, available - MinPrevious));
+            var ratio = primaryPrevious ? primary / available : 1 - primary / available;
+            ratio = Math.Clamp(ratio, 0.05, 0.95);
+            ApplyColumnRatio(prevColumn, nextColumn, ratio);
+            _lastRatio = ratio;
+            return;
+        }
+
+        if (prevRow!.Height.IsAuto || nextRow!.Height.IsAuto) return;
+        var availableRows = Available(grid.ActualHeight, grid, Grid.GetRow(this), SplitAxis.Rows);
+        if (double.IsNaN(availableRows) || availableRows <= 0) return;
+        var top = prevRow.ActualHeight;
+        var bottom = nextRow.ActualHeight;
+        var topPrimary = PrimaryIsPrevious(prevRow.Height.IsStar, nextRow.Height.IsStar);
+        var newTop = topPrimary
+            ? Math.Max(MinPrevious, Math.Min(top + e.VerticalChange, availableRows - MinNext))
+            : Math.Max(MinNext, Math.Min(bottom - e.VerticalChange, availableRows - MinPrevious));
+        var rowRatio = topPrimary ? newTop / availableRows : 1 - newTop / availableRows;
+        rowRatio = Math.Clamp(rowRatio, 0.05, 0.95);
+        ApplyRowRatio(prevRow, nextRow, rowRatio);
+        _lastRatio = rowRatio;
+    }
+
     private void OnDragCompleted(object sender, DragCompletedEventArgs e)
     {
-        if (!double.IsNaN(_lastPrimary) && _lastPrimary > 0)
+        if (!double.IsNaN(_lastRatio) && _lastRatio > 0)
+        {
+            LayoutStore.SetRatio(SettingKey, _lastRatio);
+        }
+        else if (!double.IsNaN(_lastPrimary) && _lastPrimary > 0)
         {
             LayoutStore.Set(SettingKey, _lastPrimary);
         }
         _lastPrimary = double.NaN;
+        _lastRatio = double.NaN;
     }
 
     /// <summary>恢复所有分栏的默认尺寸，并清掉配置里记住的值。</summary>
@@ -282,8 +395,15 @@ public sealed class PaneSplitter : Thumb
         LayoutStore.Clear();
         foreach (var splitter in Enumerate(root))
         {
-            splitter.ApplySize(splitter.DefaultSize);
+            if (AutoLayoutEnabled) splitter.ApplyRatio();
+            else splitter.ApplySize(splitter.DefaultSize);
         }
+    }
+
+    /// <summary>设置里切换「自动调整布局」后立即重排所有分栏。</summary>
+    public static void ApplyLayoutMode(DependencyObject root)
+    {
+        foreach (var splitter in Enumerate(root)) splitter.ApplyMode();
     }
 
     private static IEnumerable<PaneSplitter> Enumerate(DependencyObject root)

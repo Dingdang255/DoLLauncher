@@ -21,6 +21,9 @@
   <ItemGroup>
     <Resource Include="Assets\dol.ico" />
     <Resource Include="Assets\dol-favicon.png" />
+    <Resource Include="Assets\credits\*.png" />
+    <!-- 致谢名单以源码根目录的 credits.json 为准，构建时嵌入 exe -->
+    <EmbeddedResource Include="credits.json" LogicalName="DoLLauncher.credits.json" />
   </ItemGroup>
 
 </Project>

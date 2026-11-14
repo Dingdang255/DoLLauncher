@@ -4,6 +4,7 @@
         Title="安装前检查"
         Icon="pack://application:,,,/Assets/dol.ico"
         Height="560" Width="660" MinHeight="380" MinWidth="560"
+        ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
         Background="{DynamicResource BgBrush}"

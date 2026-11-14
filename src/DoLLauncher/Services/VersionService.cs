@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
+using DoLLauncher.Core.Versions;
 using DoLLauncher.Models;
 
 namespace DoLLauncher.Services;

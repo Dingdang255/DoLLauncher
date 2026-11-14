@@ -24,19 +24,4 @@ public static class LogService
             // 日志写失败不影响主流程
         }
     }
-
-    public static string ReadTail(int lines = 400)
-    {
-        if (!File.Exists(FilePath)) return "（还没有启动器日志）";
-        try
-        {
-            var all = File.ReadAllLines(FilePath, Encoding.UTF8);
-            var start = Math.Max(0, all.Length - lines);
-            return string.Join(Environment.NewLine, all[start..]);
-        }
-        catch (Exception ex)
-        {
-            return "读取日志失败：" + ex.Message;
-        }
-    }
 }

@@ -19,9 +19,12 @@ $publish = Join-Path $root '_publish'
 $runtime = Join-Path (Split-Path $root -Parent) 'DoLLauncher'
 
 # 版本信息：tag|commit|构建时间，程序通过程序集 InformationalVersion 读取
-$tag = (git -C $root describe --tags --exact-match 2>$null | Out-String).Trim()
+# 没有 tag 时 git 会往 stderr 写 fatal，Stop 模式下会被当成致命错误中断脚本，这里逐个兜住
+$tag = ''
+try { $tag = ((& git -C $root describe --tags --exact-match 2>$null) | Out-String).Trim() } catch { }
 if ($tag -eq '') { $tag = 'dev' }
-$commit = (git -C $root rev-parse --short HEAD 2>$null | Out-String).Trim()
+$commit = ''
+try { $commit = ((& git -C $root rev-parse --short HEAD 2>$null) | Out-String).Trim() } catch { }
 if ($commit -eq '') { $commit = 'local' }
 $buildTime = (Get-Date).ToString('yyyy-MM-dd HH:mm')
 $infoVersion = "$tag|$commit|$buildTime"

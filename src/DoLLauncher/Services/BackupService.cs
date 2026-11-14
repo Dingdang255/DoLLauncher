@@ -2,6 +2,7 @@ using System.IO;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using DoLLauncher.Core.Data;
 using DoLLauncher.Models;
 
 namespace DoLLauncher.Services;
@@ -235,6 +236,36 @@ public static class BackupService
         File.Delete(path);
         return true;
     }
+
+    /// <summary>当前版本的磁盘镜像摘要，供备份页提示。</summary>
+    public static string DescribeMirror(string folder) =>
+        IdbMirrorStore.Describe(VersionDirOf(folder));
+
+    /// <summary>
+    /// 静默备份存档：不打开浏览器，直接把上次页面写回的磁盘镜像另存到 backups\版本\saves。
+    /// 返回 null 时 <paramref name="reason"/> 说明原因。
+    /// </summary>
+    public static string? BackupSavesFromMirror(string folder, out string reason)
+    {
+        var text = IdbMirrorStore.ReadMirrorText(VersionDirOf(folder));
+        if (text == null)
+        {
+            reason = "这个版本还没有磁盘镜像：先启动一次游戏，等页面把存档同步到磁盘后再试。";
+            return null;
+        }
+        var path = SaveBrowserBackup(folder, "saves-" + Stamp() + ".json", text, auto: false);
+        reason = string.Empty;
+        return path;
+    }
+
+    /// <summary>静默还原存档：把备份排队为「下次打开游戏页时导入」，不打开浏览器。</summary>
+    public static void QueueSavesRestore(string folder, string jsonPath)
+    {
+        var text = File.ReadAllText(jsonPath, Encoding.UTF8);
+        IdbMirrorStore.QueueImport(VersionDirOf(folder), text);
+    }
+
+    private static string VersionDirOf(string folder) => Path.Combine(Paths.VersionsDir, folder);
 
     /// <summary>把备份列表写成存档助手页可读的 JSON。</summary>
     public static string ListJson(string folder)

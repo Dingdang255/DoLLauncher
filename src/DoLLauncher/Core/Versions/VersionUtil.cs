@@ -1,4 +1,4 @@
-namespace DoLLauncher.Services;
+namespace DoLLauncher.Core.Versions;
 
 /// <summary>版本号比较与依赖约束判断（只覆盖 DoL 模组常见的几种写法）。</summary>
 public static class VersionUtil

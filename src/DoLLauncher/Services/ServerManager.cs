@@ -1,12 +1,17 @@
+using System.Collections.Concurrent;
 using System.IO;
 using DoLLauncher.Models;
 
 namespace DoLLauncher.Services;
 
+/// <summary>某个版本的页面状态：还有哪些页面开着、最后心跳与主动关闭时间。</summary>
+public sealed record ServerPageState(DateTime? LastHeartbeatUtc, bool HasPages, DateTime? PageClosedUtc);
+
 /// <summary>正在运行的本地服务器集合。</summary>
 public static class ServerManager
 {
-    private static readonly Dictionary<string, StaticServer> Running = new();
+    // 心跳由服务器线程写入、界面定时器读取，使用并发字典避免跨线程读写冲突
+    private static readonly ConcurrentDictionary<string, StaticServer> Running = new(StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<string> HelperSessions = new(StringComparer.OrdinalIgnoreCase);
 
     public static bool IsRunning(string folder) =>
@@ -16,7 +21,17 @@ public static class ServerManager
     public static bool IsHelperOnly(string folder) =>
         Running.ContainsKey(folder) && HelperSessions.Contains(folder);
 
-    public static IReadOnlyCollection<string> RunningFolders => Running.Keys;
+    public static IReadOnlyCollection<string> RunningFolders => Running.Keys.ToList();
+
+    /// <summary>
+    /// 该版本服务器的页面状态：未运行返回 null；
+    /// <see cref="ServerPageState.HasPages"/> 表示还有游戏页 / 存档助手页开着。
+    /// </summary>
+    public static ServerPageState? GetPageState(string folder)
+    {
+        if (!Running.TryGetValue(folder, out var server) || !server.IsListening) return null;
+        return new ServerPageState(server.LastHeartbeatUtc, server.HasPages, server.PageClosedUtc);
+    }
 
     public static StaticServer EnsureStarted(VersionInfo version) => EnsureStarted(version, false);
 
@@ -64,7 +79,7 @@ public static class ServerManager
         if (Running.TryGetValue(folder, out var server))
         {
             server.Stop();
-            Running.Remove(folder);
+            Running.TryRemove(folder, out _);
         }
     }
 
@@ -84,14 +99,6 @@ public static class ServerManager
             if (AppConfig.IsPortFree(port)) return port;
         }
         throw new InvalidOperationException("找不到可用端口。");
-    }
-
-    public static void OpenInBrowser(string url)
-    {
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url)
-        {
-            UseShellExecute = true,
-        });
     }
 
     public static void OpenFolder(string path)

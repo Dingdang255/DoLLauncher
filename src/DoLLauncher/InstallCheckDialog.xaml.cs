@@ -14,6 +14,7 @@ public partial class InstallCheckDialog : Window
         InitializeComponent();
         _check = check;
         ThemeService.Attach(this);
+        AppDialog.AttachDialogChrome(this, Width);
         UiAnimations.AttachWindow(this);
 
         TitleText.Text = $"安装「{mod.Name}」";

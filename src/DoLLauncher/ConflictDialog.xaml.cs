@@ -61,6 +61,7 @@ public partial class ConflictDialog : Window
         foreach (var issue in duplicates) _duplicates.Add(issue);
 
         ThemeService.Attach(this);
+        AppDialog.AttachDialogChrome(this, Width);
         UiAnimations.AttachWindow(this);
         RefreshUi();
     }
@@ -114,6 +115,8 @@ public partial class ConflictDialog : Window
         HintText.Visibility = clean ? Visibility.Collapsed : Visibility.Visible;
         IgnoreAllBtn.Visibility = _active.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         LaunchBtn.Visibility = _launchMode ? Visibility.Visible : Visibility.Collapsed;
+        // 问题全部修完后按钮回到正常文案，不再显示「仍然启动」
+        LaunchBtn.Content = clean ? "启动游戏" : "仍然启动（忽略并启动）";
         CloseBtn.Content = _launchMode ? "取消" : "关闭";
     }
 
@@ -122,12 +125,12 @@ public partial class ConflictDialog : Window
     {
         if (TotalProblems == 0)
         {
-            IntroText.Text = "已经检查当前版本所有已启用模组：没有发现冲突、重复、版本差异过大或缺少前置。模组有变动时会自动重新检查。";
+            IntroText.Text = "已经检查当前版本所有已启用模组：没有发现冲突、重复、版本差异过大、运行日志补丁失败或缺少前置。模组有变动时会自动重新检查。";
             return;
         }
 
         IntroText.Text = ProblemTabs.SelectedItem == VersionTab
-            ? "按模组声明的目标游戏版本与当前版本的第三段（z）比较：相差等于设置里的阈值只作橙色提醒，超过阈值则按红色警告；只检查已启用的模组。"
+            ? "按模组声明的目标游戏版本与当前版本的第三段（z）比较：相差等于设置里的阈值只作橙色提醒，超过阈值则按红色警告；同时扫描最近几份游戏日志，把补丁匹配失败、界面区域不存在这类运行期不兼容也列在这一页；只检查已启用的模组。"
             : ProblemTabs.SelectedItem == DependencyTab
                 ? "缺少前置来自 boot.json 的 dependencies：完全未安装、已安装但被停用、版本不满足都按红色问题列出，可在下方启用前置或去下载中心补装。"
                 : ProblemTabs.SelectedItem == DuplicateTab

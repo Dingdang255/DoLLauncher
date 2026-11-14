@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -51,19 +52,8 @@ public static class AppDialog
         {
             if (e.Key == Key.Escape) win.DialogResult = false;
         };
-        win.Loaded += (_, _) =>
-        {
-            SnapWindowSize(win, 470);
-            ThemeService.Refresh(win);
-            CenterOnOwner(win);
-        };
-        // SizeToContent 调整完尺寸后 DWM 可能会重置边框设置，最终尺寸稳定后再刷一次
-        win.ContentRendered += (_, _) =>
-        {
-            SnapWindowSize(win, 470);
-            ThemeService.Refresh(win);
-            CenterOnOwner(win);
-        };
+        // SizeToContent 调整完尺寸后 DWM 可能会重置边框设置，尺寸稳定后再刷一次
+        AttachDialogChrome(win, 470);
         if (owner != null) win.Owner = owner;
         ThemeService.Attach(win);
         UiAnimations.AttachWindow(win);
@@ -163,6 +153,7 @@ public static class AppDialog
     /// <summary>
     /// 把窗口宽高对齐到整数物理像素：125% 缩放下 470 DIP 是 587.5px，
     /// 最后的半像素由窗口黑底填充，看起来就是边缘的一条深色线。
+    /// 已对齐的值再次传入时保持原样，避免 Loaded / ContentRendered 重复调用时逐次放大。
     /// </summary>
     public static void SnapWindowSize(Window window, double widthDip)
     {
@@ -170,13 +161,66 @@ public static class AppDialog
         var sx = dpi.DpiScaleX;
         var sy = dpi.DpiScaleY;
         if (sx <= 0 || sy <= 0) return;
-        window.Width = Math.Ceiling(widthDip * sx) / sx;
+
+        var width = SnapDip(widthDip > 0 ? widthDip : window.Width, sx);
+        if (width > 0 && !SameLength(window.Width, width))
+        {
+            window.Width = width;
+            // 宽度变化会改变文本换行，先完成布局再量高度，否则量到的是旧宽度下的高度
+            if (window.IsLoaded) window.UpdateLayout();
+        }
+
         if (window.SizeToContent != SizeToContent.Manual)
         {
-            var height = Math.Ceiling(window.ActualHeight * sy) / sy;
+            // 自适应高度的窗口：用测量出来的实际高度对齐，再转为固定高度
+            var height = SnapDip(window.ActualHeight, sy);
+            if (height <= 0) return; // 还没完成测量时先放弃，等 ContentRendered 再来一次
             window.SizeToContent = SizeToContent.Manual;
-            window.Height = height;
+            if (!SameLength(window.Height, height)) window.Height = height;
+            return;
         }
+
+        // 固定尺寸窗口的 Height 同样是 DIP，不齐时也会出现半像素黑线
+        if (!double.IsNaN(window.Height) && window.Height > 0)
+        {
+            var height = SnapDip(window.Height, sy);
+            if (!SameLength(window.Height, height)) window.Height = height;
+        }
+    }
+
+    /// <summary>向上对齐到整数物理像素；减去容差抵消 DIP→px 的浮点误差，保证重复调用幂等。</summary>
+    private static double SnapDip(double dip, double scale)
+    {
+        if (dip <= 0 || scale <= 0) return dip;
+        return Math.Ceiling(dip * scale - 1e-6) / scale;
+    }
+
+    private static bool SameLength(double a, double b) => Math.Abs(a - b) < 1e-6;
+
+    /// <summary>
+    /// 自绘弹窗的统一外观处理：尺寸按 DPI 对齐物理像素、刷新 DWM 标题栏/边框、再按窗口矩形重新居中。
+    /// 尺寸稳定前后各调一次即可。
+    /// </summary>
+    public static void ApplyDialogChrome(Window window, double widthDip)
+    {
+        SnapWindowSize(window, widthDip);
+        ThemeService.Refresh(window);
+        CenterOnOwner(window);
+    }
+
+    private static readonly ConditionalWeakTable<Window, object> ChromeAttached = new();
+
+    /// <summary>
+    /// 给弹窗接上「Loaded / ContentRendered 尺寸稳定后对齐」与「DpiChanged 重新对齐」，
+    /// 重复调用只挂一次，避免同一窗口多次抖动。
+    /// </summary>
+    public static void AttachDialogChrome(Window window, double widthDip)
+    {
+        if (ChromeAttached.TryGetValue(window, out _)) return;
+        ChromeAttached.Add(window, new object());
+        window.Loaded += (_, _) => ApplyDialogChrome(window, widthDip);
+        window.ContentRendered += (_, _) => ApplyDialogChrome(window, widthDip);
+        window.DpiChanged += (_, _) => ApplyDialogChrome(window, widthDip);
     }
 
     /// <summary>

@@ -243,7 +243,10 @@ public sealed class ModMissingDependency
     public string EnableText => $"启用前置「{DependencyName}」";
 }
 
-/// <summary>模组声明的目标游戏版本与当前版本的第三段（z）差异过大。</summary>
+/// <summary>
+/// 模组与当前游戏版本不匹配：一种来自 boot.json 声明的目标版本差异，
+/// 另一种是运行日志里实际出现的补丁失败（Runtime = true）。
+/// </summary>
 public sealed class ModVersionMismatch
 {
     public string ModFile { get; set; } = "";
@@ -253,12 +256,27 @@ public sealed class ModVersionMismatch
     public int Gap { get; set; }
     public ProblemSeverity Severity { get; set; } = ProblemSeverity.Orange;
 
-    public string Title =>
-        $"「{ModName}」目标游戏版本 {TargetGameVersion}，当前 {CurrentGameVersion}（相差 {Gap}）";
+    /// <summary>是否由游戏运行日志推断出来（而不是 boot.json 声明）。</summary>
+    public bool Runtime { get; set; }
 
-    public string Detail => Severity == ProblemSeverity.Red
-        ? "版本差距较大，脚本或资源接口可能已经变化，游戏很可能无法正常运行。"
-        : "版本存在差异，部分脚本或资源可能无法正常生效，建议留意运行情况。";
+    /// <summary>运行日志问题的简短原因，用于模组列表行提示。</summary>
+    public string RuntimeReason { get; set; } = "";
+
+    public string RuntimeTitle { get; set; } = "";
+    public string RuntimeDetail { get; set; } = "";
+
+    public string Title => Runtime && RuntimeTitle.Length > 0
+        ? RuntimeTitle
+        : $"「{ModName}」目标游戏版本 {TargetGameVersion}，当前 {CurrentGameVersion}（相差 {Gap}）";
+
+    public string Detail => Runtime && RuntimeDetail.Length > 0
+        ? RuntimeDetail
+        : Severity == ProblemSeverity.Red
+            ? "版本差距较大，脚本或资源接口可能已经变化，游戏很可能无法正常运行。"
+            : "版本存在差异，部分脚本或资源可能无法正常生效，建议留意运行情况。";
+
+    /// <summary>日志里只认出名字、本地找不到对应模组时没有可停用的对象。</summary>
+    public bool CanDisable => ModFile.Length > 0;
 
     public string DisableText => $"停用「{ModName}」";
 }

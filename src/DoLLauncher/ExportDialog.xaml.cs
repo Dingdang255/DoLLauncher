@@ -10,6 +10,7 @@ public partial class ExportDialog : Window
     {
         InitializeComponent();
         ThemeService.Attach(this);
+        AppDialog.AttachDialogChrome(this, Width);
         UiAnimations.AttachWindow(this);
         InfoText.Text = $"{version.DisplayName}（{version.Folder}）· 游戏版本 {version.GameVersion ?? "未知"}";
     }

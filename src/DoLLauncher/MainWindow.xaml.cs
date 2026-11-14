@@ -1,16 +1,25 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using Shapes = System.Windows.Shapes;
 using DoLLauncher.Controls;
+using DoLLauncher.Core.Browser;
+using DoLLauncher.Core.Search;
+using DoLLauncher.Core.Theme;
+using DoLLauncher.Core.Versions;
 using DoLLauncher.Models;
+using DoLLauncher.Platform;
 using DoLLauncher.Services;
 using Microsoft.Win32;
+using SubtitleTextHelper = DoLLauncher.Core.Ui.SubtitleText;
 
 namespace DoLLauncher;
 
@@ -36,6 +45,10 @@ public partial class MainWindow : Window
     private bool _loadingGeneralSettings;
     private bool _loadingLegacyTarget;
     private bool _marketLoading;
+    private bool _loadingMarketPrefs = true;
+    private bool _starRefreshRunning;
+    private DateTime _starRetryAfter = DateTime.MinValue;
+    private string _projectUrl = "";
     private bool _gameLoading;
     private MarketCatalog? _marketCatalog;
     private List<ModConflict> _conflicts = new();
@@ -63,7 +76,18 @@ public partial class MainWindow : Window
         _loadingBackupSettings = false;
         ThemeService.Attach(this);
         UiAnimations.AttachWindow(this);
-        Closed += (_, _) => StopModsWatcher();
+        BrowserSessionMonitor.Instance.SessionLost += OnBrowserSessionLost;
+        GameLogService.FatalDetected += OnGameFatal;
+        ModService.InternalWriteStarted += MarkInternalModsChange;
+        // 不再订阅浏览器进程退出：共用 Profile 时新命令会转发给已有实例并立刻退出，
+        // 进程退出并不代表页面关闭，关页统一以页面心跳为准。
+        Closed += (_, _) =>
+        {
+            StopModsWatcher();
+            BrowserSessionMonitor.Instance.SessionLost -= OnBrowserSessionLost;
+            GameLogService.FatalDetected -= OnGameFatal;
+            ModService.InternalWriteStarted -= MarkInternalModsChange;
+        };
         VersionList.ItemsSource = _versions;
         ModList.ItemsSource = _mods;
         GameReleaseList.ItemsSource = _gameReleases;
@@ -72,17 +96,21 @@ public partial class MainWindow : Window
         MarketCategoryBox.ItemsSource = _categories;
         MarketVersionBox.ItemsSource = _marketReleases;
         BackupTargetBox.ItemsSource = _targets;
+        DiagTargetBox.ItemsSource = _targets;
         LegacyTargetBox.ItemsSource = _targets;
         BackupList.ItemsSource = _backupEntries;
         // 选中项左侧的小三角：随选中项滑动，滚动/尺寸变化时跟随，不做动画
         VersionList.AddHandler(ScrollViewer.ScrollChangedEvent,
             new ScrollChangedEventHandler((_, _) => UpdateVersionIndicator(false)));
         VersionList.SizeChanged += (_, _) => UpdateVersionIndicator(false);
+        ApplySubtitle(AppConfig.Load().General.Subtitle);
         Loaded += (_, _) =>
         {
             ReloadVersions();
             LoadBackupSettings();
             LoadGeneralSettings();
+            LoadMarketSearchPrefs();
+            LoadCredits();
             NavigateSettings();
             // 启动时按设置里的时序在后台预取索引，不阻塞界面
             _ = PrefetchIndexesAsync();
@@ -116,6 +144,7 @@ public partial class MainWindow : Window
             RefreshDetail();
             SyncMarketTarget();
             SyncBackupTarget();
+            SyncDiagTarget();
         }
         catch (Exception ex)
         {
@@ -327,6 +356,17 @@ public partial class MainWindow : Window
     /// <summary>给列表补上重复 / 缺少前置之类的提示。</summary>
     private void ApplyModIssues()
     {
+        var infos = _mods.Select(m => m.Info).ToList();
+        var threshold = ProblemService.NormalizeThreshold(AppConfig.Load().General.VersionGapThreshold);
+        // 运行日志里实际出现的补丁失败，按当前启用模组过滤后并入版本不匹配列表
+        var runtime = _selected == null
+            ? new List<ModVersionMismatch>()
+            : RuntimeIssueScanner.Scan(_selected.Info.FullPath, infos, _selected.Info.GameVersion);
+        var runtimeByFile = runtime
+            .Where(r => r.ModFile.Length > 0)
+            .GroupBy(r => r.ModFile, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
         var byName = _mods
             .Where(m => m.Info.Name.Length > 0)
             .GroupBy(m => DownloadService.NormalizeName(m.Info.Name), StringComparer.OrdinalIgnoreCase)
@@ -368,13 +408,25 @@ public partial class MainWindow : Window
                 }
             }
 
+            if (runtimeByFile.TryGetValue(vm.Info.FileName, out var runtimeIssue))
+                issues.Add($"运行日志显示{runtimeIssue.RuntimeReason}");
+
             vm.IssueText = string.Join("；", issues);
         }
 
-        var infos = _mods.Select(m => m.Info).ToList();
-        var threshold = ProblemService.NormalizeThreshold(AppConfig.Load().General.VersionGapThreshold);
         _missingDeps = ProblemService.MissingDependencies(infos);
         _versionMismatches = ProblemService.VersionMismatches(infos, _selected?.Info.GameVersion, threshold);
+        foreach (var issue in runtime)
+        {
+            // boot.json 已经报过的模组不再重复列一条
+            var duplicate = issue.ModFile.Length > 0
+                ? _versionMismatches.Any(m => string.Equals(m.ModFile, issue.ModFile,
+                    StringComparison.OrdinalIgnoreCase))
+                : _versionMismatches.Any(m => m.ModFile.Length == 0 &&
+                    string.Equals(m.ModName, issue.ModName, StringComparison.OrdinalIgnoreCase));
+            if (duplicate) continue;
+            _versionMismatches.Add(issue);
+        }
         _duplicates = ProblemService.Duplicates(infos);
         UpdateProblemButton();
     }
@@ -670,7 +722,12 @@ public partial class MainWindow : Window
 
             try
             {
-                ServerManager.OpenInBrowser(new Uri(version.HtmlPath).AbsoluteUri);
+                var opened = BrowserService.OpenGame(version, new Uri(version.HtmlPath).AbsoluteUri);
+                if (!opened.Opened)
+                {
+                    AppDialog.Warn("没有可用的浏览器，无法打开页面。");
+                    return;
+                }
                 Log("已用 file:// 打开：" + version.HtmlPath);
             }
             catch (Exception ex)
@@ -694,7 +751,7 @@ public partial class MainWindow : Window
 
             ModService.Apply(version.FullPath);
             var server = ServerManager.EnsureStarted(version);
-            ServerManager.OpenInBrowser(server.GameUrl);
+            BrowserService.OpenGame(version, server.GameUrl);
 
             Log($"已启动 {version.DisplayName}：{server.GameUrl}");
             LoadMods(version);
@@ -703,7 +760,8 @@ public partial class MainWindow : Window
             var cfg = AppConfig.Load();
             if (cfg.Backup.Enabled)
             {
-                Task.Run(() =>
+                // 自动备份是刻意不阻塞启动的 fire-and-forget，用弃元显式忽略返回值
+                _ = Task.Run(() =>
                 {
                     try
                     {
@@ -718,7 +776,7 @@ public partial class MainWindow : Window
             }
             if (cfg.Backup.SaveAuto)
             {
-                ServerManager.OpenInBrowser(server.SaveHelperUrl + "?auto=1");
+                BrowserService.OpenHelper(version, server.SaveHelperUrl + "?auto=1");
                 Log("已打开自动存档备份页（完成后可关闭该页面）。");
             }
         }
@@ -733,6 +791,7 @@ public partial class MainWindow : Window
     {
         var vm = VersionList.SelectedItem as VersionVm;
         if (vm == null || vm.Info.IsFileMode) return;
+        BrowserService.Close(vm.Info.Folder);
         ServerManager.Stop(vm.Info.Folder);
         Log("已停止：" + vm.Info.DisplayName);
         RefreshListStates();
@@ -1048,12 +1107,15 @@ public partial class MainWindow : Window
             Title = "模组详情",
             Width = 760,
             Height = 640,
+            ResizeMode = ResizeMode.NoResize,
+            ShowInTaskbar = false,
             Owner = this,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Background = TryFindResource("BgBrush") as System.Windows.Media.Brush ?? System.Windows.Media.Brushes.White,
             Foreground = TryFindResource("TextBrush") as System.Windows.Media.Brush ?? System.Windows.Media.Brushes.Black,
         };
         ThemeService.Attach(win);
+        AppDialog.AttachDialogChrome(win, 760);
         UiAnimations.AttachWindow(win);
 
         var root = new DockPanel { Margin = new Thickness(18) };
@@ -1157,12 +1219,15 @@ public partial class MainWindow : Window
             Title = "模组详情",
             Width = 820,
             Height = 680,
+            ResizeMode = ResizeMode.NoResize,
+            ShowInTaskbar = false,
             Owner = this,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Background = TryFindResource("BgBrush") as System.Windows.Media.Brush ?? System.Windows.Media.Brushes.White,
             Foreground = TryFindResource("TextBrush") as System.Windows.Media.Brush ?? System.Windows.Media.Brushes.Black,
         };
         ThemeService.Attach(win);
+        AppDialog.AttachDialogChrome(win, 820);
         UiAnimations.AttachWindow(win);
 
         var root = new DockPanel { Margin = new Thickness(18) };
@@ -1416,9 +1481,13 @@ public partial class MainWindow : Window
             Width = 440,
             SizeToContent = SizeToContent.Height,
             ResizeMode = ResizeMode.NoResize,
+            ShowInTaskbar = false,
             Owner = this,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
         };
+        ThemeService.Attach(win);
+        // 自适应高度的小窗口要在尺寸稳定后再对齐 / 居中，否则会偏出主窗口中心
+        AppDialog.AttachDialogChrome(win, 440);
 
         var panel = new StackPanel { Margin = new Thickness(16) };
         panel.Children.Add(new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap });
@@ -1440,8 +1509,6 @@ public partial class MainWindow : Window
         ok.Click += (_, _) => { result = box.Text.Trim(); win.Close(); };
         cancel.Click += (_, _) => win.Close();
         win.Content = panel;
-        // 自适应高度的小窗口要在尺寸稳定后再居中，否则会偏出主窗口中心
-        win.Loaded += (_, _) => AppDialog.CenterOnOwner(win);
         box.Focus();
         box.SelectAll();
         win.ShowDialog();
@@ -1458,7 +1525,7 @@ public partial class MainWindow : Window
         {
             var server = ServerManager.EnsureStarted(version, saveHelperOnly: true);
             RefreshListStates();
-            ServerManager.OpenInBrowser(server.SaveHelperUrl);
+            BrowserService.OpenHelper(version, server.SaveHelperUrl);
             Log("已打开存档助手：" + server.SaveHelperUrl);
         }
         catch (Exception ex)
@@ -1667,12 +1734,15 @@ public partial class MainWindow : Window
 
         if (!AppDialog.Confirm(
                 $"确定删除版本「{version.DisplayName}」吗？\n\n目录：{version.FullPath}\n\n" +
-                "该目录下的游戏本体和全部模组都会被永久删除（浏览器里的存档不受影响）。",
+                "该目录下的游戏本体和全部模组都会被永久删除；\n" +
+                "该版本在浏览器里的缓存与存档数据也会被静默清理，不会弹出浏览器窗口。",
                 "删除版本", "删除", danger: true)) return;
 
         try
         {
+            BrowserService.Close(version.Folder);
             ServerManager.Stop(version.Folder);
+            BrowserDataCleaner.CleanVersion(version, Log);
             Directory.Delete(version.FullPath, recursive: true);
             VersionService.RemoveEntry(version.Folder);
             Log("已删除：" + version.FullPath);
@@ -1689,21 +1759,34 @@ public partial class MainWindow : Window
 
     private void Nav_Checked(object sender, RoutedEventArgs e)
     {
-        if (VersionPage == null || DownloadPage == null || BackupPage == null || SettingsPage == null) return;
+        if (VersionPage == null || DownloadPage == null || BackupPage == null
+            || DiagnosticPage == null || SettingsPage == null) return;
         var showDownload = NavDownload.IsChecked == true;
         var showBackup = NavBackup.IsChecked == true;
+        var showDiagnostic = NavDiagnostic.IsChecked == true;
         var showSettings = NavSettings.IsChecked == true;
 
-        VersionPage.Visibility = !showDownload && !showBackup && !showSettings ? Visibility.Visible : Visibility.Collapsed;
+        VersionPage.Visibility = !showDownload && !showBackup && !showDiagnostic && !showSettings
+            ? Visibility.Visible : Visibility.Collapsed;
         DownloadPage.Visibility = showDownload ? Visibility.Visible : Visibility.Collapsed;
         BackupPage.Visibility = showBackup ? Visibility.Visible : Visibility.Collapsed;
+        DiagnosticPage.Visibility = showDiagnostic ? Visibility.Visible : Visibility.Collapsed;
         SettingsPage.Visibility = showSettings ? Visibility.Visible : Visibility.Collapsed;
 
-        var shown = showSettings ? SettingsPage : showBackup ? BackupPage : showDownload ? DownloadPage : VersionPage;
+        var shown = showSettings ? SettingsPage
+            : showDiagnostic ? DiagnosticPage
+            : showBackup ? BackupPage
+            : showDownload ? DownloadPage : VersionPage;
         UiAnimations.ShowPage(shown);
 
         if (showDownload && !_gameLoaded) _ = RefreshGameReleasesAsync();
         if (showBackup) RefreshBackups();
+        if (showDiagnostic)
+        {
+            SyncDiagTarget();
+            LoadBackupSettings();
+            RefreshGameLogStatus();
+        }
     }
 
     private void DownloadNav_Checked(object sender, RoutedEventArgs e)
@@ -1825,24 +1908,157 @@ public partial class MainWindow : Window
     private void ApplyMarketFilter()
     {
         if (MarketCountText == null) return;
-        var keyword = MarketSearchBox.Text.Trim().ToLowerInvariant();
         var category = MarketCategoryBox.SelectedItem as string;
         var filter = MarketFilterBox.SelectedIndex;
+        var match = ParseMatchMode(TagOf(MarketMatchBox));
+        var scope = ParseSearchScope(TagOf(MarketScopeBox));
+        var sort = ParseSortMode(TagOf(MarketSortBox));
+        var descending = MarketSortDescCheck?.IsChecked == true;
 
-        _marketView.Clear();
-        foreach (var mod in _marketAll)
+        var kept = new List<MarketMod>();
+        foreach (var mod in MarketSearch.Filter(_marketAll, MarketSearchBox.Text, match, scope))
         {
             if (category != null && category != "全部分类" &&
                 !mod.Category.Equals(category, StringComparison.OrdinalIgnoreCase)) continue;
-            if (keyword.Length > 0 && !mod.SearchText.Contains(keyword)) continue;
             if (filter == 1 && mod.Installed) continue;
             if (filter == 2 && !mod.UpdateAvailable) continue;
-            _marketView.Add(mod);
+            kept.Add(mod);
         }
+
+        _marketView.Clear();
+        foreach (var mod in MarketSearch.Sort(kept, sort, descending, m => ModStarService.GetCached(m.Repo)))
+            _marketView.Add(mod);
 
         MarketCountText.Text = $"{_marketView.Count} / {_marketAll.Count} 个";
         if (_marketView.Count > 0 && MarketList.SelectedItem == null) MarketList.SelectedIndex = 0;
+
+        if (sort == MarketSortMode.Stars) RefreshStarsIfNeeded();
     }
+
+    private void LoadMarketSearchPrefs()
+    {
+        _loadingMarketPrefs = true;
+        try
+        {
+            var g = AppConfig.Load().General;
+            SelectComboTag(MarketMatchBox, g.MarketMatchMode);
+            SelectComboTag(MarketScopeBox, g.MarketSearchScope);
+            SelectComboTag(MarketSortBox, g.MarketSortMode);
+            MarketSortDescCheck.IsChecked = g.MarketSortDesc;
+        }
+        finally
+        {
+            _loadingMarketPrefs = false;
+        }
+    }
+
+    private void SaveMarketSearchPrefs()
+    {
+        try
+        {
+            var cfg = AppConfig.Load();
+            cfg.General.MarketMatchMode = TagOf(MarketMatchBox);
+            cfg.General.MarketSearchScope = TagOf(MarketScopeBox);
+            cfg.General.MarketSortMode = TagOf(MarketSortBox);
+            cfg.General.MarketSortDesc = MarketSortDescCheck.IsChecked == true;
+            AppConfig.Save(cfg);
+        }
+        catch (Exception ex)
+        {
+            Log("保存搜索设置失败：" + ex.Message);
+        }
+    }
+
+    private void MarketAdvanced_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingMarketPrefs) return;
+        SaveMarketSearchPrefs();
+        ApplyMarketFilter();
+    }
+
+    private void MarketSortDesc_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loadingMarketPrefs) return;
+        SaveMarketSearchPrefs();
+        ApplyMarketFilter();
+    }
+
+    /// <summary>按 Star 排序时后台补齐 24 小时缓存，完成后重排列表。</summary>
+    private void RefreshStarsIfNeeded()
+    {
+        if (_starRefreshRunning || _marketAll.Count == 0) return;
+        if (DateTime.UtcNow < _starRetryAfter) return;
+        var repos = _marketAll.Select(m => ModStarService.NormalizeRepo(m.Repo))
+            .Where(r => r != null).Select(r => r!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var stale = repos.Where(r => !ModStarService.IsFresh(r)).ToList();
+        if (stale.Count == 0)
+        {
+            if (MarketStarStatus != null) MarketStarStatus.Text = "Star 数据来自本地缓存（24 小时有效）";
+            return;
+        }
+
+        _starRefreshRunning = true;
+        if (MarketStarStatus != null) MarketStarStatus.Text = $"正在获取 Star（{stale.Count} 个）…";
+        _ = Task.Run(async () =>
+        {
+            var ok = 0;
+            try
+            {
+                ok = await ModStarService.RefreshAsync(stale);
+            }
+            catch (Exception ex)
+            {
+                Log("获取 Star 失败：" + ex.Message);
+            }
+
+            _ = Dispatcher.BeginInvoke(new Action(() =>
+            {
+                _starRefreshRunning = false;
+                // 拉取失败或部分失败时冷却一段时间，避免反复请求触发限流
+                if (ok < stale.Count) _starRetryAfter = DateTime.UtcNow.AddMinutes(10);
+                if (MarketStarStatus != null)
+                {
+                    MarketStarStatus.Text = ok > 0
+                        ? $"Star 已更新 {ok} 个（缓存 24 小时）"
+                        : "Star 获取失败（可能被限流），保留旧数据";
+                }
+                ApplyMarketFilter();
+            }), DispatcherPriority.Normal);
+        });
+    }
+
+    private static string TagOf(ComboBox? box) => (box?.SelectedItem as ComboBoxItem)?.Tag as string ?? string.Empty;
+
+    private static void SelectComboTag(ComboBox box, string? tag)
+    {
+        var item = box.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (i.Tag as string) == tag);
+        if (item != null) box.SelectedItem = item;
+        else if (box.SelectedIndex < 0) box.SelectedIndex = 0;
+    }
+
+    private static MarketMatchMode ParseMatchMode(string tag) => tag switch
+    {
+        "word" => MarketMatchMode.WholeWord,
+        "anytag" => MarketMatchMode.AnyTag,
+        "alltags" => MarketMatchMode.AllTags,
+        _ => MarketMatchMode.Contains,
+    };
+
+    private static MarketSearchScope ParseSearchScope(string tag) => tag switch
+    {
+        "title" => MarketSearchScope.Title,
+        "author" => MarketSearchScope.Author,
+        "description" => MarketSearchScope.Description,
+        _ => MarketSearchScope.All,
+    };
+
+    private static MarketSortMode ParseSortMode(string tag) => tag switch
+    {
+        "updated" => MarketSortMode.UpdateDate,
+        "name" => MarketSortMode.Name,
+        "stars" => MarketSortMode.Stars,
+        _ => MarketSortMode.Default,
+    };
 
     private void MarketSearch_TextChanged(object sender, TextChangedEventArgs e) => ApplyMarketFilter();
 
@@ -2134,7 +2350,7 @@ public partial class MainWindow : Window
         RefreshMarketBtn.IsEnabled = !busy;
     }
 
-    // ---------- 备份与诊断 ----------
+    // ---------- 备份 / 诊断 ----------
 
     private void SyncBackupTarget()
     {
@@ -2153,6 +2369,38 @@ public partial class MainWindow : Window
     }
 
     private void BackupTarget_SelectionChanged(object sender, SelectionChangedEventArgs e) => RefreshBackups();
+
+    private void SyncDiagTarget()
+    {
+        var current = (DiagTargetBox.SelectedItem as VersionVm)?.Info.Folder;
+        if (current != null && _targets.Any(v => v.Info.Folder == current)) return;
+        var preferred = _selected?.Info.Folder;
+        DiagTargetBox.SelectedItem =
+            _targets.FirstOrDefault(v => v.Info.Folder == preferred) ?? _targets.FirstOrDefault();
+    }
+
+    private VersionInfo? DiagVersion()
+    {
+        var vm = DiagTargetBox.SelectedItem as VersionVm;
+        return vm == null || vm.Info.IsFileMode ? null : vm.Info;
+    }
+
+    /// <summary>诊断页上的「本次会话日志上报状态」，逻辑在 GameLogService，这里只展示。</summary>
+    private void RefreshGameLogStatus()
+    {
+        if (GameLogStatusText == null) return;
+        try
+        {
+            var version = DiagVersion();
+            GameLogStatusText.Text = version == null
+                ? "最近一次日志：选择 http 版本后显示上报状态。"
+                : GameLogService.StatusSummary(version.FullPath);
+        }
+        catch (Exception ex)
+        {
+            GameLogStatusText.Text = "日志上报状态读取失败：" + ex.Message;
+        }
+    }
 
     private void LoadBackupSettings()
     {
@@ -2173,6 +2421,26 @@ public partial class MainWindow : Window
                 }
             }
             if (BackupKeepBox.SelectedItem == null) BackupKeepBox.SelectedIndex = 1;
+
+            var logKeep = Math.Max(1, cfg.General.GameLogKeep);
+            foreach (var item in GameLogKeepBox.Items.OfType<ComboBoxItem>())
+            {
+                if (item.Content?.ToString() == logKeep.ToString())
+                {
+                    GameLogKeepBox.SelectedItem = item;
+                    break;
+                }
+            }
+            if (GameLogKeepBox.SelectedItem == null) GameLogKeepBox.SelectedIndex = 2;
+
+            var maxMb = Math.Max(0, cfg.General.GameLogMaxMb);
+            GameLogMaxBox.SelectedIndex = maxMb <= 0 ? 0 : maxMb <= 10 ? 1 : maxMb <= 30 ? 2 : 3;
+            GameLogOverflowBox.SelectedIndex =
+                string.Equals(cfg.General.GameLogOverflow, "stop", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+
+            LogQueueSlider.Value = Math.Clamp(cfg.General.LogQueueKb, 1, 64);
+            LogFlushSlider.Value = Math.Clamp(cfg.General.LogFlushMs, 200, 5000);
+            UpdateLogUploadTexts();
         }
         finally
         {
@@ -2190,6 +2458,19 @@ public partial class MainWindow : Window
             cfg.Backup.SaveAuto = AutoSaveCheck.IsChecked == true;
             var text = (BackupKeepBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "5";
             if (int.TryParse(text, out var keep)) cfg.Backup.Keep = Math.Max(1, keep);
+
+            var logKeepText = (GameLogKeepBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "20";
+            if (int.TryParse(logKeepText, out var logKeep)) cfg.General.GameLogKeep = Math.Max(1, logKeep);
+
+            cfg.General.GameLogMaxMb = GameLogMaxBox.SelectedIndex switch
+            {
+                0 => 0,
+                1 => 10,
+                2 => 30,
+                3 => 100,
+                _ => cfg.General.GameLogMaxMb,
+            };
+            cfg.General.GameLogOverflow = GameLogOverflowBox.SelectedIndex == 1 ? "stop" : "newfile";
             AppConfig.Save(cfg);
         }
         catch (Exception ex)
@@ -2203,6 +2484,75 @@ public partial class MainWindow : Window
     private void AutoSave_Checked(object sender, RoutedEventArgs e) => SaveBackupSettings();
 
     private void BackupKeep_Changed(object sender, SelectionChangedEventArgs e) => SaveBackupSettings();
+
+    private void GameLogKeep_Changed(object sender, SelectionChangedEventArgs e) => SaveBackupSettings();
+
+    // ---------- 设置：日志上报队列与合并间隔 ----------
+
+    private bool LogUploadControlsReady =>
+        LogQueueSlider != null && LogFlushSlider != null && LogQueueText != null && LogFlushText != null;
+
+    private void LogUpload_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_loadingBackupSettings || !LogUploadControlsReady) return;
+        UpdateLogUploadTexts();
+        if (LogQueueSlider.IsMouseCaptureWithin || LogFlushSlider.IsMouseCaptureWithin) return;
+        SaveLogUpload();
+    }
+
+    private void LogUpload_LostMouseCapture(object sender, MouseEventArgs e)
+    {
+        if (_loadingBackupSettings || !LogUploadControlsReady) return;
+        SaveLogUpload();
+    }
+
+    private void UpdateLogUploadTexts()
+    {
+        if (!LogUploadControlsReady) return;
+        LogQueueText.Text = (int)Math.Round(LogQueueSlider.Value) + " KB";
+        LogFlushText.Text = (int)Math.Round(LogFlushSlider.Value) + " 毫秒";
+    }
+
+    private void SaveLogUpload()
+    {
+        if (!LogUploadControlsReady) return;
+        try
+        {
+            var cfg = AppConfig.Load();
+            var queue = (int)Math.Round(LogQueueSlider.Value);
+            var flush = (int)Math.Round(LogFlushSlider.Value);
+            if (cfg.General.LogQueueKb == queue && cfg.General.LogFlushMs == flush) return;
+            cfg.General.LogQueueKb = queue;
+            cfg.General.LogFlushMs = flush;
+            AppConfig.Save(cfg);
+            Log($"设置：日志上报队列 {queue} KB / 合并间隔 {flush} 毫秒");
+        }
+        catch (Exception ex)
+        {
+            Log("保存日志上报设置失败：" + ex.Message);
+        }
+    }
+
+    private void GameLogMax_Changed(object sender, SelectionChangedEventArgs e) => SaveBackupSettings();
+
+    private void GameLogOverflow_Changed(object sender, SelectionChangedEventArgs e) => SaveBackupSettings();
+
+    private void AnalyzeLog_Click(object sender, RoutedEventArgs e)
+    {
+        var version = DiagVersion();
+        if (version == null) return;
+        RefreshGameLogStatus();
+        try
+        {
+            DiagBox.Text = GameLogAnalysis.Analyze(version);
+            DiagBox.ScrollToHome();
+            Log("游戏日志分析完成。");
+        }
+        catch (Exception ex)
+        {
+            DiagBox.Text = "分析失败：" + ex.Message;
+        }
+    }
 
     // ---------- 设置 ----------
 
@@ -2240,6 +2590,26 @@ public partial class MainWindow : Window
 
             AnimationCheck.IsChecked = cfg.General.ShowAnimations;
             UiAnimations.Enabled = cfg.General.ShowAnimations;
+            UpdateAccentControls(cfg.General.ThemeAccentColor);
+            LoadTimingControls(cfg.General);
+
+            var subtitle = (cfg.General.Subtitle ?? string.Empty).Trim();
+            SubtitleCustomBox.Text = subtitle;
+
+            BrowserModeBox.SelectedItem = BrowserModeBox.Items.OfType<ComboBoxItem>()
+                .FirstOrDefault(i => (i.Tag as string) == NormalizeBrowserMode(cfg.General.BrowserMode));
+            if (BrowserModeBox.SelectedItem == null) BrowserModeBox.SelectedIndex = 0;
+            BrowserExeBox.Text = cfg.General.BrowserExecutable ?? string.Empty;
+            BrowserArgsBox.Text = cfg.General.BrowserArguments ?? string.Empty;
+            BrowserProfileCheck.IsChecked = cfg.General.BrowserUseProfile;
+            var closePage = (cfg.General.ClosePageBehavior ?? string.Empty).Trim().ToLowerInvariant() == "ask"
+                ? "ask"
+                : "close";
+            ClosePageBox.SelectedItem = ClosePageBox.Items.OfType<ComboBoxItem>()
+                .FirstOrDefault(i => (i.Tag as string) == closePage);
+            if (ClosePageBox.SelectedItem == null) ClosePageBox.SelectedIndex = 0;
+            BrowserSettingsStatus.Text = string.Empty;
+            UpdateBrowserCustomState();
 
             VersionInfoText.Text = BuildInfo.Display;
         }
@@ -2420,6 +2790,7 @@ public partial class MainWindow : Window
         SettingsDataPanel.Visibility = Visibility.Collapsed;
         SettingsModInfoPanel.Visibility = Visibility.Collapsed;
         SettingsProblemPanel.Visibility = Visibility.Collapsed;
+        SettingsBrowserPanel.Visibility = Visibility.Collapsed;
         SettingsAppearancePanel.Visibility = Visibility.Collapsed;
         SettingsVersionPanel.Visibility = Visibility.Collapsed;
 
@@ -2441,6 +2812,7 @@ public partial class MainWindow : Window
             "数据与索引" => SettingsDataPanel,
             "数据与索引/模组信息" => SettingsModInfoPanel,
             "问题检查" => SettingsProblemPanel,
+            "游戏浏览器" => SettingsBrowserPanel,
             "界面与外观" => SettingsAppearancePanel,
             "版本信息" => SettingsVersionPanel,
             _ => SettingsRootPanel,
@@ -2457,6 +2829,7 @@ public partial class MainWindow : Window
             "数据与索引" => "模组市场索引的拉取地址与时机，以及模组信息写回。",
             "数据与索引/模组信息" => "是否把索引里补全的作者 / 主页写回模组包。",
             "问题检查" => "「可能存在问题」里版本差异告警的敏感度。",
+            "游戏浏览器" => "打开游戏页使用的浏览器与关页停服行为，修改后下次启动游戏生效。",
             "界面与外观" => "界面主题与过渡动画效果，修改后立即生效。",
             "版本信息" => "当前启动器的版本、提交与构建时间，并可检查更新。",
             _ => "",
@@ -2557,10 +2930,820 @@ public partial class MainWindow : Window
         }
     }
 
+    // ---------- 设置：启动器副标题 ----------
+
+    private void SubtitleCustom_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_loadingGeneralSettings) return;
+        SaveSubtitle(SubtitleCustomBox.Text.Trim());
+    }
+
+    private void SaveSubtitle(string value)
+    {
+        try
+        {
+            var cfg = AppConfig.Load();
+            cfg.General.Subtitle = value;
+            AppConfig.Save(cfg);
+            ApplySubtitle(value);
+            Log("设置：启动器副标题 = " + (value.Length == 0 ? "（默认）" : value));
+        }
+        catch (Exception ex)
+        {
+            Log("保存设置失败：" + ex.Message);
+        }
+    }
+
+    private void ApplySubtitle(string? value)
+    {
+        SubtitleText.Text = SubtitleTextHelper.Resolve(value);
+        SubtitleText.Visibility = Visibility.Visible;
+    }
+
+    // ---------- 设置：主题色 ----------
+
+    private void UpdateAccentControls(string? hex)
+    {
+        var cfg = AppConfig.Load();
+        var rgb = ParseAccent(hex);
+        var (h, _, l) = rgb.ToHsl();
+
+        AccentHueSlider.Value = Math.Round(h);
+        AccentLightnessSlider.Value = Math.Round(l * 100);
+        AccentSaturationSlider.Value = Math.Clamp(cfg.General.ThemeAccentSaturation, 0, 100);
+        UpdateAccentHslTexts();
+        UpdateAccentPreview(hex, cfg.General.ThemeAccentSaturation);
+    }
+
+    private void UpdateAccentHslTexts()
+    {
+        AccentHueText.Text = (int)Math.Round(AccentHueSlider.Value) + "°";
+        AccentSaturationText.Text = (int)Math.Round(AccentSaturationSlider.Value) + "%";
+        AccentLightnessText.Text = (int)Math.Round(AccentLightnessSlider.Value) + "%";
+    }
+
+    /// <summary>按当前滑块组合生成主色：色相 / 亮度取滑块，基础饱和度沿用已存颜色的色相饱和度。</summary>
+    private RgbColor AccentColorFromSliders()
+    {
+        var stored = ParseAccent(AppConfig.Load().General.ThemeAccentColor);
+        var (_, s, _) = stored.ToHsl();
+        return RgbColor.FromHsl(AccentHueSlider.Value, s, AccentLightnessSlider.Value / 100.0);
+    }
+
+    /// <summary>预览色块用最终强调色（含对比度与饱和度处理），与界面实际显示一致。</summary>
+    private void UpdateAccentPreview(string? accentHex, int saturation)
+    {
+        var hex = accentHex ?? AppConfig.Load().General.ThemeAccentColor;
+        var shown = ThemeService.PreviewAccent(hex, saturation);
+        if (!RgbColor.TryParse(shown, out var rgb)) rgb = ParseAccent(hex);
+        var brush = new SolidColorBrush(Color.FromRgb(rgb.R, rgb.G, rgb.B));
+        AccentColorButton.Background = brush;
+        AccentColorButton.BorderBrush = brush;
+        AccentColorText.Text = rgb.ToArgbHex();
+    }
+
+    private static RgbColor ParseAccent(string? hex)
+    {
+        if (RgbColor.TryParse(hex, out var rgb)) return rgb;
+        RgbColor.TryParse(ThemePaletteBuilder.DefaultAccentColor, out rgb);
+        return rgb;
+    }
+
+    private void AccentColor_Click(object sender, RoutedEventArgs e)
+    {
+        if (_loadingGeneralSettings) return;
+        var cfg = AppConfig.Load();
+        var picked = AccentColorDialog.Show(Window.GetWindow(this), ParseAccent(cfg.General.ThemeAccentColor));
+        if (picked == null) return;
+
+        try
+        {
+            cfg = AppConfig.Load();
+            cfg.General.ThemeAccentColor = picked.Value.ToArgbHex();
+            // 新选的颜色按推荐的鲜艳度显示，滑块回到 100%
+            cfg.General.ThemeAccentSaturation = 100;
+            AppConfig.Save(cfg);
+            UpdateAccentControls(cfg.General.ThemeAccentColor);
+            ThemeService.Reapply();
+            Log("设置：主题主色 = " + cfg.General.ThemeAccentColor);
+        }
+        catch (Exception ex)
+        {
+            Log("保存主题主色失败：" + ex.Message);
+        }
+    }
+
+    /// <summary>恢复默认配色：清空自定义主色与饱和度。</summary>
+    private void AccentReset_Click(object sender, RoutedEventArgs e)
+    {
+        if (_loadingGeneralSettings) return;
+        try
+        {
+            var cfg = AppConfig.Load();
+            cfg.General.ThemeAccentColor = string.Empty;
+            cfg.General.ThemeAccentSaturation = 100;
+            AppConfig.Save(cfg);
+            UpdateAccentControls(string.Empty);
+            ThemeService.Reapply();
+            Log("设置：主题主色已恢复默认");
+        }
+        catch (Exception ex)
+        {
+            Log("恢复默认主题色失败：" + ex.Message);
+        }
+    }
+
+    private void AccentHsl_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_loadingGeneralSettings) return;
+        UpdateAccentHslTexts();
+
+        var dragging = AccentHueSlider.IsMouseCaptureWithin ||
+                       AccentSaturationSlider.IsMouseCaptureWithin ||
+                       AccentLightnessSlider.IsMouseCaptureWithin;
+
+        // 饱和度滑块是独立的比例设置（100 = 推荐鲜艳度），不影响色相 / 亮度
+        if (ReferenceEquals(sender, AccentSaturationSlider))
+        {
+            var percent = (int)Math.Round(AccentSaturationSlider.Value);
+            UpdateAccentPreview(null, percent);
+            if (!dragging) SaveAccentSaturation(percent);
+            return;
+        }
+
+        var hex = AccentColorFromSliders().ToArgbHex();
+        UpdateAccentPreview(hex, (int)Math.Round(AccentSaturationSlider.Value));
+        if (!dragging) SaveAccentColor(hex);
+    }
+
+    private void AccentHsl_LostMouseCapture(object sender, MouseEventArgs e)
+    {
+        if (_loadingGeneralSettings) return;
+        if (ReferenceEquals(sender, AccentSaturationSlider)) SaveAccentSaturation((int)Math.Round(AccentSaturationSlider.Value));
+        else SaveAccentColor(AccentColorFromSliders().ToArgbHex());
+    }
+
+    private void SaveAccentColor(string hex)
+    {
+        try
+        {
+            var cfg = AppConfig.Load();
+            if (string.Equals(cfg.General.ThemeAccentColor, hex, StringComparison.OrdinalIgnoreCase)) return;
+            cfg.General.ThemeAccentColor = hex;
+            AppConfig.Save(cfg);
+            ThemeService.Reapply();
+            Log("设置：主题主色 = " + hex);
+        }
+        catch (Exception ex)
+        {
+            Log("保存主题主色失败：" + ex.Message);
+        }
+    }
+
+    private void SaveAccentSaturation(int percent)
+    {
+        try
+        {
+            var cfg = AppConfig.Load();
+            if (cfg.General.ThemeAccentSaturation == percent) return;
+            cfg.General.ThemeAccentSaturation = percent;
+            AppConfig.Save(cfg);
+            ThemeService.Reapply();
+            Log("设置：主题主色饱和度 = " + percent + "%");
+        }
+        catch (Exception ex)
+        {
+            Log("保存主题主色饱和度失败：" + ex.Message);
+        }
+    }
+
+    // ---------- 设置：关页检测时间参数 ----------
+
+    private void TimingSlider_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        // XAML 加载阶段设置 Minimum 会把 Value 从 0 纠偏，此时其余控件还没创建
+        if (_loadingGeneralSettings || !TimingControlsReady) return;
+        UpdateTimingTexts();
+        if (AnyTimingSliderDragging()) return;
+        SaveTiming();
+    }
+
+    private void TimingSlider_LostMouseCapture(object sender, MouseEventArgs e)
+    {
+        if (_loadingGeneralSettings || !TimingControlsReady) return;
+        SaveTiming();
+    }
+
+    private bool TimingControlsReady =>
+        HeartbeatIntervalSlider != null && HeartbeatTimeoutSlider != null &&
+        FirstGraceSlider != null && CloseDebounceSlider != null &&
+        HeartbeatIntervalText != null && HeartbeatTimeoutText != null &&
+        FirstGraceText != null && CloseDebounceText != null;
+
+    private bool AnyTimingSliderDragging() =>
+        HeartbeatIntervalSlider.IsMouseCaptureWithin ||
+        HeartbeatTimeoutSlider.IsMouseCaptureWithin ||
+        FirstGraceSlider.IsMouseCaptureWithin ||
+        CloseDebounceSlider.IsMouseCaptureWithin;
+
+    private void UpdateTimingTexts()
+    {
+        if (!TimingControlsReady) return;
+        HeartbeatIntervalText.Text = (int)Math.Round(HeartbeatIntervalSlider.Value) + " 秒";
+        HeartbeatTimeoutText.Text = (int)Math.Round(HeartbeatTimeoutSlider.Value) + " 秒";
+        FirstGraceText.Text = (int)Math.Round(FirstGraceSlider.Value) + " 秒";
+        CloseDebounceText.Text = (int)Math.Round(CloseDebounceSlider.Value) + " 秒";
+    }
+
+    private void LoadTimingControls(GeneralSettings general)
+    {
+        HeartbeatIntervalSlider.Value = Math.Clamp(general.HeartbeatSeconds, 1, 30);
+        HeartbeatTimeoutSlider.Value = Math.Clamp(general.HeartbeatTimeoutSeconds, 5, 180);
+        FirstGraceSlider.Value = Math.Clamp(general.FirstHeartbeatGraceSeconds, 5, 600);
+        CloseDebounceSlider.Value = Math.Clamp(general.CloseDebounceSeconds, 0, 60);
+        UpdateTimingTexts();
+    }
+
+    private void SaveTiming()
+    {
+        if (!TimingControlsReady) return;
+        try
+        {
+            var cfg = AppConfig.Load();
+            var heartbeat = (int)Math.Round(HeartbeatIntervalSlider.Value);
+            var timeout = (int)Math.Round(HeartbeatTimeoutSlider.Value);
+            var grace = (int)Math.Round(FirstGraceSlider.Value);
+            var debounce = (int)Math.Round(CloseDebounceSlider.Value);
+            if (cfg.General.HeartbeatSeconds == heartbeat &&
+                cfg.General.HeartbeatTimeoutSeconds == timeout &&
+                cfg.General.FirstHeartbeatGraceSeconds == grace &&
+                cfg.General.CloseDebounceSeconds == debounce) return;
+
+            cfg.General.HeartbeatSeconds = heartbeat;
+            cfg.General.HeartbeatTimeoutSeconds = timeout;
+            cfg.General.FirstHeartbeatGraceSeconds = grace;
+            cfg.General.CloseDebounceSeconds = debounce;
+            AppConfig.Save(cfg);
+            Log($"设置：关页检测 心跳 {heartbeat}s / 超时 {timeout}s / 宽限 {grace}s / 防抖 {debounce}s");
+        }
+        catch (Exception ex)
+        {
+            Log("保存关页检测设置失败：" + ex.Message);
+        }
+    }
+
+    // ---------- 设置：游戏浏览器 ----------
+
+    private void BrowserMode_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingGeneralSettings) return;
+        var mode = (BrowserModeBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "profile";
+        if (mode == "custom" && !IsBrowserPathValid(BrowserExeBox.Text))
+        {
+            // 先选「自定义浏览器」时还没有 exe：直接弹出选择框，避免和「浏览…」按钮互相卡住
+            if (!PickBrowserExecutable())
+            {
+                RestoreBrowserModeSelection(AppConfig.Load().General.BrowserMode);
+                return;
+            }
+        }
+
+        try
+        {
+            var cfg = AppConfig.Load();
+            cfg.General.BrowserMode = mode;
+            AppConfig.Save(cfg);
+            BrowserSettingsStatus.Text = "已保存，下次启动游戏时生效。";
+            Log("设置：游戏浏览器承载方式 = " +
+                ((BrowserModeBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? mode));
+            UpdateBrowserCustomState();
+        }
+        catch (Exception ex)
+        {
+            Log("保存设置失败：" + ex.Message);
+        }
+    }
+
+    private void ClosePage_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingGeneralSettings) return;
+        var behavior = (ClosePageBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "close";
+        try
+        {
+            var cfg = AppConfig.Load();
+            cfg.General.ClosePageBehavior = behavior;
+            AppConfig.Save(cfg);
+            Log("设置：关闭游戏页面时 = " +
+                ((ClosePageBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? behavior));
+        }
+        catch (Exception ex)
+        {
+            Log("保存设置失败：" + ex.Message);
+        }
+    }
+
+    private void RestoreBrowserModeSelection(string? mode)
+    {
+        _loadingGeneralSettings = true;
+        try
+        {
+            BrowserModeBox.SelectedItem = BrowserModeBox.Items.OfType<ComboBoxItem>()
+                .FirstOrDefault(i => (i.Tag as string) == NormalizeBrowserMode(mode));
+            if (BrowserModeBox.SelectedItem == null) BrowserModeBox.SelectedIndex = 0;
+        }
+        finally
+        {
+            _loadingGeneralSettings = false;
+        }
+        UpdateBrowserCustomState();
+    }
+
+    private void BrowseBrowserExe_Click(object sender, RoutedEventArgs e)
+    {
+        PickBrowserExecutable();
+    }
+
+    /// <summary>弹出文件选择框；选中并保存后返回 true，取消返回 false。</summary>
+    private bool PickBrowserExecutable()
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "选择浏览器可执行文件",
+            Filter = "可执行文件 (*.exe)|*.exe|所有文件 (*.*)|*.*",
+        };
+        if (dialog.ShowDialog(this) != true) return false;
+        BrowserExeBox.Text = dialog.FileName;
+        SaveBrowserExecutable(dialog.FileName);
+        UpdateBrowserCustomState();
+        return true;
+    }
+
+    private void BrowserExe_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_loadingGeneralSettings) return;
+        var path = BrowserExeBox.Text.Trim();
+        if (path.Length > 0 && !File.Exists(path))
+        {
+            AppDialog.Warn("浏览器路径不存在：\n" + path + "\n\n请重新选择，或清空后改用其它承载方式。", "游戏浏览器");
+            _loadingGeneralSettings = true;
+            BrowserExeBox.Text = AppConfig.Load().General.BrowserExecutable ?? string.Empty;
+            _loadingGeneralSettings = false;
+            return;
+        }
+        SaveBrowserExecutable(path);
+    }
+
+    private void SaveBrowserExecutable(string path)
+    {
+        try
+        {
+            var cfg = AppConfig.Load();
+            cfg.General.BrowserExecutable = path;
+            AppConfig.Save(cfg);
+            BrowserSettingsStatus.Text = "已保存，下次启动游戏时生效。";
+            Log("设置：自定义浏览器路径 = " + (path.Length == 0 ? "（空）" : path));
+        }
+        catch (Exception ex)
+        {
+            Log("保存设置失败：" + ex.Message);
+        }
+    }
+
+    private void BrowserArgs_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_loadingGeneralSettings) return;
+        try
+        {
+            var cfg = AppConfig.Load();
+            cfg.General.BrowserArguments = BrowserArgsBox.Text.Trim();
+            AppConfig.Save(cfg);
+            BrowserSettingsStatus.Text = "已保存，下次启动游戏时生效。";
+            Log("设置：自定义浏览器参数已更新");
+        }
+        catch (Exception ex)
+        {
+            Log("保存设置失败：" + ex.Message);
+        }
+    }
+
+    private void BrowserProfile_Checked(object sender, RoutedEventArgs e)
+    {
+        if (_loadingGeneralSettings) return;
+        try
+        {
+            var cfg = AppConfig.Load();
+            cfg.General.BrowserUseProfile = BrowserProfileCheck.IsChecked == true;
+            AppConfig.Save(cfg);
+            Log("设置：自定义浏览器独立 Profile = " + (cfg.General.BrowserUseProfile ? "开" : "关"));
+        }
+        catch (Exception ex)
+        {
+            Log("保存设置失败：" + ex.Message);
+        }
+    }
+
+    private void UpdateBrowserCustomState()
+    {
+        var custom = (BrowserModeBox.SelectedItem as ComboBoxItem)?.Tag as string == "custom";
+        BrowserExeBox.IsEnabled = custom;
+        BrowserArgsBox.IsEnabled = custom;
+        BrowserProfileCheck.IsEnabled = custom;
+        BrowseBrowserExeBtn.IsEnabled = custom;
+    }
+
+    private static bool IsBrowserPathValid(string? path) =>
+        !string.IsNullOrWhiteSpace(path) && File.Exists(path.Trim());
+
+    private static string NormalizeBrowserMode(string? mode) => (mode ?? string.Empty).Trim().ToLowerInvariant() switch
+    {
+        "default" => "default",
+        "custom" => "custom",
+        _ => "profile",
+    };
+
+    // ---------- 关页停服 ----------
+
+    /// <summary>游戏页上报 Fatal 级日志：在启动器里弹出独立提示窗，确保用户不会错过。</summary>
+    private void OnGameFatal(string versionName, string message)
+    {
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            Log($"游戏致命错误（{versionName}）：{message}");
+            AppDialog.Warn(
+                $"「{versionName}」出现致命错误：\n\n{message}\n\n" +
+                "点开游戏页右侧的悬浮球可以查看完整日志与中文原因分析。",
+                "游戏致命错误");
+        }), DispatcherPriority.Normal);
+    }
+
+    private void OnBrowserSessionLost(string folder)
+    {
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (!ServerManager.IsRunning(folder)) return;
+
+            var vm = _versions.FirstOrDefault(v => v.Info.Folder == folder);
+            var name = vm?.Info.DisplayName ?? Path.GetFileName(folder.TrimEnd('\\', '/'));
+
+            var behavior = (AppConfig.Load().General.ClosePageBehavior ?? "close").Trim().ToLowerInvariant();
+            if (behavior == "ask" &&
+                !AppDialog.Confirm(
+                    $"「{name}」的页面已全部关闭。\n\n要停止这个版本的本地服务器吗？\n选择「取消」会保留服务器，直到手动停止。",
+                    "页面已关闭", "停止服务器"))
+            {
+                Log("页面已全部关闭，按设置保留本地服务器：" + name);
+                return;
+            }
+
+            BrowserService.Close(folder);
+            ServerManager.Stop(folder);
+            Log("页面已全部关闭，已停止本地服务器：" + name);
+            RefreshListStates();
+        }), DispatcherPriority.Normal);
+    }
+
     private void ResetLayout_Click(object sender, RoutedEventArgs e)
     {
         PaneSplitter.RestoreDefaults(this);
         Log("设置：已恢复默认界面布局尺寸");
+    }
+
+    // ---------- 致谢名单 ----------
+
+    private void LoadCredits()
+    {
+        try
+        {
+            CreditsPanel.Children.Clear();
+            var credits = CreditsService.Load();
+            _projectUrl = credits.ProjectUrl ?? string.Empty;
+            ProjectHomeBtn.Visibility = _projectUrl.Trim().Length == 0
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+            foreach (var entry in credits.Entries)
+                CreditsPanel.Children.Add(BuildCreditRow(entry));
+        }
+        catch (Exception ex)
+        {
+            Log("加载致谢名单失败：" + ex.Message);
+        }
+    }
+
+    /// <summary>头像统一尺寸，避免不同来源的图片把行高撑乱。</summary>
+    private const double CreditAvatarSize = 36;
+
+    private FrameworkElement BuildCreditRow(CreditEntry entry)
+    {
+        var accent = TryFindResource("AccentBrush") as Brush ?? Brushes.DodgerBlue;
+        var pale = TryFindResource("AccentPaleBrush") as Brush ?? Brushes.Transparent;
+        var mutedStyle = TryFindResource("MutedText") as Style;
+
+        var row = new DockPanel { Margin = new Thickness(0, 0, 0, 12), LastChildFill = true };
+
+        var radius = CreditAvatarSize / 2;
+        var avatar = new Border
+        {
+            Width = CreditAvatarSize,
+            Height = CreditAvatarSize,
+            CornerRadius = new CornerRadius(radius),
+            Background = pale,
+            Clip = new EllipseGeometry(new Point(radius, radius), radius, radius),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var image = TryLoadAvatar(entry.Avatar, (int)(CreditAvatarSize * 2));
+        avatar.Child = image != null
+            ? new Image { Source = image, Stretch = Stretch.UniformToFill }
+            : new TextBlock
+            {
+                Text = FirstChar(entry.Name),
+                FontSize = 15,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = accent,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+        DockPanel.SetDock(avatar, Dock.Left);
+        row.Children.Add(avatar);
+
+        // 名称 / 职位两行取较宽的一行，图标按钮紧贴在它右侧，宽度由布局自动决定
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        text.Children.Add(new TextBlock { Text = entry.Name, FontWeight = FontWeights.SemiBold });
+        if ((entry.Role ?? string.Empty).Trim().Length > 0)
+        {
+            text.Children.Add(new TextBlock
+            {
+                Text = entry.Role,
+                Style = mutedStyle,
+                FontSize = 11,
+                Margin = new Thickness(0, 1, 0, 0),
+            });
+        }
+
+        var links = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(10, 0, 0, 0),
+        };
+        if ((entry.Bilibili ?? string.Empty).Trim().Length > 0)
+            links.Children.Add(MakeCreditLinkButton(entry.Bilibili));
+        if ((entry.Github ?? string.Empty).Trim().Length > 0)
+            links.Children.Add(MakeCreditLinkButton(entry.Github, links.Children.Count > 0 ? 4 : 0));
+        if ((entry.Website ?? string.Empty).Trim().Length > 0)
+            links.Children.Add(MakeCreditLinkButton(entry.Website, links.Children.Count > 0 ? 4 : 0));
+
+        var content = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(10, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        content.Children.Add(text);
+        if (links.Children.Count > 0) content.Children.Add(links);
+
+        row.Children.Add(content);
+        return row;
+    }
+
+    /// <summary>
+    /// 域名图标按钮：默认只显示小图标，悬停时动画展开显示「打开 xxx 主页」。
+    /// 宽度用固定起点 + 文字实测宽度计算，不依赖鼠标坐标，避免位置错乱。
+    /// </summary>
+    private FrameworkElement MakeCreditLinkButton(string? url, double leftMargin = 0)
+    {
+        var text = (url ?? string.Empty).Trim();
+        var provider = LinkProvider(text);
+        var labelText = provider switch
+        {
+            "Wiki" => "打开 Wiki 介绍",
+            "链接" => "打开链接",
+            _ => $"打开 {provider} 主页",
+        };
+        var accent = TryFindResource("AccentBrush") as Brush ?? Brushes.DodgerBlue;
+
+        var icon = BuildProviderIcon(provider);
+        var label = new TextBlock
+        {
+            Text = labelText,
+            FontSize = 11,
+            Foreground = accent,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(6, 0, 1, 0),
+            Opacity = 0,
+            TextWrapping = TextWrapping.NoWrap,
+        };
+        var inner = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(5, 0, 5, 0),
+        };
+        inner.Children.Add(icon);
+        inner.Children.Add(label);
+
+        // 收起宽度 = 左右留白 10 + 图标 18
+        const double collapsed = 28;
+        label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var expanded = Math.Ceiling(10 + 18 + label.DesiredSize.Width + 8);
+
+        var button = new Button
+        {
+            Style = TryFindResource("CreditLinkButton") as Style,
+            Width = collapsed,
+            Height = 24,
+            Margin = new Thickness(leftMargin, 0, 0, 0),
+            ToolTip = labelText,
+            Content = inner,
+        };
+
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        button.MouseEnter += (_, _) =>
+        {
+            button.BeginAnimation(FrameworkElement.WidthProperty,
+                new DoubleAnimation(expanded, TimeSpan.FromMilliseconds(170)) { EasingFunction = ease });
+            label.BeginAnimation(UIElement.OpacityProperty,
+                new DoubleAnimation(1, TimeSpan.FromMilliseconds(140)) { BeginTime = TimeSpan.FromMilliseconds(30) });
+        };
+        button.MouseLeave += (_, _) =>
+        {
+            button.BeginAnimation(FrameworkElement.WidthProperty,
+                new DoubleAnimation(collapsed, TimeSpan.FromMilliseconds(150)) { EasingFunction = ease });
+            label.BeginAnimation(UIElement.OpacityProperty,
+                new DoubleAnimation(0, TimeSpan.FromMilliseconds(80)));
+        };
+        button.Click += (_, _) => OpenExternal(text);
+        return button;
+    }
+
+    private static string LinkProvider(string url)
+    {
+        if (url.Contains("bilibili.com", StringComparison.OrdinalIgnoreCase)) return "Bilibili";
+        if (url.Contains("github.com", StringComparison.OrdinalIgnoreCase)) return "GitHub";
+        if (url.Contains("miraheze.org", StringComparison.OrdinalIgnoreCase)) return "Wiki";
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Host.Length > 0) return uri.Host;
+        return "链接";
+    }
+
+    /// <summary>按域名返回矢量图标：Bilibili 蓝色小电视、GitHub 黑猫，其它域名用通用链接图标。</summary>
+    private static FrameworkElement BuildProviderIcon(string provider)
+    {
+        var chip = new Border
+        {
+            Width = 18,
+            Height = 18,
+            CornerRadius = new CornerRadius(5),
+            VerticalAlignment = VerticalAlignment.Center,
+            ClipToBounds = true,
+        };
+
+        if (string.Equals(provider, "Bilibili", StringComparison.OrdinalIgnoreCase))
+        {
+            // 使用从 B 站站点抓取的真实 favicon，而不是手绘图形
+            var realIcon = TryLoadAvatar("Assets/credits/bilibili.png");
+            if (realIcon != null)
+            {
+                chip.Background = Brushes.Transparent;
+                chip.Child = new Image { Source = realIcon, Stretch = Stretch.Uniform };
+                return chip;
+            }
+
+            chip.Background = new SolidColorBrush(Color.FromRgb(0xE8, 0xF7, 0xFD));
+            var blue = new SolidColorBrush(Color.FromRgb(0x00, 0xA1, 0xD6));
+            var canvas = new Canvas { Width = 18, Height = 18 };
+
+            var body = new Shapes.Rectangle
+            {
+                Width = 12,
+                Height = 8,
+                RadiusX = 2.5,
+                RadiusY = 2.5,
+                Fill = blue,
+            };
+            Canvas.SetLeft(body, 3);
+            Canvas.SetTop(body, 6);
+            canvas.Children.Add(body);
+
+            foreach (var left in new[] { 6.0, 10.4 })
+            {
+                var eye = new Shapes.Rectangle
+                {
+                    Width = 1.6,
+                    Height = 2.6,
+                    RadiusX = 0.8,
+                    RadiusY = 0.8,
+                    Fill = Brushes.White,
+                };
+                Canvas.SetLeft(eye, left);
+                Canvas.SetTop(eye, 8.7);
+                canvas.Children.Add(eye);
+            }
+
+            foreach (var (x1, y1, x2, y2) in new[] { (4.5, 1.5, 7.5, 6.0), (13.5, 1.5, 10.5, 6.0) })
+            {
+                canvas.Children.Add(new Shapes.Line
+                {
+                    X1 = x1,
+                    Y1 = y1,
+                    X2 = x2,
+                    Y2 = y2,
+                    Stroke = blue,
+                    StrokeThickness = 1.4,
+                    StrokeStartLineCap = PenLineCap.Round,
+                    StrokeEndLineCap = PenLineCap.Round,
+                });
+            }
+
+            chip.Child = canvas;
+            return chip;
+        }
+
+        if (string.Equals(provider, "GitHub", StringComparison.OrdinalIgnoreCase))
+        {
+            chip.Background = new SolidColorBrush(Color.FromRgb(0xF3, 0xF5, 0xF8));
+            chip.Child = new Shapes.Path
+            {
+                Data = Geometry.Parse(
+                    "M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"),
+                Fill = new SolidColorBrush(Color.FromRgb(0x24, 0x29, 0x2F)),
+                Stretch = Stretch.Uniform,
+                Margin = new Thickness(2.5),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            return chip;
+        }
+
+        chip.Background = new SolidColorBrush(Color.FromRgb(0xEE, 0xF2, 0xF7));
+        chip.Child = new TextBlock
+        {
+            Text = "\uE71B",
+            FontFamily = new FontFamily("Segoe MDL2 Assets"),
+            FontSize = 11,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x13, 0x70, 0xF3)),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        return chip;
+    }
+
+    private static string FirstChar(string? name)
+    {
+        var text = (name ?? string.Empty).Trim();
+        return text.Length > 0 ? text[..1].ToUpperInvariant() : "?";
+    }
+
+    private static ImageSource? TryLoadAvatar(string? path, int decodeWidth = 0)
+    {
+        try
+        {
+            var text = (path ?? string.Empty).Trim();
+            if (text.Length == 0) return null;
+            Uri uri;
+            if (text.StartsWith("pack:", StringComparison.OrdinalIgnoreCase))
+                uri = new Uri(text, UriKind.Absolute);
+            else if (text.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase) ||
+                     text.StartsWith("Assets\\", StringComparison.OrdinalIgnoreCase))
+                uri = new Uri("pack://application:,,,/" + text.Replace('\\', '/'), UriKind.Absolute);
+            else if (Path.IsPathRooted(text)) uri = new Uri(text);
+            else if (Uri.TryCreate(text, UriKind.Absolute, out var absolute)) uri = absolute;
+            else uri = new Uri(Path.Combine(Paths.Root, text));
+
+            var image = new BitmapImage();
+            image.BeginInit();
+            image.UriSource = uri;
+            image.CacheOption = BitmapCacheOption.OnLoad;
+            image.DecodePixelWidth = decodeWidth;
+            image.EndInit();
+            return image;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private void ProjectHome_Click(object sender, RoutedEventArgs e)
+    {
+        if (_projectUrl.Trim().Length == 0)
+        {
+            AppDialog.Info("credits.json 里还没有填写项目主页地址。", "项目主页");
+            return;
+        }
+        OpenExternal(_projectUrl);
+    }
+
+    private void OpenExternal(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return;
+        try
+        {
+            Process.Start(new ProcessStartInfo(url!) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Log("打开链接失败：" + ex.Message);
+            AppDialog.Error("无法打开链接：" + ex.Message, "打开链接");
+        }
     }
 
     // ---------- mods 目录外部改动监听 ----------
@@ -2577,7 +3760,8 @@ public partial class MainWindow : Window
             var modsDir = ModService.ModsDir(version.FullPath);
             if (!Directory.Exists(modsDir)) Directory.CreateDirectory(modsDir);
             _modsWatcher = CreateModsWatcher(modsDir);
-            _versionWatcher = CreateModsWatcher(version.FullPath);
+            // 版本根目录只关心启动器自己写的两个清单文件；logs 等其它子目录变动一律忽略
+            _versionWatcher = CreateVersionWatcher(version.FullPath);
             _watchedVersionDir = version.FullPath;
         }
         catch (Exception ex)
@@ -2603,6 +3787,32 @@ public partial class MainWindow : Window
         return watcher;
     }
 
+    /// <summary>版本根目录的监听：只响应 modList.json / mods-state.json。</summary>
+    private FileSystemWatcher CreateVersionWatcher(string directory)
+    {
+        var watcher = new FileSystemWatcher(directory)
+        {
+            IncludeSubdirectories = false,
+            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+            EnableRaisingEvents = true,
+        };
+        watcher.Created += OnVersionManifestChanged;
+        watcher.Deleted += OnVersionManifestChanged;
+        watcher.Changed += OnVersionManifestChanged;
+        watcher.Renamed += (s, e) => OnVersionManifestChanged(s, e);
+        watcher.Error += (_, args) => Log("版本目录监听出错：" + args.GetException().Message);
+        return watcher;
+    }
+
+    private void OnVersionManifestChanged(object sender, FileSystemEventArgs e)
+    {
+        var name = e.Name ?? string.Empty;
+        if (!name.Equals("modList.json", StringComparison.OrdinalIgnoreCase) &&
+            !name.Equals("mods-state.json", StringComparison.OrdinalIgnoreCase))
+            return;
+        Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(ScheduleModsReload));
+    }
+
     private void OnModsFolderChanged(object sender, FileSystemEventArgs e)
     {
         if (!IsModsWatchRelevant(e.Name)) return;
@@ -2617,8 +3827,11 @@ public partial class MainWindow : Window
 
     private static bool IsModsWatchRelevant(string? name)
     {
-        if (name == null) return true;
+        // 目录级事件（例如游戏往 logs 里写日志、新建子目录）可能拿到空名字，
+        // 这些都不是模组变化，忽略，避免写日志时误刷新模组列表
+        if (string.IsNullOrWhiteSpace(name)) return false;
         var file = Path.GetFileName(name);
+        if (file.Length == 0) return false;
         if (file.Equals("mods-state.json", StringComparison.OrdinalIgnoreCase) ||
             file.Equals("modList.json", StringComparison.OrdinalIgnoreCase))
             return true;
@@ -2680,11 +3893,13 @@ public partial class MainWindow : Window
         if (version == null)
         {
             BackupCountText.Text = "请选择一个磁盘版本";
+            if (BackupMirrorText != null) BackupMirrorText.Text = string.Empty;
             return;
         }
 
         foreach (var entry in BackupService.List(version.Folder)) _backupEntries.Add(entry);
         BackupCountText.Text = $"{_backupEntries.Count} 项";
+        if (BackupMirrorText != null) BackupMirrorText.Text = BackupService.DescribeMirror(version.Folder);
         RestoreBackupBtn.IsEnabled = false;
         DeleteBackupBtn.IsEnabled = false;
     }
@@ -2700,7 +3915,28 @@ public partial class MainWindow : Window
 
     private void BackupOpenSaves_Click(object sender, RoutedEventArgs e) => OpenSavesPage(false);
 
-    private void BackupSavesNow_Click(object sender, RoutedEventArgs e) => OpenSavesPage(true);
+    /// <summary>静默备份：直接使用页面写回的磁盘镜像，不打开任何浏览器窗口。</summary>
+    private void BackupSavesNow_Click(object sender, RoutedEventArgs e)
+    {
+        var version = BackupVersion();
+        if (version == null) return;
+        try
+        {
+            var name = BackupService.BackupSavesFromMirror(version.Folder, out var reason);
+            if (name == null)
+            {
+                AppDialog.Info(reason, "立即备份存档");
+                return;
+            }
+            Log("已静默备份存档：" + name);
+            RefreshBackups();
+        }
+        catch (Exception ex)
+        {
+            Log("静默备份存档失败：" + ex.Message);
+            AppDialog.Error("备份失败：" + ex.Message, "立即备份存档");
+        }
+    }
 
     private void OpenSavesPage(bool autoBackup)
     {
@@ -2710,7 +3946,8 @@ public partial class MainWindow : Window
         {
             var server = ServerManager.EnsureStarted(version, saveHelperOnly: true);
             RefreshListStates();
-            ServerManager.OpenInBrowser(autoBackup ? server.SaveHelperUrl + "?auto=1" : server.SaveHelperUrl);
+            BrowserService.OpenHelper(version,
+                autoBackup ? server.SaveHelperUrl + "?auto=1" : server.SaveHelperUrl);
             Log(autoBackup ? "已打开自动存档备份页，完成后可关闭。" : "已打开存档助手。");
         }
         catch (Exception ex)
@@ -2804,10 +4041,21 @@ public partial class MainWindow : Window
 
         if (entry.IsSaves)
         {
-            AppDialog.Info(
-                "存档备份只能在浏览器里还原。已为你打开存档助手，请在「启动器备份」一栏点「还原」。",
-                "还原存档");
-            OpenSavesPage(false);
+            if (!AppDialog.Confirm(
+                    $"会用「{entry.FileName}」覆盖该版本下次打开游戏时的存档库。\n\n" +
+                    "不会立即打开浏览器；下次启动游戏页时自动导入。继续吗？",
+                    "还原存档", "还原")) return;
+            try
+            {
+                BackupService.QueueSavesRestore(version.Folder, entry.FullPath);
+                Log("已排队还原存档：" + entry.FileName);
+                AppDialog.Info("已加入还原队列：下次启动这个版本时会自动导入存档。", "还原存档");
+            }
+            catch (Exception ex)
+            {
+                Log("还原存档失败：" + ex.Message);
+                AppDialog.Error("还原失败：" + ex.Message, "还原存档");
+            }
             return;
         }
 
@@ -2892,7 +4140,7 @@ public partial class MainWindow : Window
 
     private void CompatCheck_Click(object sender, RoutedEventArgs e)
     {
-        var version = BackupVersion();
+        var version = DiagVersion();
         if (version == null) return;
         try
         {
@@ -2908,7 +4156,7 @@ public partial class MainWindow : Window
 
     private async void ExportDiag_Click(object sender, RoutedEventArgs e)
     {
-        var version = BackupVersion();
+        var version = DiagVersion();
         if (version == null) return;
 
         var dialog = new SaveFileDialog
@@ -2941,21 +4189,45 @@ public partial class MainWindow : Window
 
     private void ViewLauncherLog_Click(object sender, RoutedEventArgs e)
     {
-        DiagBox.Text = LogService.ReadTail(500);
-        DiagBox.ScrollToEnd();
+        try
+        {
+            if (!File.Exists(LogService.FilePath))
+            {
+                AppDialog.Info("还没有启动器日志文件。", "启动器日志");
+                return;
+            }
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(LogService.FilePath)
+            {
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            AppDialog.Error("打开日志失败：" + ex.Message, "启动器日志");
+        }
     }
 
-    private void OpenLogFile_Click(object sender, RoutedEventArgs e)
+    private void OpenGameLog_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new OpenFileDialog
+        var version = DiagVersion();
+        if (version == null) return;
+        try
         {
-            Title = "打开游戏日志",
-            Filter = "日志文件 (*.log;*.txt)|*.log;*.txt|所有文件 (*.*)|*.*",
-        };
-        if (dialog.ShowDialog(this) != true) return;
-        DiagBox.Text = DiagnosticService.ReadTail(dialog.FileName, 500);
-        DiagBox.ScrollToHome();
-        Log("已载入日志：" + dialog.FileName);
+            var log = DiagnosticService.FindLatestLog(version.FullPath);
+            if (log == null)
+            {
+                AppDialog.Info("还没有游戏日志。\n启动一次游戏后，日志会写到版本目录的 logs\\game-日期.log。", "游戏日志");
+                return;
+            }
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(log)
+            {
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            AppDialog.Error("打开游戏日志失败：" + ex.Message, "游戏日志");
+        }
     }
 
     // ---------- 日志 / 关闭 ----------
@@ -3005,23 +4277,13 @@ public partial class MainWindow : Window
             SizeToContent = SizeToContent.Height,
             // 保留系统标题栏，但不要 thick frame 的可调整边框
             ResizeMode = ResizeMode.NoResize,
+            ShowInTaskbar = false,
             Owner = this,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Background = TryFindResource("BgBrush") as Brush ?? Brushes.White,
             Foreground = TryFindResource("TextBrush") as Brush ?? Brushes.Black,
         };
-        win.Loaded += (_, _) =>
-        {
-            AppDialog.SnapWindowSize(win, 470);
-            ThemeService.Refresh(win);
-            AppDialog.CenterOnOwner(win);
-        };
-        win.ContentRendered += (_, _) =>
-        {
-            AppDialog.SnapWindowSize(win, 470);
-            ThemeService.Refresh(win);
-            AppDialog.CenterOnOwner(win);
-        };
+        AppDialog.AttachDialogChrome(win, 470);
         ThemeService.Attach(win);
         UiAnimations.AttachWindow(win);
 

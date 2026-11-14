@@ -5,6 +5,8 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
+using DoLLauncher.Core.Versions;
 using DoLLauncher.Models;
 
 namespace DoLLauncher.Services;
@@ -35,6 +37,18 @@ public static class ModService
         "ReplacePatcher", "SweetAlert2Mod", "ModdedClothesAddon", "ModdedFeatsAddon",
         "ModdedHairAddon",
     };
+
+    /// <summary>内置名单的归一化形式：前置写成「Mod Loader」「ModLoader GUI」等变体也能识别。</summary>
+    private static readonly HashSet<string> BuiltinKeys =
+        new(BuiltinMods.Select(NormalizeModName), StringComparer.Ordinal);
+
+    private static readonly string[] BuiltinPrefixKeys =
+        BuiltinPrefixes.Select(NormalizeModName).ToArray();
+
+    /// <summary>包文件名里的版本尾巴，例如 "-0.5.12.13-v5.6.2"、".ver2.0.5.build_2"。</summary>
+    private static readonly Regex VersionTail = new(
+        @"[-_. ](?:ver(?:sion)?|v)?\d[\d.]*.*$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -109,9 +123,12 @@ public static class ModService
         return result;
     }
 
-    /// <summary>保存启停/顺序，并重新生成 modList.json。</summary>
+    /// <summary>保存启停/顺序，并重新生成 modList.json；写文件前通知界面忽略自身的监听事件。</summary>
+    public static event Action? InternalWriteStarted;
+
     public static void Save(string versionDir, IEnumerable<ModInfo> mods)
     {
+        InternalWriteStarted?.Invoke();
         var list = mods.ToList();
         var state = new ModState
         {
@@ -162,15 +179,80 @@ public static class ModService
             .ToList();
     }
 
-    public static bool IsBuiltin(string name) =>
-        BuiltinMods.Contains(name) ||
-        BuiltinPrefixes.Any(p => name.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+    public static bool IsBuiltin(string? name)
+    {
+        var key = NormalizeModName(name);
+        if (key.Length == 0) return false;
+        if (BuiltinKeys.Contains(key)) return true;
+        return BuiltinPrefixKeys.Any(p => key.StartsWith(p, StringComparison.Ordinal));
+    }
 
     /// <summary>GameVersion 是 ModLoader 内置 CheckGameVersion 提供的虚拟前置，不是磁盘模组。</summary>
-    public static bool IsGameVersion(string name) =>
-        name.Equals("GameVersion", StringComparison.OrdinalIgnoreCase) ||
-        name.Equals("Game Version", StringComparison.OrdinalIgnoreCase) ||
-        name.Equals("CheckGameVersion", StringComparison.OrdinalIgnoreCase);
+    public static bool IsGameVersion(string? name)
+    {
+        var key = NormalizeModName(name);
+        return key == "gameversion" || key == "checkgameversion";
+    }
+
+    /// <summary>
+    /// 前置名比较用的归一化：只保留字母与数字并转小写，从而忽略空格、下划线、连字符、点号等符号差异。
+    /// 例：「Simple Framework」「Simple-Framework」「simple_frameworks」→ simpleframework(s)。
+    /// </summary>
+    public static string NormalizeModName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return string.Empty;
+        var sb = new StringBuilder(name.Length);
+        foreach (var ch in name)
+        {
+            if (char.IsLetterOrDigit(ch)) sb.Append(char.ToLowerInvariant(ch));
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>去掉 .zip / .modpack(.crypt) 扩展名，以及包内常见的 .mod 后缀。</summary>
+    public static string FileNameStem(string? fileName)
+    {
+        var name = (fileName ?? string.Empty).Trim();
+        if (name.Length == 0) return string.Empty;
+        if (name.EndsWith(".modpack.crypt", StringComparison.OrdinalIgnoreCase))
+            name = name[..^".modpack.crypt".Length];
+        else if (name.EndsWith(".modpack", StringComparison.OrdinalIgnoreCase))
+            name = name[..^".modpack".Length];
+        else
+            name = Path.GetFileNameWithoutExtension(name);
+        if (name.EndsWith(".mod", StringComparison.OrdinalIgnoreCase))
+            name = name[..^".mod".Length];
+        return name;
+    }
+
+    /// <summary>
+    /// 本地模组可用于匹配前置名的键：boot.json 的 name、包文件名主干、去掉版本尾巴的包名主干。
+    /// 实际样本：Simple.Framework.ver2.0.5.build_2.zip 的 boot name 是 Simple Frameworks，
+    /// 而前置常写成 Simple Framework / Simple.Frameworks，必须归一化后才能匹配。
+    /// </summary>
+    public static IReadOnlyList<string> NameKeys(ModInfo mod)
+    {
+        var keys = new List<string>();
+        void Add(string? raw)
+        {
+            var key = NormalizeModName(raw);
+            if (key.Length > 0 && !keys.Contains(key)) keys.Add(key);
+        }
+
+        Add(mod.Name);
+        var stem = FileNameStem(mod.FileName);
+        Add(stem);
+        Add(VersionTail.Replace(stem, string.Empty));
+
+        // 市场里「简易框架」的 bootName / alias 同时是 Simple Framework 与 Simple Frameworks，
+        // 只差一个英文复数 s；给长度足够的键补一个单数键，避免这类别名差异被当成缺失。
+        foreach (var key in keys.ToArray())
+        {
+            if (key.Length > 5 && key.EndsWith("s", StringComparison.Ordinal))
+                Add(key[..^1]);
+        }
+        return keys;
+    }
 
     /// <summary>读取 zip 内 boot.json 与 README，用于模组详情面板。</summary>
     public static ModDetail ReadDetail(ModInfo mod)
@@ -216,7 +298,7 @@ public static class ModService
                 {
                     foreach (var dep in deps.EnumerateArray())
                     {
-                        var modName = PropString(dep, "modName");
+                        var modName = PropString(dep, "modName").Trim();
                         var ver = dep.TryGetProperty("version", out var dv)
                             ? (dv.ValueKind == JsonValueKind.String ? dv.GetString() ?? "" : dv.ToString())
                             : "";
@@ -528,7 +610,7 @@ public static class ModService
             {
                 foreach (var dep in deps.EnumerateArray())
                 {
-                    var modName = dep.TryGetProperty("modName", out var mn) ? mn.GetString() ?? "" : "";
+                    var modName = dep.TryGetProperty("modName", out var mn) ? (mn.GetString() ?? "").Trim() : "";
                     var ver = dep.TryGetProperty("version", out var dv) ? dv.GetString() ?? "" : "";
                     if (modName.Length > 0)
                     {

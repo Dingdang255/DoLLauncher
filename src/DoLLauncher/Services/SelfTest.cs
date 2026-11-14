@@ -113,6 +113,20 @@ public static class SelfTest
 
             var traversal = client.Send(new HttpRequestMessage(HttpMethod.Get, url + "../launcher.ps1"));
             W($"GET 路径穿越 -> {traversal.StatusCode}");
+
+            // 游戏页面注入：HEAD 的长度应该比本体大（多出日志采集脚本）
+            var bodyLength = new FileInfo(version.HtmlPath).Length;
+            var injectedLength = head.Content.Headers.ContentLength ?? 0;
+            W($"页面注入检查：HEAD={injectedLength}，本体={bodyLength}，已注入={injectedLength > bodyLength}");
+
+            // 游戏日志接口：POST 后应写入版本目录 logs\game-会话时间.log
+            var sid = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+            var logPost = client.PostAsync(url + "__launcher/api/game-log?sid=" + sid,
+                new StringContent("selftest game log line", Encoding.UTF8, "text/plain")).Result;
+            var logFile = GameLogService.FileFor(version.FullPath, sid);
+            var logged = File.Exists(logFile) && File.ReadAllText(logFile).Contains("selftest game log line");
+            W($"POST game-log -> {logPost.StatusCode}，已落盘={logged}（{logFile}）");
+            if (File.Exists(logFile)) File.Delete(logFile);
         }
         finally
         {

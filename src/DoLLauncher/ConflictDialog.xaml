@@ -4,6 +4,7 @@
         Title="可能存在问题"
         Icon="pack://application:,,,/Assets/dol.ico"
         Height="620" Width="760" MinHeight="480" MinWidth="600"
+        ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
         Background="{DynamicResource BgBrush}"
@@ -168,15 +169,25 @@
                                             <TextBlock Text="{Binding Detail}" Style="{StaticResource MutedText}"
                                                        Margin="0,4,0,0" TextWrapping="Wrap" />
                                             <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                                                <Button Content="{Binding DisableText}" Style="{StaticResource FlatButton}"
-                                                        FontSize="12" Padding="10,4" Tag="{Binding}" Click="DisableVersion_Click" />
+                                                <Button Content="{Binding DisableText}" FontSize="12" Padding="10,4"
+                                                        Tag="{Binding}" Click="DisableVersion_Click">
+                                                    <Button.Style>
+                                                        <Style TargetType="Button" BasedOn="{StaticResource FlatButton}">
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding CanDisable}" Value="False">
+                                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Button.Style>
+                                                </Button>
                                             </StackPanel>
                                         </StackPanel>
                                     </Border>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                        <TextBlock x:Name="VersionEmpty" Text="没有发现版本差异过大的模组。"
+                        <TextBlock x:Name="VersionEmpty" Text="没有发现版本差异过大或运行日志里的补丁失败。"
                                    Style="{StaticResource MutedText}" Foreground="{DynamicResource TextBrush}"
                                    FontSize="13" TextWrapping="Wrap" Visibility="Collapsed" />
                     </StackPanel>

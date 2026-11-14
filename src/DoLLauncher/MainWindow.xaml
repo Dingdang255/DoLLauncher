@@ -29,7 +29,8 @@
                                RenderOptions.BitmapScalingMode="HighQuality" />
                         <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
                             <TextBlock Text="DoL 启动器" FontSize="15" FontWeight="SemiBold" />
-                            <TextBlock Text="版本 · 模组 · 存档" Style="{StaticResource MutedText}" FontSize="10" />
+                            <TextBlock x:Name="SubtitleText" Text="版本 · 模组 · 存档"
+                                       Style="{StaticResource MutedText}" FontSize="10" />
                         </StackPanel>
                     </StackPanel>
 
@@ -40,7 +41,10 @@
                                  Tag="&#xE896;" Content="下载中心"
                                  Checked="Nav_Checked" />
                     <RadioButton x:Name="NavBackup" Style="{StaticResource NavItem}" GroupName="MainNav"
-                                 Tag="&#xE74E;" Content="备份与诊断"
+                                 Tag="&#xE74E;" Content="备份"
+                                 Checked="Nav_Checked" />
+                    <RadioButton x:Name="NavDiagnostic" Style="{StaticResource NavItem}" GroupName="MainNav"
+                                 Tag="&#xE9D9;" Content="诊断"
                                  Checked="Nav_Checked" />
                 </StackPanel>
 
@@ -111,7 +115,7 @@
                                      HorizontalContentAlignment="Stretch"
                                      ItemContainerStyle="{StaticResource VersionItem}"
                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                     ScrollViewer.CanContentScroll="True" VirtualizingPanel.ScrollUnit="Pixel"
+                                     ScrollViewer.CanContentScroll="False"
                                      SelectionChanged="VersionList_SelectionChanged"
                                      MouseDoubleClick="VersionList_MouseDoubleClick">
                                 <ListBox.ItemTemplate>
@@ -244,7 +248,7 @@
                                  PreviewKeyDown="ModList_PreviewKeyDown"
                                  ToolTip="点一行选中；Ctrl / Shift 多选；Ctrl+A 全选"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                 ScrollViewer.CanContentScroll="True" VirtualizingPanel.ScrollUnit="Pixel">
+                                 ScrollViewer.CanContentScroll="False">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
                                     <Grid Background="Transparent">
@@ -440,7 +444,7 @@
                                          BorderThickness="0" Padding="0" HorizontalContentAlignment="Stretch"
                                          ItemContainerStyle="{StaticResource DownloadItem}"
                                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                         ScrollViewer.CanContentScroll="True" VirtualizingPanel.ScrollUnit="Pixel">
+                                         ScrollViewer.CanContentScroll="False">
                                     <ListBox.ItemTemplate>
                                         <DataTemplate>
                                             <StackPanel>
@@ -489,7 +493,8 @@
                                                Text="索引来自 ModHub 市场；会标出已安装/可更新，安装前检查前置与本地冲突，可勾选同步补装，并可选择历史版本。" />
                                 </StackPanel>
 
-                                <DockPanel Grid.Row="1" Margin="0,14,0,10">
+                                <StackPanel Grid.Row="1" Margin="0,14,0,10">
+                                <DockPanel>
                                     <Grid DockPanel.Dock="Left" Width="260">
                                         <TextBox x:Name="MarketSearchBox" Style="{StaticResource DarkTextBox}"
                                                  TextChanged="MarketSearch_TextChanged" />
@@ -524,6 +529,44 @@
                                     <TextBlock x:Name="MarketCountText" Style="{StaticResource MutedText}"
                                                Margin="12,0,0,0" VerticalAlignment="Center" />
                                 </DockPanel>
+                                <DockPanel Margin="0,8,0,0">
+                                    <TextBlock Text="匹配" Style="{StaticResource MutedText}" VerticalAlignment="Center"
+                                               Margin="0,0,6,0" />
+                                    <ComboBox x:Name="MarketMatchBox" Style="{StaticResource FlatCombo}"
+                                              ItemContainerStyle="{StaticResource FlatComboItem}" Width="118"
+                                              SelectionChanged="MarketAdvanced_Changed">
+                                        <ComboBoxItem Content="部分匹配" Tag="contains" IsSelected="True" />
+                                        <ComboBoxItem Content="全词匹配" Tag="word" />
+                                        <ComboBoxItem Content="命中任一标签" Tag="anytag" />
+                                        <ComboBoxItem Content="命中全部标签" Tag="alltags" />
+                                    </ComboBox>
+                                    <TextBlock Text="范围" Style="{StaticResource MutedText}" VerticalAlignment="Center"
+                                               Margin="12,0,6,0" />
+                                    <ComboBox x:Name="MarketScopeBox" Style="{StaticResource FlatCombo}"
+                                              ItemContainerStyle="{StaticResource FlatComboItem}" Width="96"
+                                              SelectionChanged="MarketAdvanced_Changed">
+                                        <ComboBoxItem Content="全部" Tag="all" IsSelected="True" />
+                                        <ComboBoxItem Content="标题" Tag="title" />
+                                        <ComboBoxItem Content="作者" Tag="author" />
+                                        <ComboBoxItem Content="简介" Tag="description" />
+                                    </ComboBox>
+                                    <TextBlock Text="排序" Style="{StaticResource MutedText}" VerticalAlignment="Center"
+                                               Margin="12,0,6,0" />
+                                    <ComboBox x:Name="MarketSortBox" Style="{StaticResource FlatCombo}"
+                                              ItemContainerStyle="{StaticResource FlatComboItem}" Width="126"
+                                              SelectionChanged="MarketAdvanced_Changed">
+                                        <ComboBoxItem Content="默认排序" Tag="default" IsSelected="True" />
+                                        <ComboBoxItem Content="最近更新" Tag="updated" />
+                                        <ComboBoxItem Content="名称" Tag="name" />
+                                        <ComboBoxItem Content="GitHub Star" Tag="stars" />
+                                    </ComboBox>
+                                    <CheckBox x:Name="MarketSortDescCheck" Style="{StaticResource TextCheck}"
+                                              Content="倒序" Margin="10,0,0,0" Click="MarketSortDesc_Changed" />
+                                    <TextBlock x:Name="MarketStarStatus" Style="{StaticResource MutedText}"
+                                               FontSize="10" VerticalAlignment="Center" Margin="12,0,0,0"
+                                               TextTrimming="CharacterEllipsis" />
+                                </DockPanel>
+                                </StackPanel>
 
                                 <ListBox x:Name="MarketList" Grid.Row="2" Background="Transparent" BorderThickness="0"
                                          Padding="0" HorizontalContentAlignment="Stretch"
@@ -532,7 +575,7 @@
                                          PreviewMouseLeftButtonDown="MarketList_PreviewLeftDown"
                                          MouseDoubleClick="MarketList_MouseDoubleClick"
                                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                         ScrollViewer.CanContentScroll="True" VirtualizingPanel.ScrollUnit="Pixel">
+                                         ScrollViewer.CanContentScroll="False">
                                     <ListBox.ItemTemplate>
                                         <DataTemplate>
                                             <StackPanel>
@@ -618,7 +661,7 @@
                 </Border>
             </Grid>
 
-            <!-- ===== 备份与诊断页 ===== -->
+            <!-- ===== 备份页 ===== -->
             <Grid x:Name="BackupPage" Visibility="Collapsed" Margin="14">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="340" />
@@ -633,7 +676,7 @@
                 <Border Grid.Column="0" Background="{DynamicResource PanelBrush}" CornerRadius="12" Padding="16">
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Top">
-                            <TextBlock Text="备份与诊断" FontSize="16" FontWeight="SemiBold" Margin="2,2,0,12" />
+                            <TextBlock Text="备份" FontSize="16" FontWeight="SemiBold" Margin="2,2,0,12" />
 
                             <TextBlock Text="目标版本" Style="{StaticResource MutedText}" Margin="2,0,0,6" />
                             <ComboBox x:Name="BackupTargetBox" Style="{StaticResource FlatCombo}"
@@ -652,7 +695,7 @@
                                     ToolTip="多槽批量导入/导出、单槽管理与启动器里的存档备份" />
                             <Button x:Name="BackupSavesNowBtn" Content="立即备份存档" Tag="&#xE896;"
                                     Style="{StaticResource IconButton}" Click="BackupSavesNow_Click" Margin="0,8,0,0"
-                                    ToolTip="打开一个自动备份页，把浏览器存档写入启动器 backups 目录" />
+                                    ToolTip="直接用页面写回的磁盘镜像备份，不打开浏览器窗口" />
 
                             <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="0,14,0,14" />
 
@@ -684,11 +727,14 @@
                                     <ComboBoxItem Content="20" />
                                 </ComboBox>
                             </DockPanel>
+                            <TextBlock x:Name="BackupMirrorText" Style="{StaticResource MutedText}" FontSize="10"
+                                       TextWrapping="Wrap" Margin="2,8,2,0"
+                                       Text="磁盘镜像：等待读取…" />
                         </StackPanel>
 
                         <TextBlock DockPanel.Dock="Bottom" Style="{StaticResource MutedText}" FontSize="10"
                                    TextWrapping="Wrap" Margin="2,12,2,0"
-                                   Text="备份都放在启动器根目录的 backups\版本名 下，不会污染游戏目录。存档备份来自浏览器同源的存档助手页。" />
+                                   Text="备份都放在启动器根目录的 backups\版本名 下，不会污染游戏目录。存档镜像由游戏页自动写回磁盘，备份/还原都不需要打开浏览器。" />
                         <Border Background="Transparent" />
                     </DockPanel>
                 </Border>
@@ -699,8 +745,6 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                             <RowDefinition Height="Auto" />
-                            <RowDefinition Height="10" />
-                            <RowDefinition Height="260" />
                         </Grid.RowDefinitions>
 
                         <DockPanel Grid.Row="0" Margin="0,0,0,8">
@@ -718,7 +762,7 @@
                                  MouseDoubleClick="BackupList_MouseDoubleClick"
                                  SelectionChanged="BackupList_SelectionChanged"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                 ScrollViewer.CanContentScroll="True" VirtualizingPanel.ScrollUnit="Pixel">
+                                 ScrollViewer.CanContentScroll="False">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
                                     <StackPanel>
@@ -756,42 +800,149 @@
                                     Style="{StaticResource IconButton}" Click="RefreshBackup_Click"
                                     Margin="0,0,8,8" />
                         </WrapPanel>
+                    </Grid>
+                </Border>
+            </Grid>
 
-                        <controls:PaneSplitter Grid.Row="3" Axis="Rows" SettingKey="backup.diagHeight"
-                                               DefaultSize="260" MinPrevious="200" MinNext="160"
-                                               Style="{StaticResource PaneSplitterStyle}" />
+            <!-- ===== 诊断页 ===== -->
+            <Grid x:Name="DiagnosticPage" Visibility="Collapsed" Margin="14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="340" />
+                    <ColumnDefinition Width="14" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
 
-                        <Grid Grid.Row="4">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="*" />
-                            </Grid.RowDefinitions>
+                <controls:PaneSplitter Grid.Column="1" Axis="Columns" SettingKey="diag.leftWidth"
+                                       DefaultSize="340" MinPrevious="280" MinNext="420"
+                                       Style="{StaticResource PaneSplitterStyle}" />
 
-                            <DockPanel Grid.Row="0" Margin="0,0,0,6">
-                                <TextBlock Text="诊断" Style="{StaticResource SectionTitle}" />
-                                <TextBlock Style="{StaticResource MutedText}" FontSize="11" Margin="12,0,0,0"
-                                           VerticalAlignment="Center"
-                                           Text="检查依赖与版本、导出诊断包；游戏日志也可以导入查看。" />
+                <Border Grid.Column="0" Background="{DynamicResource PanelBrush}" CornerRadius="12" Padding="16">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel>
+                            <TextBlock Text="诊断" FontSize="16" FontWeight="SemiBold" Margin="2,2,0,4" />
+                            <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="2,0,0,12"
+                                       Text="检查依赖、版本与模组完整性；也可以分析游戏日志里的报错。" />
+
+                            <TextBlock Text="目标版本" Style="{StaticResource MutedText}" Margin="2,0,0,6" />
+                            <ComboBox x:Name="DiagTargetBox" Style="{StaticResource FlatCombo}"
+                                      ItemContainerStyle="{StaticResource FlatComboItem}"
+                                      Margin="0,0,0,12">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding ComboName}" TextTrimming="CharacterEllipsis"
+                                                   ToolTip="{Binding DisplayName}" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+
+                            <Button x:Name="CompatCheckBtn" Content="兼容性检查" Tag="&#xE73E;"
+                                    Style="{StaticResource IconButton}" Click="CompatCheck_Click" />
+                            <Button x:Name="ExportDiagBtn" Content="导出诊断包" Tag="&#xE7B8;"
+                                    Style="{StaticResource IconButton}" Click="ExportDiag_Click" Margin="0,8,0,0"
+                                    ToolTip="把版本信息、依赖、模组清单与日志打包成 zip" />
+                            <Button x:Name="ViewLauncherLogBtn" Content="打开启动器日志" Tag="&#xE7C3;"
+                                    Style="{StaticResource IconButton}" Click="ViewLauncherLog_Click" Margin="0,8,0,0"
+                                    ToolTip="用系统默认程序打开 logs\launcher.log" />
+                            <Button x:Name="OpenGameLogBtn" Content="打开游戏日志" Tag="&#xE8A5;"
+                                    Style="{StaticResource IconButton}" Click="OpenGameLog_Click" Margin="0,8,0,0"
+                                    ToolTip="打开该版本目录 logs\game-yyyyMMdd-HHmmss.log（启动游戏后自动生成）" />
+                            <Button x:Name="AnalyzeLogBtn" Content="分析报错" Tag="&#xE9D9;"
+                                    Style="{StaticResource IconButton}" Click="AnalyzeLog_Click" Margin="0,8,0,0"
+                                    ToolTip="汇总游戏日志里的警告/错误，列出次数、时间、完整内容与可能原因" />
+
+                            <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="0,14,0,14" />
+
+                            <TextBlock Text="游戏日志" Style="{StaticResource SectionTitle}" Margin="2,0,0,10" />
+                            <DockPanel>
+                                <TextBlock Text="游戏日志保留份数" Style="{StaticResource MutedText}"
+                                           VerticalAlignment="Center" />
+                                <ComboBox x:Name="GameLogKeepBox" Style="{StaticResource FlatCombo}"
+                                          ItemContainerStyle="{StaticResource FlatComboItem}"
+                                          Width="76" Margin="10,0,0,0"
+                                          SelectionChanged="GameLogKeep_Changed">
+                                    <ComboBoxItem Content="5" />
+                                    <ComboBoxItem Content="10" />
+                                    <ComboBoxItem Content="20" IsSelected="True" />
+                                    <ComboBoxItem Content="50" />
+                                </ComboBox>
+                            </DockPanel>
+                            <DockPanel Margin="0,10,0,0">
+                                <TextBlock Text="单份上限" Style="{StaticResource MutedText}"
+                                           VerticalAlignment="Center" />
+                                <ComboBox x:Name="GameLogMaxBox" Style="{StaticResource FlatCombo}"
+                                          ItemContainerStyle="{StaticResource FlatComboItem}"
+                                          Width="96" Margin="10,0,0,0"
+                                          SelectionChanged="GameLogMax_Changed">
+                                    <ComboBoxItem Content="无限制" />
+                                    <ComboBoxItem Content="10 MB" />
+                                    <ComboBoxItem Content="30 MB" IsSelected="True" />
+                                    <ComboBoxItem Content="100 MB" />
+                                </ComboBox>
+                            </DockPanel>
+                            <DockPanel Margin="0,10,0,0">
+                                <TextBlock Text="超限后" Style="{StaticResource MutedText}"
+                                           VerticalAlignment="Center" />
+                                <ComboBox x:Name="GameLogOverflowBox" Style="{StaticResource FlatCombo}"
+                                          ItemContainerStyle="{StaticResource FlatComboItem}"
+                                          Width="140" Margin="10,0,0,0"
+                                          SelectionChanged="GameLogOverflow_Changed">
+                                    <ComboBoxItem Content="写新文件（-2、-3…）" IsSelected="True" />
+                                    <ComboBoxItem Content="停止写入" />
+                                </ComboBox>
                             </DockPanel>
 
-                            <WrapPanel Grid.Row="1">
-                                <Button x:Name="CompatCheckBtn" Content="兼容性检查" Tag="&#xE73E;"
-                                        Style="{StaticResource IconButton}" Click="CompatCheck_Click" Margin="0,0,8,8" />
-                                <Button x:Name="ExportDiagBtn" Content="导出诊断包" Tag="&#xE7B8;"
-                                        Style="{StaticResource IconButton}" Click="ExportDiag_Click" Margin="0,0,8,8" />
-                                <Button x:Name="ViewLauncherLogBtn" Content="启动器日志" Tag="&#xE7C3;"
-                                        Style="{StaticResource IconButton}" Click="ViewLauncherLog_Click" Margin="0,0,8,8" />
-                                <Button x:Name="OpenLogFileBtn" Content="打开游戏日志文件" Tag="&#xE8A5;"
-                                        Style="{StaticResource IconButton}" Click="OpenLogFile_Click" Margin="0,0,8,8" />
-                            </WrapPanel>
+                            <TextBlock Text="上报队列上限" Style="{StaticResource MutedText}" Margin="0,10,0,4" />
+                            <StackPanel Orientation="Horizontal">
+                                <Slider x:Name="LogQueueSlider" Width="180" Minimum="1" Maximum="64"
+                                        VerticalAlignment="Center"
+                                        ValueChanged="LogUpload_Changed"
+                                        LostMouseCapture="LogUpload_LostMouseCapture" />
+                                <TextBlock x:Name="LogQueueText" Style="{StaticResource MutedText}"
+                                           Width="56" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            </StackPanel>
 
-                            <TextBox x:Name="DiagBox" Grid.Row="2" Style="{StaticResource DarkTextBox}"
-                                     IsReadOnly="True" FontFamily="Consolas" FontSize="12"
-                                     Foreground="{DynamicResource MutedBrush}"
-                                     TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
-                                     HorizontalScrollBarVisibility="Disabled" />
-                        </Grid>
+                            <TextBlock Text="上报合并间隔" Style="{StaticResource MutedText}" Margin="0,10,0,4" />
+                            <StackPanel Orientation="Horizontal">
+                                <Slider x:Name="LogFlushSlider" Width="180" Minimum="200" Maximum="5000"
+                                        TickFrequency="100" VerticalAlignment="Center"
+                                        ValueChanged="LogUpload_Changed"
+                                        LostMouseCapture="LogUpload_LostMouseCapture" />
+                                <TextBlock x:Name="LogFlushText" Style="{StaticResource MutedText}"
+                                           Width="56" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            </StackPanel>
+
+                            <TextBlock x:Name="GameLogStatusText" Style="{StaticResource MutedText}" FontSize="10"
+                                       TextWrapping="Wrap" Margin="2,12,2,0"
+                                       Text="最近一次日志：本次运行还没有收到游戏页面上报（启动游戏后自动采集）。" />
+
+                            <TextBlock Style="{StaticResource MutedText}" FontSize="10"
+                                       TextWrapping="Wrap" Margin="2,8,2,0"
+                                       Text="诊断结果只在本页显示，不会改动游戏文件；日志设置对所有版本生效。" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </Border>
+
+                <Border Grid.Column="2" Background="{DynamicResource PanelBrush}" CornerRadius="12" Padding="18">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <DockPanel Grid.Row="0" Margin="0,0,0,8">
+                            <TextBlock Text="诊断输出" Style="{StaticResource SectionTitle}" />
+                            <TextBlock Style="{StaticResource MutedText}" FontSize="11" Margin="12,0,0,0"
+                                       VerticalAlignment="Center"
+                                       Text="选择左侧操作查看结果；内容可选中复制。" />
+                        </DockPanel>
+
+                        <TextBox x:Name="DiagBox" Grid.Row="1" Style="{StaticResource DarkTextBox}"
+                                 IsReadOnly="True" FontFamily="Consolas" FontSize="12"
+                                 Foreground="{DynamicResource MutedBrush}"
+                                 TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Disabled"
+                                 IsUndoEnabled="False" TextOptions.TextFormattingMode="Display"
+                                 Text="点「兼容性检查」查看依赖与版本结果；点「分析报错」汇总游戏日志中的警告与错误。" />
                     </Grid>
                 </Border>
             </Grid>
@@ -896,6 +1047,33 @@
                                                 <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
                                                            Margin="0,3,0,0"
                                                            Text="游戏版本差异告警阈值：决定「可能存在问题」里版本不匹配的敏感度。" />
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="2" Text="&#xE76C;"
+                                                       FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                                       FontSize="14" Foreground="{DynamicResource MutedBrush}"
+                                                       VerticalAlignment="Center" />
+                                        </Grid>
+                                    </Button>
+
+                                    <Button Style="{StaticResource SettingsCard}" Tag="游戏浏览器"
+                                            Click="SettingsCategory_Click">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <Border Width="38" Height="38" CornerRadius="9"
+                                                    Background="{DynamicResource AccentPaleBrush}">
+                                                <TextBlock Text="&#xE774;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                                           FontSize="17" Foreground="{DynamicResource AccentBrush}"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            </Border>
+                                            <StackPanel Grid.Column="1" Margin="12,0,12,0" VerticalAlignment="Center">
+                                                <TextBlock Text="游戏浏览器" FontSize="14" FontWeight="SemiBold" />
+                                                <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
+                                                           Margin="0,3,0,0"
+                                                           Text="打开游戏页使用的浏览器：独立 Profile 支持关页自动停服，也可改为系统默认浏览器。" />
                                             </StackPanel>
                                             <TextBlock Grid.Column="2" Text="&#xE76C;"
                                                        FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
@@ -1100,6 +1278,125 @@
                                     </Border>
                                 </StackPanel>
 
+                                <!-- 游戏浏览器 -->
+                                <StackPanel x:Name="SettingsBrowserPanel" Visibility="Collapsed">
+                                    <Border Style="{StaticResource SettingsItemCard}">
+                                        <StackPanel>
+                                            <TextBlock Text="承载方式" FontWeight="SemiBold" />
+                                            <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
+                                                       Margin="0,4,0,9"
+                                                       Text="独立 Profile：用本机 Edge / Chrome 打开独立窗口，只使用启动器自己的 profile（各版本共用，按端口隔离数据），支持静默清缓存、关页检测与数据落盘；系统默认浏览器不具备这些能力。修改后下次启动游戏生效。" />
+                                            <ComboBox x:Name="BrowserModeBox" Style="{StaticResource FlatCombo}"
+                                                      ItemContainerStyle="{StaticResource FlatComboItem}"
+                                                      Width="236" HorizontalAlignment="Left"
+                                                      SelectionChanged="BrowserMode_Changed">
+                                                <ComboBoxItem Content="独立 Profile（推荐）" Tag="profile" />
+                                                <ComboBoxItem Content="系统默认浏览器" Tag="default" />
+                                                <ComboBoxItem Content="自定义浏览器" Tag="custom" />
+                                            </ComboBox>
+                                            <TextBlock Text="关闭游戏页面时" FontWeight="SemiBold"
+                                                       Margin="0,14,0,0" />
+                                            <ComboBox x:Name="ClosePageBox" Style="{StaticResource FlatCombo}"
+                                                      ItemContainerStyle="{StaticResource FlatComboItem}"
+                                                      Width="236" HorizontalAlignment="Left" Margin="0,6,0,0"
+                                                      SelectionChanged="ClosePage_Changed">
+                                                <ComboBoxItem Content="直接关闭本地服务器" Tag="close" />
+                                                <ComboBoxItem Content="询问是否保留后台服务" Tag="ask" />
+                                            </ComboBox>
+                                            <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
+                                                       Margin="0,6,0,0"
+                                                       Text="仅在支持关页检测的承载方式（独立 Profile / 自定义 + 独立 Profile）下生效。" />
+                                            <TextBlock x:Name="BrowserSettingsStatus" Style="{StaticResource MutedText}"
+                                                       TextWrapping="Wrap" Margin="0,8,0,0" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Style="{StaticResource SettingsItemCard}">
+                                        <StackPanel>
+                                            <TextBlock Text="自定义浏览器" FontWeight="SemiBold" />
+                                            <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
+                                                       Margin="0,4,0,9"
+                                                       Text="仅在承载方式为「自定义浏览器」时生效。参数中可用 &#x7B;url&#x7D; 作为页面地址占位；不写占位时会自动把地址追加到参数末尾。" />
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox x:Name="BrowserExeBox" Style="{StaticResource DarkTextBox}"
+                                                         LostFocus="BrowserExe_LostFocus" />
+                                                <Button x:Name="BrowseBrowserExeBtn" Grid.Column="1" Content="浏览…"
+                                                        Style="{StaticResource FlatButton}"
+                                                        Padding="14,4,14,4" Margin="8,0,0,0"
+                                                        Click="BrowseBrowserExe_Click" />
+                                            </Grid>
+                                            <TextBlock Text="启动参数" Style="{StaticResource MutedText}"
+                                                       Margin="0,10,0,6" />
+                                            <TextBox x:Name="BrowserArgsBox" Style="{StaticResource DarkTextBox}"
+                                                     LostFocus="BrowserArgs_LostFocus" />
+                                            <CheckBox x:Name="BrowserProfileCheck" Style="{StaticResource TextCheck}"
+                                                      Content="使用独立 Profile" Margin="0,12,0,0"
+                                                      Click="BrowserProfile_Checked" />
+                                            <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
+                                                       Margin="0,8,0,0"
+                                                       Text="勾选后使用启动器专用的浏览器 profile 目录（所有版本共用，不复制你日常浏览器的数据），可同时启用静默清缓存与关页检测；不勾选时窗口关闭通常无法可靠检测。" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Style="{StaticResource SettingsItemCard}">
+                                        <StackPanel>
+                                            <TextBlock Text="关页检测时间参数" FontWeight="SemiBold" />
+                                            <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
+                                                       Margin="0,4,0,9"
+                                                       Text="心跳由页面脚本定时上报。时间越大越不容易把加载中的游戏误判为关闭，但真正关页后停服也会更慢。修改下次打开页面生效。" />
+                                            <TextBlock Text="页面心跳间隔" Style="{StaticResource MutedText}" />
+                                            <StackPanel Orientation="Horizontal">
+                                                <Slider x:Name="HeartbeatIntervalSlider" Width="200" Minimum="1" Maximum="30"
+                                                        VerticalAlignment="Center" Tag="heartbeat"
+                                                        ValueChanged="TimingSlider_Changed"
+                                                        LostMouseCapture="TimingSlider_LostMouseCapture" />
+                                                <TextBlock x:Name="HeartbeatIntervalText" Style="{StaticResource MutedText}"
+                                                           Width="56" VerticalAlignment="Center" Margin="10,0,0,0" />
+                                            </StackPanel>
+                                            <TextBlock Text="心跳超时判定" Style="{StaticResource MutedText}" Margin="0,10,0,0" />
+                                            <StackPanel Orientation="Horizontal">
+                                                <Slider x:Name="HeartbeatTimeoutSlider" Width="200" Minimum="5" Maximum="180"
+                                                        VerticalAlignment="Center" Tag="timeout"
+                                                        ValueChanged="TimingSlider_Changed"
+                                                        LostMouseCapture="TimingSlider_LostMouseCapture" />
+                                                <TextBlock x:Name="HeartbeatTimeoutText" Style="{StaticResource MutedText}"
+                                                           Width="56" VerticalAlignment="Center" Margin="10,0,0,0" />
+                                            </StackPanel>
+                                            <TextBlock Text="首次心跳宽限" Style="{StaticResource MutedText}" Margin="0,10,0,0" />
+                                            <StackPanel Orientation="Horizontal">
+                                                <Slider x:Name="FirstGraceSlider" Width="200" Minimum="5" Maximum="600"
+                                                        VerticalAlignment="Center" Tag="grace"
+                                                        ValueChanged="TimingSlider_Changed"
+                                                        LostMouseCapture="TimingSlider_LostMouseCapture" />
+                                                <TextBlock x:Name="FirstGraceText" Style="{StaticResource MutedText}"
+                                                           Width="56" VerticalAlignment="Center" Margin="10,0,0,0" />
+                                            </StackPanel>
+                                            <TextBlock Text="关闭防抖" Style="{StaticResource MutedText}" Margin="0,10,0,0" />
+                                            <StackPanel Orientation="Horizontal">
+                                                <Slider x:Name="CloseDebounceSlider" Width="200" Minimum="0" Maximum="60"
+                                                        VerticalAlignment="Center" Tag="debounce"
+                                                        ValueChanged="TimingSlider_Changed"
+                                                        LostMouseCapture="TimingSlider_LostMouseCapture" />
+                                                <TextBlock x:Name="CloseDebounceText" Style="{StaticResource MutedText}"
+                                                           Width="56" VerticalAlignment="Center" Margin="10,0,0,0" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Style="{StaticResource SettingsItemCard}">
+                                        <StackPanel>
+                                            <TextBlock Text="能力差异" FontWeight="SemiBold" />
+                                            <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
+                                                       Margin="0,6,0,0"
+                                                       Text="独立 Profile：支持静默清缓存、数据落盘，关闭页面后按设置停止本地服务器。&#10;系统默认浏览器：不支持静默清缓存与数据落盘，关页检测靠页面心跳仍然有效。&#10;自定义浏览器：启用独立 Profile 时支持静默清缓存与数据落盘。" />
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+
                                 <!-- 界面与外观 -->
                                 <StackPanel x:Name="SettingsAppearancePanel" Visibility="Collapsed">
                                     <Border Style="{StaticResource SettingsItemCard}">
@@ -1116,6 +1413,70 @@
                                                 <ComboBoxItem Content="亮色" Tag="light" />
                                                 <ComboBoxItem Content="深色" Tag="dark" />
                                             </ComboBox>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Style="{StaticResource SettingsItemCard}">
+                                        <StackPanel>
+                                            <TextBlock Text="主题色" FontWeight="SemiBold" />
+                                            <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
+                                                       Margin="0,4,0,9"
+                                                       Text="自定义强调色（按钮、选中态、分页头等）。可直接点色块选色，也可用色相 / 饱和度 / 亮度滑块微调；饱和度 100% 为程序推荐的鲜艳度，0% 为灰色。" />
+                                            <StackPanel Orientation="Horizontal">
+                                                <Button x:Name="AccentColorButton" Style="{StaticResource FlatButton}"
+                                                        Width="56" Height="30" Padding="0"
+                                                        ToolTip="点击选择主色" Click="AccentColor_Click" />
+                                                <TextBlock x:Name="AccentColorText" Style="{StaticResource MutedText}"
+                                                           VerticalAlignment="Center" Margin="10,0,0,0" />
+                                                <Button Content="恢复默认" Style="{StaticResource FlatButton}"
+                                                        Padding="12,4,12,4" Margin="12,0,0,0"
+                                                        Click="AccentReset_Click" />
+                                            </StackPanel>
+                                            <TextBlock Text="色相" Style="{StaticResource MutedText}"
+                                                       Margin="0,14,0,4" />
+                                            <StackPanel Orientation="Horizontal">
+                                                <Slider x:Name="AccentHueSlider" Width="220"
+                                                        Minimum="0" Maximum="360" TickFrequency="1"
+                                                        VerticalAlignment="Center"
+                                                        ValueChanged="AccentHsl_Changed"
+                                                        LostMouseCapture="AccentHsl_LostMouseCapture" />
+                                                <TextBlock x:Name="AccentHueText" Style="{StaticResource MutedText}"
+                                                           Width="44" VerticalAlignment="Center" Margin="10,0,0,0" />
+                                            </StackPanel>
+                                            <TextBlock Text="饱和度" Style="{StaticResource MutedText}"
+                                                       Margin="0,10,0,4" />
+                                            <StackPanel Orientation="Horizontal">
+                                                <Slider x:Name="AccentSaturationSlider" Width="220"
+                                                        Minimum="0" Maximum="100"
+                                                        VerticalAlignment="Center"
+                                                        ValueChanged="AccentHsl_Changed"
+                                                        LostMouseCapture="AccentHsl_LostMouseCapture" />
+                                                <TextBlock x:Name="AccentSaturationText" Style="{StaticResource MutedText}"
+                                                           Width="44" VerticalAlignment="Center" Margin="10,0,0,0" />
+                                            </StackPanel>
+                                            <TextBlock Text="亮度" Style="{StaticResource MutedText}"
+                                                       Margin="0,10,0,4" />
+                                            <StackPanel Orientation="Horizontal">
+                                                <Slider x:Name="AccentLightnessSlider" Width="220"
+                                                        Minimum="0" Maximum="100"
+                                                        VerticalAlignment="Center"
+                                                        ValueChanged="AccentHsl_Changed"
+                                                        LostMouseCapture="AccentHsl_LostMouseCapture" />
+                                                <TextBlock x:Name="AccentLightnessText" Style="{StaticResource MutedText}"
+                                                           Width="44" VerticalAlignment="Center" Margin="10,0,0,0" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Style="{StaticResource SettingsItemCard}">
+                                        <StackPanel>
+                                            <TextBlock Text="启动器副标题" FontWeight="SemiBold" />
+                                            <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
+                                                       Margin="0,4,0,9"
+                                                       Text="显示在左上角「DoL 启动器」下方的一行小字；留空时使用「版本 · 模组 · 存档」。" />
+                                            <TextBox x:Name="SubtitleCustomBox" Style="{StaticResource DarkTextBox}"
+                                                     Width="236" HorizontalAlignment="Left"
+                                                     MaxLength="32" LostFocus="SubtitleCustom_LostFocus" />
                                         </StackPanel>
                                     </Border>
 
@@ -1155,6 +1516,19 @@
 
                                     <Border Style="{StaticResource SettingsItemCard}">
                                         <StackPanel>
+                                            <DockPanel>
+                                                <Button x:Name="ProjectHomeBtn" Content="项目主页" Tag="&#xE774;"
+                                                        Style="{StaticResource IconButton}" DockPanel.Dock="Right"
+                                                        HorizontalAlignment="Right" Click="ProjectHome_Click" />
+                                                <TextBlock Text="致谢名单" FontWeight="SemiBold"
+                                                           VerticalAlignment="Center" />
+                                            </DockPanel>
+                                            <StackPanel x:Name="CreditsPanel" Margin="0,12,0,0" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Style="{StaticResource SettingsItemCard}">
+                                        <StackPanel>
                                             <TextBlock Text="检查更新" FontWeight="SemiBold" />
                                             <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
                                                        Margin="0,4,0,9"
@@ -1162,8 +1536,21 @@
                                             <Button x:Name="CheckUpdateBtn" Content="检查更新" Tag="&#xE895;"
                                                     Style="{StaticResource IconButton}" HorizontalAlignment="Left"
                                                     Click="CheckUpdate_Click" />
-                                            <TextBlock x:Name="UpdateStatusText" Style="{StaticResource MutedText}"
-                                                       TextWrapping="Wrap" Margin="0,8,0,0" />
+                                            <TextBlock x:Name="UpdateStatusText"
+                                                       TextWrapping="Wrap" Margin="0,8,0,0">
+                                                <TextBlock.Style>
+                                                    <!-- 没有状态文本时不占高度，出现文本后再自动撑开 -->
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource MutedText}">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Text.Length, RelativeSource={RelativeSource Self}}"
+                                                                         Value="0">
+                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
                                         </StackPanel>
                                     </Border>
                                 </StackPanel>

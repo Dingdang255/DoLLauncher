@@ -1,0 +1,34 @@
+{
+  "projectUrl": "https://github.com/Dingdang255/DoLLauncher",
+  "entries": [
+    {
+      "role": "启动器开发",
+      "name": "Dingdang255",
+      "avatar": "Assets/credits/dingdang255.png",
+      "bilibili": "https://space.bilibili.com/182479723",
+      "github": "https://github.com/Dingdang255/DoLLauncher"
+    },
+    {
+      "role": "游戏原作",
+      "name": "Degrees of Lewdity",
+      "avatar": "Assets/dol-favicon.png",
+      "bilibili": "",
+      "github": "",
+      "website": "https://degreesoflewditycn.miraheze.org/wiki/%E9%A6%96%E9%A1%B5"
+    },
+    {
+      "role": "模组加载器",
+      "name": "ModLoader",
+      "avatar": "",
+      "bilibili": "",
+      "github": "https://github.com/Lyoko-Jeremie/sugarcube-2-ModLoader"
+    },
+    {
+      "role": "模组市场",
+      "name": "ModHub",
+      "avatar": "",
+      "bilibili": "",
+      "github": "https://github.com/JohnLiao501/ModHub"
+    }
+  ]
+}

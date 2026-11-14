@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
+using DoLLauncher.Platform;
 using DoLLauncher.Services;
 
 namespace DoLLauncher;
@@ -36,6 +37,8 @@ public partial class App : Application
         UiAnimations.Initialize();
         TextToolTip.Initialize();
         ThemeService.Initialize();
+        // 平台能力在主题初始化之后装配，供后续页面与服务通过接口访问
+        PlatformServices.Initialize();
     }
 
     private void OnUnhandled(object sender, DispatcherUnhandledExceptionEventArgs e)

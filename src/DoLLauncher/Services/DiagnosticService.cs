@@ -74,20 +74,6 @@ public static class DiagnosticService
         }
     }
 
-    public static string ReadTail(string path, int lines = 400)
-    {
-        try
-        {
-            var all = File.ReadAllLines(path, Encoding.UTF8);
-            var start = Math.Max(0, all.Length - lines);
-            return string.Join(Environment.NewLine, all[start..]);
-        }
-        catch (Exception ex)
-        {
-            return "读取日志失败：" + ex.Message;
-        }
-    }
-
     public static string ExportPackage(VersionInfo version, string outputPath, Action<string> log)
     {
         var temp = outputPath + ".tmp";
@@ -98,6 +84,9 @@ public static class DiagnosticService
             {
                 var report = string.Join(Environment.NewLine, Compatibility(version));
                 AddText(zip, "report.txt", report);
+                AddText(zip, "analysis.txt", GameLogAnalysis.Analyze(version));
+                AddText(zip, "system.txt", SystemInfo(version));
+                AddText(zip, "README.txt", PackageReadme(version));
                 AddText(zip, "version.json", $"{{\n  \"folder\": \"{version.Folder}\",\n  \"gameVersion\": \"{version.GameVersion}\",\n  \"path\": \"{version.FullPath.Replace("\\", "\\\\")}\"\n}}");
 
                 AddFileIfExists(zip, "launcher-versions.json", Paths.ConfigFile);
@@ -105,8 +94,10 @@ public static class DiagnosticService
                 AddFileIfExists(zip, "modList.json", Path.Combine(version.FullPath, "modList.json"));
                 AddFileIfExists(zip, "logs/launcher.log", LogService.FilePath);
 
-                var gameLog = FindLatestLog(version.FullPath);
-                if (gameLog != null) AddFileIfExists(zip, "logs/" + Path.GetFileName(gameLog), gameLog);
+                foreach (var logFile in RecentGameLogs(version.FullPath, 10))
+                {
+                    AddFileIfExists(zip, "logs/" + Path.GetFileName(logFile), logFile);
+                }
 
                 foreach (var mod in ModService.Load(version.FullPath))
                 {
@@ -114,7 +105,7 @@ public static class DiagnosticService
                     if (boot != null) AddText(zip, "mods/" + mod.FileName + ".boot.json", boot);
                 }
 
-                log("诊断包已写入：兼容性报告、模组清单、启动器日志。");
+                log("诊断包已写入：检查报告、报错分析、系统信息、日志与模组元数据。");
             }
 
             if (File.Exists(outputPath)) File.Delete(outputPath);
@@ -126,6 +117,89 @@ public static class DiagnosticService
             try { if (File.Exists(temp)) File.Delete(temp); } catch { }
             throw;
         }
+    }
+
+    /// <summary>版本目录里最近的若干份游戏日志（新的在前）。</summary>
+    public static List<string> RecentGameLogs(string versionDir, int max)
+    {
+        try
+        {
+            var dir = GameLogService.Dir(versionDir);
+            if (!Directory.Exists(dir)) return new List<string>();
+            return Directory.GetFiles(dir, "game-*.log")
+                .Select(f => new FileInfo(f))
+                .OrderByDescending(f => f.LastWriteTime)
+                .Take(Math.Max(1, max))
+                .Select(f => f.FullName)
+                .ToList();
+        }
+        catch
+        {
+            return new List<string>();
+        }
+    }
+
+    private static string SystemInfo(VersionInfo version)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("== 系统与运行环境 ==");
+        sb.AppendLine($"启动器版本：{BuildInfo.Display}");
+        sb.AppendLine($"操作系统：{Environment.OSVersion}（64 位系统={Environment.Is64BitOperatingSystem}）");
+        sb.AppendLine($"运行时：{Environment.Version}");
+        sb.AppendLine($"机器名：{Environment.MachineName}，CPU 核数：{Environment.ProcessorCount}");
+        sb.AppendLine();
+        sb.AppendLine("== 当前版本 ==");
+        sb.AppendLine($"目录：{version.FullPath}");
+        sb.AppendLine($"显示名：{version.DisplayName}");
+        sb.AppendLine($"游戏版本：{version.GameVersion ?? "未知"}");
+        sb.AppendLine($"模式：{version.Mode}，端口：{version.Port}");
+
+        try
+        {
+            var cfg = AppConfig.Load();
+            sb.AppendLine();
+            sb.AppendLine("== 已登记版本 ==");
+            foreach (var v in cfg.Versions)
+            {
+                sb.AppendLine($"  · {v.Folder}（端口 {v.Port}，{v.Mode}）");
+            }
+            sb.AppendLine();
+            sb.AppendLine("== 日志设置 ==");
+            sb.AppendLine($"保留份数={cfg.General.GameLogKeep}，单份上限={cfg.General.GameLogMaxMb} MB（0=无限制），超限处理={cfg.General.GameLogOverflow}");
+        }
+        catch (Exception ex)
+        {
+            sb.AppendLine("读取配置失败：" + ex.Message);
+        }
+
+        sb.AppendLine();
+        sb.AppendLine($"启动器日志：{LogService.FilePath}");
+        sb.AppendLine($"游戏日志目录：{GameLogService.Dir(version.FullPath)}");
+        return sb.ToString();
+    }
+
+    private static string PackageReadme(VersionInfo version)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("DoL 启动器诊断包");
+        sb.AppendLine("=================");
+        sb.AppendLine($"版本：{version.DisplayName}（{version.Folder}）");
+        sb.AppendLine($"生成时间：{DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        sb.AppendLine($"启动器：{BuildInfo.Display}");
+        sb.AppendLine();
+        sb.AppendLine("建议阅读顺序：");
+        sb.AppendLine("1. analysis.txt —— 游戏日志里的 warning/error 已分组，并给出次数、时间和可能原因；先看这里。");
+        sb.AppendLine("2. report.txt   —— 游戏本体、版本号、模组依赖与完整性的检查结果。");
+        sb.AppendLine("3. logs/game-*.log —— 游戏页面控制台原始日志（warning/error 为完整内容，其它级别超长会标注省略字数）。");
+        sb.AppendLine("4. logs/launcher.log —— 启动器自身的运行记录。");
+        sb.AppendLine("5. system.txt   —— 系统、运行时、端口、版本列表与日志设置。");
+        sb.AppendLine("6. mods/*.boot.json —— 每个模组的元数据与依赖声明，可用来核对缺失/版本不符的前置。");
+        sb.AppendLine("7. modList.json / mods-state.json —— 模组加载顺序与启用状态。");
+        sb.AppendLine();
+        sb.AppendLine("说明：");
+        sb.AppendLine("· 游戏日志来自内置服务器注入的采集脚本，只记录浏览器控制台与未捕获异常，不包含存档内容。");
+        sb.AppendLine("· 排查模组问题时，可先停用可疑模组再启动一次，对比 analysis.txt 的变化。");
+        return sb.ToString();
     }
 
     private static string? ExtractBootJson(string zipPath)
