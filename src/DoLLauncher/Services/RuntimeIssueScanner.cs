@@ -15,11 +15,25 @@ public static class RuntimeIssueScanner
 {
     private const int MaxFiles = 3;
     private const int MaxBytesPerFile = 2_000_000;
+    private const int HeadBytes = 512 * 1024;
     private const int HeadLength = 400;
 
     private static readonly Regex PatchName = new("\"name\"\\s*:\\s*\"([^\"]{1,80})\"", RegexOptions.Compiled);
     private static readonly Regex ZoneName = new(@"区域\s+([^\s]{1,40})\s+不存在", RegexOptions.Compiled);
     private static readonly Regex Timestamp = new(@"^(\d{4}-\d{2}-\d{2}T[0-9:.]+Z?)", RegexOptions.Compiled);
+
+    /// <summary>游戏自己的版本自检失败：mod[X] need gameVersion[Y] but gameVersion is [Z]。</summary>
+    private static readonly Regex VersionCheckFailed = new(
+        @"not satisfies: mod\[(?<mod>[^\]]{1,120})\] need gameVersion\[(?<need>[^\]]{1,60})\] but gameVersion is \[(?<have>[^\]]{1,40})\]",
+        RegexOptions.Compiled);
+
+    /// <summary>美化包载入时日志会写明它属于哪个模组，用来给图片解码失败归属。</summary>
+    private static readonly Regex StreamedImages = new(
+        "Streamed images for mod \\[\"(?<mod>[^\"]{1,120})\"", RegexOptions.Compiled);
+
+    /// <summary>图片包替换页面上图片的日志行，行首方括号里是模组名。</summary>
+    private static readonly Regex ImagePackReplace = new(
+        @"\[(?<mod>[^\[\]]{2,80})\] findAllInputImageAndReplaceSrc", RegexOptions.Compiled);
 
     private sealed class Aggregate
     {
@@ -57,9 +71,10 @@ public static class RuntimeIssueScanner
         }
         if (files.Count == 0) return new List<ModVersionMismatch>();
 
+        // 已启用模组的签名：名字、版本号与文件时间都要算进去，外部替换同名模组时也能重扫
         var signature = string.Join("|", enabled
-            .Select(m => m.FileName)
-            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase));
+            .OrderBy(m => m.FileName, StringComparer.OrdinalIgnoreCase)
+            .Select(m => $"{m.FileName}:{m.Version}:{FileStamp(m.FilePath)}"));
         var key = versionDir + "|" + (gameVersion ?? "") + "|" + signature;
         var stamp = files.Max(f => f.LastWriteTimeUtc.Ticks);
 
@@ -87,12 +102,53 @@ public static class RuntimeIssueScanner
         var patchOwner = framework ?? enabled.FirstOrDefault(m => m.Dependencies.Any(d =>
             d.Name.Contains("TweeReplacer", StringComparison.OrdinalIgnoreCase)));
 
+        // 日志里最近载入的美化包 / 图片包，供图片解码失败归属
+        var lastBeauty = "";
+        var lastImagePack = "";
+
         foreach (var file in files)
         {
-            foreach (var line in ReadTailLines(file.FullName, MaxBytesPerFile))
+            foreach (var line in ReadLines(file))
             {
                 if (line.Length < 12) continue;
                 var head = line.Length > HeadLength ? line[..HeadLength] : line;
+
+                // 游戏自己的版本自检失败：最可靠的「模组不支持当前版本」信号。
+                var versionFail = VersionCheckFailed.Match(line);
+                if (versionFail.Success)
+                {
+                    var mod = FindByName(enabled, versionFail.Groups["mod"].Value);
+                    if (mod == null) continue;
+                    Add(groups, "version", mod.Name, mod.FileName, line,
+                        versionFail.Groups["need"].Value + "|" + versionFail.Groups["have"].Value);
+                    continue;
+                }
+
+                // 记录当前载入的美化包 / 图片包，后面的图片解码失败归到它们头上。
+                if (head.Contains("Streamed images for mod", StringComparison.Ordinal))
+                {
+                    var m = StreamedImages.Match(line);
+                    if (m.Success) lastBeauty = m.Groups["mod"].Value;
+                    continue;
+                }
+                if (head.Contains("findAllInputImageAndReplaceSrc", StringComparison.Ordinal))
+                {
+                    var m = ImagePackReplace.Match(line);
+                    if (m.Success) lastImagePack = m.Groups["mod"].Value;
+                    continue;
+                }
+
+                // 角色立绘解码失败：多为美化包 / 图片包与当前游戏版本不匹配。
+                if (head.Contains("Image decode failed", StringComparison.Ordinal))
+                {
+                    var owner = lastBeauty.Length > 0 ? lastBeauty : lastImagePack;
+                    if (owner.Length == 0) continue;
+                    var mod = FindByName(enabled, owner);
+                    // 模组已被停用 / 移出 mods 目录时不再保留这条问题
+                    if (mod == null) continue;
+                    Add(groups, "image", mod.Name, mod.FileName, line, null);
+                    continue;
+                }
 
                 // TweeReplacer 找不到补丁目标：日志里只有这一种会带出模组自己的 name。
                 if (head.Contains("do_patch() (pp.content.search", StringComparison.Ordinal))
@@ -100,7 +156,8 @@ public static class RuntimeIssueScanner
                     var name = MatchPatchName(line);
                     if (name == null) continue;
                     var mod = FindByName(enabled, name);
-                    Add(groups, "patch", mod?.Name ?? name, mod?.FileName ?? "", line, null);
+                    if (mod == null) continue;
+                    Add(groups, "patch", mod.Name, mod.FileName, line, null);
                     continue;
                 }
 
@@ -190,6 +247,54 @@ public static class RuntimeIssueScanner
                             "建议更新模组或先停用。" + time,
                     });
                     break;
+
+                case "version":
+                    var need = "";
+                    var have = gameVersion ?? "";
+                    var sample = agg.Samples.FirstOrDefault();
+                    if (!string.IsNullOrEmpty(sample))
+                    {
+                        var parts = sample.Split('|');
+                        need = parts[0];
+                        if (parts.Length > 1 && parts[1].Length > 0) have = parts[1];
+                    }
+                    var target = ProblemService.ConstraintVersion(need);
+                    result.Add(new ModVersionMismatch
+                    {
+                        Runtime = true,
+                        RuntimeReason = "游戏自检不满足版本要求",
+                        ModFile = agg.ModFile,
+                        ModName = agg.ModName,
+                        TargetGameVersion = target,
+                        CurrentGameVersion = have,
+                        Gap = Math.Abs(ProblemService.Segment(target, 2) - ProblemService.Segment(have, 2)),
+                        Severity = ProblemSeverity.Red,
+                        RuntimeTitle = $"「{agg.ModName}」需要游戏版本 {need}，当前是 {have}（游戏自检不满足）",
+                        RuntimeDetail =
+                            $"游戏载入模组时自带版本自检，日志里报出 {agg.Count} 次" +
+                            $"「{agg.ModName} 需要 {need}，当前 {have}」。" +
+                            "这是模组自己声明的目标版本与当前游戏版本不符，脚本与资源接口很可能已经不匹配，" +
+                            "相关剧情、界面或立绘可能缺失、报错。建议更新到支持当前版本的模组，或先停用。" + time,
+                    });
+                    break;
+
+                case "image":
+                    result.Add(new ModVersionMismatch
+                    {
+                        Runtime = true,
+                        RuntimeReason = "角色图片解码失败",
+                        ModFile = agg.ModFile,
+                        ModName = agg.ModName,
+                        CurrentGameVersion = gameVersion ?? "",
+                        Severity = ProblemSeverity.Orange,
+                        RuntimeTitle = $"「{agg.ModName}」角色图片加载失败（可能不兼容当前 {version}）",
+                        RuntimeDetail =
+                            $"运行日志里出现 {agg.Count} 次「Image decode failed」图片解码错误。" +
+                            "人物立绘来自美化包或图片包，解码失败常见于美化包的设计目标版本低于当前游戏版本" +
+                            "（部件结构或图片尺寸已经变化），也可能是包内图片损坏，人物替换与显示会异常。" +
+                            "建议把美化包更新到支持当前版本的版本，或先停用后再看显示是否恢复。" + time,
+                    });
+                    break;
             }
         }
 
@@ -246,6 +351,20 @@ public static class RuntimeIssueScanner
             : null;
     }
 
+    /// <summary>模组文件的「大小+修改时间」指纹，外部替换同名文件时也能让缓存失效。</summary>
+    private static string FileStamp(string path)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            return info.Exists ? $"{info.Length}_{info.LastWriteTimeUtc.Ticks}" : "0";
+        }
+        catch
+        {
+            return "0";
+        }
+    }
+
     private static ModInfo? FindByName(List<ModInfo> mods, string? name)
     {
         var key = DownloadService.NormalizeName(name ?? string.Empty);
@@ -284,6 +403,48 @@ public static class RuntimeIssueScanner
     }
 
     private static string Stem(string fileName) => Path.GetFileNameWithoutExtension(fileName);
+
+    /// <summary>
+    /// 读一份日志：小文件直接读完；大文件读开头（版本自检等启动信息）和结尾（本轮报错），两段不重叠。
+    /// </summary>
+    private static IEnumerable<string> ReadLines(FileInfo file)
+    {
+        long length;
+        try { length = file.Length; }
+        catch { yield break; }
+
+        var headBytes = (int)Math.Min(HeadBytes, length);
+        var tailBytes = (int)Math.Min(MaxBytesPerFile, Math.Max(0, length - headBytes));
+
+        foreach (var line in ReadHeadLines(file.FullName, headBytes)) yield return line;
+        foreach (var line in ReadTailLines(file.FullName, tailBytes)) yield return line;
+    }
+
+    /// <summary>读文件开头的一段（最多 maxBytes 字节）。</summary>
+    private static IEnumerable<string> ReadHeadLines(string path, int maxBytes)
+    {
+        if (maxBytes <= 0) yield break;
+
+        FileStream? stream = null;
+        StreamReader? reader = null;
+        try
+        {
+            stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            reader = new StreamReader(stream, Encoding.UTF8, true);
+            long read = 0;
+            while (reader.ReadLine() is { } line)
+            {
+                yield return line;
+                read += Encoding.UTF8.GetByteCount(line) + 1;
+                if (read >= maxBytes) yield break;
+            }
+        }
+        finally
+        {
+            reader?.Dispose();
+            stream?.Dispose();
+        }
+    }
 
     /// <summary>只读文件尾部，避免几十 MB 的旧日志全量读入。</summary>
     private static IEnumerable<string> ReadTailLines(string path, int maxBytes)

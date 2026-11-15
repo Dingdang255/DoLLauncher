@@ -18,7 +18,6 @@ using DoLLauncher.Core.Versions;
 using DoLLauncher.Models;
 using DoLLauncher.Platform;
 using DoLLauncher.Services;
-using Microsoft.Win32;
 using SubtitleTextHelper = DoLLauncher.Core.Ui.SubtitleText;
 
 namespace DoLLauncher;
@@ -366,7 +365,7 @@ public partial class MainWindow
         if (string.IsNullOrWhiteSpace(url)) return;
         try
         {
-            Process.Start(new ProcessStartInfo(url!) { UseShellExecute = true });
+            PlatformServices.Links.OpenUrl(url!);
         }
         catch (Exception ex)
         {

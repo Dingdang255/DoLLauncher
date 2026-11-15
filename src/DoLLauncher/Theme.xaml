@@ -598,13 +598,23 @@
     </DataTemplate>
 
     <DataTemplate x:Key="ReleaseComboTemplate">
-        <TextBlock Text="{Binding Tag}" />
+        <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis"
+                   ToolTip="{Binding ReleaseTip}" />
     </DataTemplate>
 
     <DataTemplate x:Key="EditionComboTemplate">
         <TextBlock Text="{Binding Display}" TextTrimming="CharacterEllipsis"
                    ToolTip="{Binding Display}" />
     </DataTemplate>
+
+    <!-- 单行控件容器：内容超宽时裁剪在行内，按住 Shift + 滚轮可左右移动 -->
+    <Style x:Key="RowScroller" TargetType="ScrollViewer">
+        <Setter Property="HorizontalScrollBarVisibility" Value="Hidden" />
+        <Setter Property="VerticalScrollBarVisibility" Value="Disabled" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="IsTabStop" Value="False" />
+    </Style>
 
     <Style x:Key="FlatCombo" TargetType="ComboBox">
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />

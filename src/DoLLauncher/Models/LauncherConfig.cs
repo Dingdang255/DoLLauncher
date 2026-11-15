@@ -31,6 +31,9 @@ public sealed class GeneralSettings
     /// <summary>旧版 file:// 数据固定打开哪个版本的 html（空表示跟随最新版本）。</summary>
     [JsonPropertyName("legacyFolder")] public string LegacyFolder { get; set; } = string.Empty;
 
+    /// <summary>下载中心的游戏本体来源：i18n（汉化整包 zip）/ neo（ModLoader Neo 单 HTML）。</summary>
+    [JsonPropertyName("gameSource")] public string GameSource { get; set; } = "i18n";
+
     /// <summary>模组市场索引来源：auto / primary / backup。</summary>
     [JsonPropertyName("marketSource")] public string MarketSource { get; set; } = "auto";
 

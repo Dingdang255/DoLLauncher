@@ -18,7 +18,6 @@ using DoLLauncher.Core.Versions;
 using DoLLauncher.Models;
 using DoLLauncher.Platform;
 using DoLLauncher.Services;
-using Microsoft.Win32;
 using SubtitleTextHelper = DoLLauncher.Core.Ui.SubtitleText;
 
 namespace DoLLauncher;

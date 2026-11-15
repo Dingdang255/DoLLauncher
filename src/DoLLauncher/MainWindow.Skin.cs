@@ -1,8 +1,7 @@
-using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using DoLLauncher.Platform;
 using DoLLauncher.Services;
-using Microsoft.Win32;
 
 namespace DoLLauncher;
 
@@ -33,15 +32,11 @@ public partial class MainWindow
 
     private void SkinLoad_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new OpenFileDialog
-        {
-            Title = "选择 UI 美化包",
-            Filter = "美化包 (*.zip)|*.zip|所有文件|*.*",
-            CheckFileExists = true,
-        };
-        if (dialog.ShowDialog(this) != true) return;
+        var path = PlatformServices.FilePicker.PickFile(
+            "选择 UI 美化包", "美化包 (*.zip)|*.zip|所有文件|*.*");
+        if (path == null) return;
 
-        var (ok, message) = SkinService.LoadFromZip(dialog.FileName, Log);
+        var (ok, message) = SkinService.LoadFromZip(path, Log);
         if (!ok)
         {
             UpdateSkinStatus();
@@ -69,7 +64,7 @@ public partial class MainWindow
         try
         {
             Directory.CreateDirectory(SkinService.SkinsRoot);
-            Process.Start(new ProcessStartInfo(SkinService.SkinsRoot) { UseShellExecute = true });
+            PlatformServices.Links.OpenPath(SkinService.SkinsRoot);
         }
         catch (Exception ex)
         {

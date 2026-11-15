@@ -115,20 +115,55 @@ public static class VersionService
     /// <summary>优先从目录名取版本号；目录名不含版本时扫描 HTML 内的 version: "x.y.z"。</summary>
     public static string? DetectGameVersion(string versionDir, string? folderName = null)
     {
-        var fromFolder = VersionUtil.FromFolderName(folderName ?? Path.GetFileName(versionDir));
+        var folder = folderName ?? Path.GetFileName(versionDir);
+        // Neo 目录名里是加载器版本（如 Neo-1.0.4），真实游戏版本只写在 HTML 里。
+        // 扫描 60MB+ 的 HTML 很慢，所以识别一次后缓存到版本目录的小文件里。
+        if (IsNeoFolder(folder))
+        {
+            var html = FindHtml(versionDir);
+            if (html == null) return null;
+            return DetectGameVersionFromHtml(versionDir, html);
+        }
+
+        var fromFolder = VersionUtil.FromFolderName(folder);
         if (fromFolder != null) return fromFolder;
 
-        var html = FindHtml(versionDir);
-        if (html == null) return null;
+        var standardHtml = FindHtml(versionDir);
+        if (standardHtml == null) return null;
 
         try
         {
-            var info = new FileInfo(html);
-            var cached = VersionCache.GetValueOrDefault(html);
+            var info = new FileInfo(standardHtml);
+            var cached = VersionCache.GetValueOrDefault(standardHtml);
             if (cached.WriteTime == info.LastWriteTimeUtc) return cached.Version;
 
-            var version = ScanHtmlVersion(html);
-            VersionCache[html] = (info.LastWriteTimeUtc, version);
+            var version = ScanHtmlVersion(standardHtml);
+            VersionCache[standardHtml] = (info.LastWriteTimeUtc, version);
+            return version;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private const string NeoVersionCacheFile = ".dol-gameversion";
+
+    /// <summary>扫描 HTML 里的游戏版本并缓存到版本目录；HTML 改动后缓存自动失效。</summary>
+    public static string? DetectGameVersionFromHtml(string versionDir, string htmlPath)
+    {
+        try
+        {
+            var stamp = new FileInfo(htmlPath).LastWriteTimeUtc.Ticks.ToString();
+            var cacheFile = Path.Combine(versionDir, NeoVersionCacheFile);
+            if (File.Exists(cacheFile))
+            {
+                var parts = File.ReadAllText(cacheFile).Split('|');
+                if (parts.Length == 2 && parts[1] == stamp && parts[0].Length > 0) return parts[0];
+            }
+
+            var version = ScanHtmlVersion(htmlPath);
+            if (version != null) File.WriteAllText(cacheFile, version + "|" + stamp);
             return version;
         }
         catch
@@ -140,7 +175,8 @@ public static class VersionService
     private static readonly Regex VersionRegex =
         new(@"version\s*:\s*""([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?)""", RegexOptions.Compiled);
 
-    private static string? ScanHtmlVersion(string html)
+    /// <summary>扫描 HTML 内的 version: "x.y.z"；Neo 单 HTML 安装时用来确定游戏版本。</summary>
+    public static string? ScanHtmlVersion(string html)
     {
         using var stream = new FileStream(html, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
@@ -158,9 +194,19 @@ public static class VersionService
 
     public static string Prettify(string folder, string? gameVersion)
     {
+        var neo = Regex.Match(folder, @"^Neo-(.+)$", RegexOptions.IgnoreCase);
+        if (neo.Success)
+        {
+            var loader = neo.Groups[1].Value;
+            return gameVersion != null ? $"DoL {gameVersion} · Neo {loader}" : $"ModLoader Neo {loader}";
+        }
+
         var m = Regex.Match(folder, @"^([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?)-v([0-9]+\.[0-9]+(?:\.[0-9]+)?)");
         if (m.Success) return $"DoL {m.Groups[1].Value} · ModLoader {m.Groups[2].Value}";
         if (gameVersion != null) return $"DoL {gameVersion}";
         return folder;
     }
+
+    private static bool IsNeoFolder(string folder) =>
+        folder.StartsWith("Neo-", StringComparison.OrdinalIgnoreCase);
 }

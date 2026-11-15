@@ -22,6 +22,46 @@ public sealed class GameAsset
     }
 }
 
+/// <summary>下载中心的一个游戏本体来源。上游是整包 zip 还是单 HTML，都由它描述。</summary>
+public sealed class GameSource
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Repo { get; set; } = "";
+
+    /// <summary>打包形态：zip（整包）/ html（单文件）。</summary>
+    public string Kind { get; set; } = "zip";
+
+    /// <summary>版本目录名前缀：zip 源按资产名去前缀，html 源用固定前缀。</summary>
+    public string FolderPrefix { get; set; } = "";
+
+    /// <summary>下载页上的说明文字。</summary>
+    public string Hint { get; set; } = "";
+
+    public bool IsZip => Kind == "zip";
+
+    public override string ToString() => Name;
+}
+
+/// <summary>
+/// 归一化后的安装计划：不管上游给的是整包还是单文件，安装器只认这份清单，
+/// 目录命名、mods 创建、附带模组与 modList 重建全部共用。
+/// </summary>
+public sealed class GameInstallPlan
+{
+    /// <summary>versions 下的目录名。</summary>
+    public string FolderName { get; set; } = "";
+
+    /// <summary>要落盘的文件（地址 + 相对版本目录的路径）。zip 整包只有一项，路径为空。</summary>
+    public List<(string Url, string RelativePath)> Files { get; } = new();
+
+    /// <summary>true 表示把唯一下载物当 zip 解压到版本目录；false 表示原样落盘。</summary>
+    public bool ExtractZip { get; set; }
+
+    /// <summary>要放进 mods\ 的附带模组。</summary>
+    public List<GameAsset> CompanionMods { get; } = new();
+}
+
 /// <summary>汉化仓库的一个 Release。</summary>
 public sealed class GameRelease
 {
@@ -31,26 +71,43 @@ public sealed class GameRelease
     public bool Prerelease { get; set; }
     public List<GameAsset> Assets { get; set; } = new();
 
-    public GameAsset? StandardAsset => Find("DoL-ModLoader-", polyfill: false);
-    public GameAsset? PolyfillAsset => Find("DoL-ModLoader-", polyfill: true);
+    /// <summary>这个 Release 来自哪个游戏源（决定安装形态与目录命名）。</summary>
+    public GameSource Source { get; set; } = new();
+
+    public GameAsset? StandardAsset => Source.IsZip ? Find("DoL-ModLoader-", polyfill: false) : null;
+    public GameAsset? PolyfillAsset => Source.IsZip ? Find("DoL-ModLoader-", polyfill: true) : null;
     public GameAsset? I18nAsset => Assets.FirstOrDefault(a => a.Name.Contains("ModI18N", StringComparison.OrdinalIgnoreCase));
     public GameAsset? ImagePackAsset => Assets.FirstOrDefault(a => a.Name.Contains("GameOriginalImagePack", StringComparison.OrdinalIgnoreCase));
 
-    public string Title => Tag.TrimStart('v', 'V');
+    /// <summary>单 HTML 源的可安装文件。</summary>
+    public GameAsset? HtmlAsset =>
+        Source.IsZip ? null : Assets.FirstOrDefault(a => a.Name.EndsWith(".html", StringComparison.OrdinalIgnoreCase));
+
+    public bool HasInstallableAsset => HtmlAsset != null || StandardAsset != null || PolyfillAsset != null;
+
+    public string Title => !Source.IsZip && Name.Length > 0 ? Name : Tag.TrimStart('v', 'V');
     public string DateText => PublishedAt?.ToLocalTime().ToString("yyyy-MM-dd") ?? "";
     public string Summary => $"{DateText}  ·  {Assets.Count} 个文件" + (Prerelease ? "  ·  预览版" : "");
     public string BadgeText => Prerelease ? "预览版" : "";
 
-    public string AssetSummary => string.Join(" · ", new[]
-    {
-        StandardAsset != null ? "主体 zip" : "",
-        PolyfillAsset != null ? "polyfill 可用" : "",
-        I18nAsset != null ? "含 ModI18N" : "",
-        ImagePackAsset != null ? "含图片包" : "",
-    }.Where(s => s.Length > 0));
+    /// <summary>历史版本下拉框的显示名：共享仓库的 tag 只是产品线（mod / facemod），标题更好辨认。</summary>
+    public string DisplayName => Name.Length > 0 ? Name : Tag;
+
+    public string ReleaseTip => Tag.Length > 0 ? $"{Tag} · {DateText}" : DateText;
+
+    public string AssetSummary => Source.IsZip
+        ? string.Join(" · ", new[]
+        {
+            StandardAsset != null ? "主体 zip" : "",
+            PolyfillAsset != null ? "polyfill 可用" : "",
+            I18nAsset != null ? "含 ModI18N" : "",
+            ImagePackAsset != null ? "含图片包" : "",
+        }.Where(s => s.Length > 0))
+        : HtmlAsset == null ? "无可用 HTML" : "单 HTML · 自动建 mods 目录";
 
     public GameAsset? PickAsset(bool polyfill)
     {
+        if (!Source.IsZip) return HtmlAsset;
         return polyfill ? PolyfillAsset ?? StandardAsset : StandardAsset;
     }
 
@@ -79,6 +136,17 @@ public sealed class MarketAssetRef
     public string Version { get; set; } = "";
 }
 
+/// <summary>某个 Release 里同一包型下的具体资产版本（例如 AU 女体模型的 0.8.7 / 0.9.3）。</summary>
+public sealed class ModAssetOption
+{
+    public string AssetName { get; set; } = "";
+    public string Version { get; set; } = "";
+    public long Size { get; set; }
+
+    public string Display => Version.Length > 0 ? Version : AssetName;
+    public string Tip => AssetName;
+}
+
 /// <summary>同一模组的不同包型 / 包体系列（例如 RAY 的完整版与轻量版、DoLP 版）。</summary>
 public sealed class MarketEdition
 {
@@ -89,6 +157,13 @@ public sealed class MarketEdition
     public List<MarketAssetRef> VerifiedAssets { get; set; } = new();
 
     public string Display => Label.Length > 0 ? Label : (AssetSeries.Length > 0 ? AssetSeries : Id);
+}
+
+/// <summary>索引里一个具体资产包的记录：依赖挂在记录上，而不是模组顶层。</summary>
+public sealed class MarketPackageRecord
+{
+    public string FileName { get; set; } = "";
+    public List<MarketDependency> Dependencies { get; set; } = new();
 }
 
 /// <summary>ModHub 市场索引里的一个模组条目。</summary>
@@ -111,6 +186,9 @@ public sealed class MarketMod : INotifyPropertyChanged
     public List<string> BootNames { get; set; } = new();
     public List<string> Aliases { get; set; } = new();
     public List<MarketDependency> Dependencies { get; set; } = new();
+
+    /// <summary>索引里按资产包记录的依赖；顶层 dependencies 缺失时用它兜底。</summary>
+    public List<MarketPackageRecord> PackageRecords { get; set; } = new();
 
     /// <summary>索引推荐的资产文件名；空串表示没有验证过的资产。</summary>
     public string VerifiedAssetFileName { get; set; } = "";

@@ -18,7 +18,6 @@ using DoLLauncher.Core.Versions;
 using DoLLauncher.Models;
 using DoLLauncher.Platform;
 using DoLLauncher.Services;
-using Microsoft.Win32;
 using SubtitleTextHelper = DoLLauncher.Core.Ui.SubtitleText;
 
 namespace DoLLauncher;
@@ -116,10 +115,7 @@ public partial class MainWindow
                         $"发现新版本 {release.Tag}（当前 {BuildInfo.Tag}）。\n要打开下载页面吗？",
                         "检查更新", "打开下载页"))
                 {
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(release.Url)
-                    {
-                        UseShellExecute = true,
-                    });
+                    PlatformServices.Links.OpenUrl(release.Url);
                 }
             }
             else
@@ -737,14 +733,11 @@ public partial class MainWindow
     /// <summary>弹出文件选择框；选中并保存后返回 true，取消返回 false。</summary>
     private bool PickBrowserExecutable()
     {
-        var dialog = new OpenFileDialog
-        {
-            Title = "选择浏览器可执行文件",
-            Filter = "可执行文件 (*.exe)|*.exe|所有文件 (*.*)|*.*",
-        };
-        if (dialog.ShowDialog(this) != true) return false;
-        BrowserExeBox.Text = dialog.FileName;
-        SaveBrowserExecutable(dialog.FileName);
+        var path = PlatformServices.FilePicker.PickFile(
+            "选择浏览器可执行文件", "可执行文件 (*.exe)|*.exe|所有文件 (*.*)|*.*");
+        if (path == null) return false;
+        BrowserExeBox.Text = path;
+        SaveBrowserExecutable(path);
         UpdateBrowserCustomState();
         return true;
     }

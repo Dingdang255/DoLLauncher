@@ -246,12 +246,53 @@ public static class UiAnimations
 
     private static void OnPreviewWheel(object sender, MouseWheelEventArgs e)
     {
-        if (!Active || e.Handled || e.Delta == 0) return;
+        if (e.Handled || e.Delta == 0) return;
+
+        // Shift + 滚轮：让指针所在的那一行（横向 ScrollViewer）在可视范围内左右移动
+        if ((Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift)
+        {
+            var row = FindHorizontalScrollViewer(e.OriginalSource as DependencyObject, e.Delta > 0);
+            if (row != null)
+            {
+                var maxHorizontal = Math.Max(0, row.ScrollableWidth);
+                var target = Math.Clamp(row.HorizontalOffset - e.Delta * HorizontalStep, 0, maxHorizontal);
+
+                if (!Active)
+                {
+                    row.ScrollToHorizontalOffset(target);
+                    e.Handled = true;
+                    return;
+                }
+
+                // 和纵向一样走逐帧逼近，滚轮连击时是连续的滑动而不是跳格
+                var horizontal = FindMotion(row, true);
+                if (horizontal == null)
+                {
+                    horizontal = new ScrollMotion
+                    {
+                        Viewer = row,
+                        Horizontal = true,
+                        Current = row.HorizontalOffset,
+                        Target = row.HorizontalOffset,
+                    };
+                    _motions.Add(horizontal);
+                }
+
+                horizontal.Target = Math.Clamp(horizontal.Target - e.Delta * HorizontalStep,
+                    0, maxHorizontal);
+                e.Handled = true;
+                if (Math.Abs(horizontal.Target - horizontal.Current) < 0.5) return;
+                HookRenderFrame();
+                return;
+            }
+        }
+
+        if (!Active) return;
 
         var viewer = FindScrollViewer(e.OriginalSource as DependencyObject, e.Delta > 0);
         if (viewer == null) return;
 
-        var motion = FindMotion(viewer);
+        var motion = FindMotion(viewer, false);
         if (motion == null)
         {
             motion = new ScrollMotion
@@ -295,16 +336,45 @@ public static class UiAnimations
         return null;
     }
 
+    /// <summary>向上找最近的、还能朝该方向横向移动的滚动容器（用于 Shift + 滚轮）。</summary>
+    private static ScrollViewer? FindHorizontalScrollViewer(DependencyObject? source, bool left)
+    {
+        while (source != null)
+        {
+            if (source is ScrollViewer viewer && viewer.ScrollableWidth > 0.5)
+            {
+                var canMove = left
+                    ? viewer.HorizontalOffset > 0.5
+                    : viewer.HorizontalOffset < viewer.ScrollableWidth - 0.5;
+                if (canMove) return viewer;
+            }
+
+            try
+            {
+                source = VisualTreeHelper.GetParent(source);
+            }
+            catch
+            {
+                break;
+            }
+        }
+        return null;
+    }
+
     /// <summary>当前正在滚动的容器及其目标位置（每格滚轮累加，不打断上一段动画）。</summary>
     private sealed class ScrollMotion
     {
         public ScrollViewer Viewer = null!;
+        public bool Horizontal;
         public double Target;
         public double Current;
     }
 
     /// <summary>每格滚轮对应的位移系数。</summary>
     private const double WheelStep = 0.4;
+
+    /// <summary>Shift + 滚轮时每格滚轮移动的横向距离。</summary>
+    private const double HorizontalStep = 0.5;
 
     /// <summary>指数衰减系数：越大越跟手，滚动停得越快。</summary>
     private const double ScrollDamping = 10.6;
@@ -313,11 +383,11 @@ public static class UiAnimations
     private static bool _renderingHooked;
     private static DateTime _lastFrame;
 
-    private static ScrollMotion? FindMotion(ScrollViewer viewer)
+    private static ScrollMotion? FindMotion(ScrollViewer viewer, bool horizontal)
     {
         foreach (var motion in _motions)
         {
-            if (motion.Viewer == viewer) return motion;
+            if (motion.Viewer == viewer && motion.Horizontal == horizontal) return motion;
         }
         return null;
     }
@@ -346,19 +416,21 @@ public static class UiAnimations
         for (var i = _motions.Count - 1; i >= 0; i--)
         {
             var motion = _motions[i];
-            var max = Math.Max(0, motion.Viewer.ScrollableHeight);
+            var max = motion.Horizontal
+                ? Math.Max(0, motion.Viewer.ScrollableWidth)
+                : Math.Max(0, motion.Viewer.ScrollableHeight);
             if (motion.Target > max) motion.Target = max;
 
             motion.Current += (motion.Target - motion.Current) * step;
             if (Math.Abs(motion.Target - motion.Current) < 0.4)
             {
                 motion.Current = motion.Target;
-                motion.Viewer.ScrollToVerticalOffset(motion.Current);
+                ApplyOffset(motion);
                 _motions.RemoveAt(i);
                 continue;
             }
 
-            motion.Viewer.ScrollToVerticalOffset(motion.Current);
+            ApplyOffset(motion);
         }
 
         if (_motions.Count == 0)
@@ -366,6 +438,15 @@ public static class UiAnimations
             _renderingHooked = false;
             CompositionTarget.Rendering -= OnRenderFrame;
         }
+    }
+
+    /// <summary>把某一帧的位置写回 ScrollViewer（区分纵向 / 横向）。</summary>
+    private static void ApplyOffset(ScrollMotion motion)
+    {
+        if (motion.Horizontal)
+            motion.Viewer.ScrollToHorizontalOffset(motion.Current);
+        else
+            motion.Viewer.ScrollToVerticalOffset(motion.Current);
     }
 
     /// <summary>盖住主窗口的半透明黑色遮罩层，不参与布局。</summary>

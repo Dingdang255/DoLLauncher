@@ -4,8 +4,8 @@ using System.Windows.Input;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using DoLLauncher.Core.Ui;
+using DoLLauncher.Platform;
 using DoLLauncher.Services;
-using Microsoft.Win32;
 
 namespace DoLLauncher;
 
@@ -52,15 +52,11 @@ public partial class MainWindow
 
     private void PickPlayerAvatar()
     {
-        var dialog = new OpenFileDialog
-        {
-            Title = "选择玩家头像",
-            Filter = "图片文件|*.png;*.jpg;*.jpeg;*.bmp;*.gif|所有文件|*.*",
-            CheckFileExists = true,
-        };
-        if (dialog.ShowDialog(this) != true) return;
+        var path = PlatformServices.FilePicker.PickFile(
+            "选择玩家头像", "图片文件|*.png;*.jpg;*.jpeg;*.bmp;*.gif|所有文件|*.*");
+        if (path == null) return;
 
-        var (ok, reason) = AvatarRules.Validate(dialog.FileName);
+        var (ok, reason) = AvatarRules.Validate(path);
         if (!ok)
         {
             AppDialog.Warn(reason, "玩家头像");
@@ -71,9 +67,9 @@ public partial class MainWindow
         {
             var userDir = Path.Combine(Paths.Root, "user");
             Directory.CreateDirectory(userDir);
-            var ext = Path.GetExtension(dialog.FileName).ToLowerInvariant();
+            var ext = Path.GetExtension(path).ToLowerInvariant();
             var dest = Path.Combine(userDir, "avatar" + ext);
-            var sourceFull = Path.GetFullPath(dialog.FileName);
+            var sourceFull = Path.GetFullPath(path);
             var destFull = Path.GetFullPath(dest);
 
             // 用户可能直接选中「user\avatar.*」自身：此时只更新配置，不要先删后拷

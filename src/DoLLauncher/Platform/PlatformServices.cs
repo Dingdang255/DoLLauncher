@@ -31,6 +31,12 @@ public static class PlatformServices
     /// <summary>浏览器承载：打开游戏页 / 存档助手页，并可关闭对应会话。</summary>
     public static IBrowserHost Browser { get; private set; } = new WindowsBrowserHost();
 
+    /// <summary>用系统默认程序打开链接、文件或目录。</summary>
+    public static IExternalLinks Links { get; private set; } = new WindowsExternalLinks();
+
+    /// <summary>文件选择对话框。</summary>
+    public static IFilePicker FilePicker { get; private set; } = new WindowsFilePicker();
+
     /// <summary>幂等初始化：重复调用不会重建实现。</summary>
     public static void Initialize()
     {

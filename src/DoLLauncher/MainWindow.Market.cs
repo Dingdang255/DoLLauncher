@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -19,7 +20,6 @@ using DoLLauncher.Core.Versions;
 using DoLLauncher.Models;
 using DoLLauncher.Platform;
 using DoLLauncher.Services;
-using Microsoft.Win32;
 using SubtitleTextHelper = DoLLauncher.Core.Ui.SubtitleText;
 
 namespace DoLLauncher;
@@ -106,10 +106,7 @@ public partial class MainWindow
             {
                 try
                 {
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(homepage)
-                    {
-                        UseShellExecute = true,
-                    });
+                    PlatformServices.Links.OpenUrl(homepage);
                 }
                 catch
                 {
@@ -139,7 +136,17 @@ public partial class MainWindow
             ItemTemplate = TryFindResource("ReleaseComboTemplate") as DataTemplate,
             Width = 150,
             IsEnabled = false,
-            ToolTip = "选择历史版本，留空则安装最新版",
+            ToolTip = "选择历史 Release，默认最新",
+        };
+
+        // 具体资产版本（例如 AU 女体模型的 0.8.7 / 0.9.3）
+        var assetBox = new ComboBox
+        {
+            Style = TryFindResource("FlatCombo") as Style,
+            ItemContainerStyle = TryFindResource("FlatComboItem") as Style,
+            ItemTemplate = TryFindResource("EditionComboTemplate") as DataTemplate,
+            Width = 110,
+            ToolTip = "这个包型下的具体版本，默认选最新",
         };
 
         var left = new StackPanel
@@ -156,13 +163,25 @@ public partial class MainWindow
         left.Children.Add(targetBox);
         left.Children.Add(new TextBlock
         {
-            Text = "版本", VerticalAlignment = VerticalAlignment.Center,
+            Text = "Release", VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(14, 0, 8, 0), Opacity = 0.7,
         });
         left.Children.Add(versionBox);
+        left.Children.Add(new TextBlock
+        {
+            Text = "包版本", VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(14, 0, 8, 0), Opacity = 0.7,
+        });
+        left.Children.Add(assetBox);
 
+        // 这一行控件较多，超宽时裁剪在页脚内，按住 Shift + 滚轮可左右移动
+        var leftScroller = new ScrollViewer
+        {
+            Style = TryFindResource("RowScroller") as Style,
+            Content = left,
+        };
         actions.Children.Add(right);
-        actions.Children.Add(left);
+        actions.Children.Add(leftScroller);
         footer.Children.Add(actions);
         footer.Children.Add(status);
 
@@ -219,6 +238,30 @@ public partial class MainWindow
             editionRow.Children.Add(editionBox);
             header.Children.Add(editionRow);
         }
+
+        // 换了 Release 或包型后重新拉取这一包型可选的资产版本
+        async Task ReloadAssetVersionsAsync()
+        {
+            assetBox.ItemsSource = null;
+            var release = versionBox.SelectedItem as GameRelease;
+            if (release == null) return;
+            try
+            {
+                var list = await DownloadService.FetchModAssetVersionsAsync(
+                    mod, editionBox?.SelectedItem as MarketEdition, release.Tag);
+                if (!ReferenceEquals(versionBox.SelectedItem, release)) return;
+                assetBox.ItemsSource = list;
+                if (list.Count > 0) assetBox.SelectedIndex = 0;
+            }
+            catch
+            {
+                // 拿不到具体版本列表时退回自动挑选
+            }
+        }
+
+        versionBox.SelectionChanged += (_, _) => _ = ReloadAssetVersionsAsync();
+        if (editionBox != null) editionBox.SelectionChanged += (_, _) => _ = ReloadAssetVersionsAsync();
+
         if (mod.Installed)
         {
             header.Children.Add(new TextBlock
@@ -255,7 +298,8 @@ public partial class MainWindow
             try
             {
                 await InstallMarketModAsync(mod, target, versionBox.SelectedItem as GameRelease,
-                    t => status.Text = t, editionBox?.SelectedItem as MarketEdition);
+                    t => status.Text = t, editionBox?.SelectedItem as MarketEdition,
+                    (assetBox.SelectedItem as ModAssetOption)?.AssetName);
                 if (status.Text == "准备中…") status.Text = "";
             }
             finally
@@ -361,28 +405,32 @@ public partial class MainWindow
 
     private void Nav_Checked(object sender, RoutedEventArgs e)
     {
-        if (VersionPage == null || DownloadPage == null || BackupPage == null
+        if (VersionPage == null || DownloadPage == null || BackupPage == null || StoryPage == null
             || DiagnosticPage == null || SettingsPage == null) return;
         var showDownload = NavDownload.IsChecked == true;
         var showBackup = NavBackup.IsChecked == true;
+        var showStory = NavStory.IsChecked == true;
         var showDiagnostic = NavDiagnostic.IsChecked == true;
         var showSettings = NavSettings.IsChecked == true;
 
-        VersionPage.Visibility = !showDownload && !showBackup && !showDiagnostic && !showSettings
+        VersionPage.Visibility = !showDownload && !showBackup && !showStory && !showDiagnostic && !showSettings
             ? Visibility.Visible : Visibility.Collapsed;
         DownloadPage.Visibility = showDownload ? Visibility.Visible : Visibility.Collapsed;
         BackupPage.Visibility = showBackup ? Visibility.Visible : Visibility.Collapsed;
+        StoryPage.Visibility = showStory ? Visibility.Visible : Visibility.Collapsed;
         DiagnosticPage.Visibility = showDiagnostic ? Visibility.Visible : Visibility.Collapsed;
         SettingsPage.Visibility = showSettings ? Visibility.Visible : Visibility.Collapsed;
 
         var shown = showSettings ? SettingsPage
             : showDiagnostic ? DiagnosticPage
+            : showStory ? StoryPage
             : showBackup ? BackupPage
             : showDownload ? DownloadPage : VersionPage;
         UiAnimations.ShowPage(shown);
 
         if (showDownload && !_gameLoaded) _ = RefreshGameReleasesAsync();
         if (showBackup) RefreshBackups();
+        if (showStory) OnStoryPageShown();
         if (showDiagnostic)
         {
             SyncDiagTarget();
@@ -443,17 +491,18 @@ public partial class MainWindow
     {
         if (_gameLoading) return;
         _gameLoading = true;
+        var source = DownloadService.CurrentGameSource();
         GameStatusText.Text = "正在获取 Release 列表…";
         try
         {
-            var list = await DownloadService.FetchGameReleasesAsync();
+            var list = await DownloadService.FetchGameReleasesAsync(source);
             _gameReleases.Clear();
-            foreach (var release in list.Where(r => r.StandardAsset != null || r.PolyfillAsset != null))
+            foreach (var release in list.Where(r => r.HasInstallableAsset))
                 _gameReleases.Add(release);
             if (_gameReleases.Count > 0) GameReleaseList.SelectedIndex = 0;
             _gameLoaded = true;
             GameStatusText.Text = $"共 {_gameReleases.Count} 个 Release";
-            Log($"已获取 {_gameReleases.Count} 个 Release");
+            Log($"已获取 {_gameReleases.Count} 个 Release（{source.Name}）");
         }
         catch (Exception ex)
         {
@@ -465,6 +514,37 @@ public partial class MainWindow
         {
             _gameLoading = false;
         }
+    }
+
+    private void GameSource_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (GameSourceBox.SelectedItem is not GameSource source) return;
+        var cfg = AppConfig.Load();
+        if (cfg.General.GameSource != source.Id)
+        {
+            cfg.General.GameSource = source.Id;
+            AppConfig.Save(cfg);
+        }
+        ApplyGameSourceUi(source);
+        if (_gameLoaded)
+        {
+            _gameLoaded = false;
+            _ = RefreshGameReleasesAsync();
+        }
+    }
+
+    /// <summary>按游戏源的形态调整说明与选项：单 HTML 源的附带模组改从汉化仓库按版本获取。</summary>
+    private void ApplyGameSourceUi(GameSource source)
+    {
+        GameSourceHintText.Text = source.Hint;
+        var isZip = source.IsZip;
+        PolyfillCheck.IsEnabled = isZip;
+        I18nCheck.IsEnabled = true;
+        ImagePackCheck.IsEnabled = true;
+        PolyfillCheck.ToolTip = isZip ? null : "该游戏源只有单个 HTML，不提供这个选项";
+        var extraTip = isZip ? null : "该源从汉化仓库获取与游戏版本匹配的附带模组";
+        I18nCheck.ToolTip = extraTip;
+        ImagePackCheck.ToolTip = extraTip;
     }
 
     private async Task RefreshMarketAsync()
@@ -824,6 +904,8 @@ public partial class MainWindow
         _marketReleases.Clear();
         MarketEditionBox.ItemsSource = null;
         MarketEditionPanel.Visibility = Visibility.Collapsed;
+        MarketAssetBox.ItemsSource = null;
+        _assetVersionToken++;
 
         var mod = MarketList.SelectedItem as MarketMod;
         if (mod == null)
@@ -925,10 +1007,11 @@ public partial class MainWindow
             return;
         }
 
-        var usePolyfill = PolyfillCheck.IsChecked == true;
+        var usePolyfill = release.Source.IsZip && PolyfillCheck.IsChecked == true;
         if (release.PickAsset(usePolyfill) == null)
         {
-            AppDialog.Info("这个 Release 没有可用的游戏压缩包。", "下载中心");
+            AppDialog.Info(release.Source.IsZip ? "这个 Release 没有可用的游戏压缩包。" : "这个 Release 没有可用的 HTML 文件。",
+                "下载中心");
             return;
         }
 
@@ -961,6 +1044,11 @@ public partial class MainWindow
             ReloadVersions(folder);
             NavVersions.IsChecked = true;
         }
+        catch (OperationCanceledException)
+        {
+            GameStatusText.Text = "已取消";
+            Log("本体下载已取消");
+        }
         catch (Exception ex)
         {
             GameStatusText.Text = "安装失败";
@@ -991,11 +1079,42 @@ public partial class MainWindow
         }
 
         await InstallMarketModAsync(mod, target, MarketVersionBox.SelectedItem as GameRelease, null,
-            MarketEditionBox.SelectedItem as MarketEdition);
+            MarketEditionBox.SelectedItem as MarketEdition,
+            (MarketAssetBox.SelectedItem as ModAssetOption)?.AssetName);
+    }
+
+    private void MarketVersion_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        _ = RefreshMarketAssetVersionsAsync();
+
+    private void MarketEdition_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        _ = RefreshMarketAssetVersionsAsync();
+
+    /// <summary>按当前选中的 Release / 包型，加载可选的具体资产版本（默认选最新）。</summary>
+    private async Task RefreshMarketAssetVersionsAsync()
+    {
+        var mod = MarketList.SelectedItem as MarketMod;
+        var release = MarketVersionBox.SelectedItem as GameRelease;
+        var token = ++_assetVersionToken;
+
+        MarketAssetBox.ItemsSource = null;
+        if (mod == null || mod.Repo.Length == 0 || release == null) return;
+
+        try
+        {
+            var list = await DownloadService.FetchModAssetVersionsAsync(
+                mod, MarketEditionBox.SelectedItem as MarketEdition, release.Tag);
+            if (token != _assetVersionToken || MarketList.SelectedItem != mod) return;
+            MarketAssetBox.ItemsSource = list;
+            if (list.Count > 0) MarketAssetBox.SelectedIndex = 0;
+        }
+        catch (Exception ex)
+        {
+            Log("获取包版本失败：" + ex.Message);
+        }
     }
 
     private async Task InstallMarketModAsync(MarketMod mod, VersionVm target, GameRelease? preferred,
-        Action<string>? status, MarketEdition? edition = null)
+        Action<string>? status, MarketEdition? edition = null, string? assetName = null)
     {
         void SetStatus(string text)
         {
@@ -1009,7 +1128,7 @@ public partial class MainWindow
         {
             SetStatus("正在检查前置与冲突…");
             check = await DownloadService.CheckInstallAsync(mod, _marketCatalog ?? new MarketCatalog(),
-                target.Info.FullPath, target.Info.GameVersion, Log);
+                target.Info.FullPath, target.Info.GameVersion, Log, edition);
         }
         catch (Exception ex)
         {
@@ -1041,12 +1160,13 @@ public partial class MainWindow
                 Log($"开始下载模组：{item.Title}" + (item == mod && preferred != null ? $"（{preferred.Tag}）" : ""));
                 var tag = item == mod && preferred != null ? preferred.Tag : null;
                 var useEdition = item == mod ? edition : null;
+                var useAsset = item == mod ? assetName : null;
                 var file = await DownloadService.InstallModAsync(item, target.Info.FullPath, Log, p =>
                 {
                     var overall = (i + p) / Math.Max(1, plan.Count);
                     MarketProgress.Value = overall;
                     SetStatus($"{overall:P0}　{ item.Name}");
-                }, tag, useEdition);
+                }, tag, useEdition, useAsset);
                 Log("模组安装完成：" + file);
             }
 
@@ -1056,6 +1176,11 @@ public partial class MainWindow
                 LoadMods(_selected.Info);
             // 放在刷新列表之后，避免 SelectionChanged 把完成提示清掉
             SetStatus($"安装完成（{plan.Count} 个）");
+        }
+        catch (OperationCanceledException)
+        {
+            SetStatus("已取消");
+            Log("模组下载已取消");
         }
         catch (Exception ex)
         {
@@ -1070,6 +1195,145 @@ public partial class MainWindow
             MarketProgress.Visibility = Visibility.Collapsed;
             SetDownloadBusy(false);
         }
+    }
+
+    private void OnDownloadTasksChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.OldItems != null)
+        {
+            foreach (var old in e.OldItems.OfType<DownloadTaskVm>()) old.Finished -= OnDownloadTaskFinished;
+        }
+        if (e.Action != NotifyCollectionChangedAction.Add || e.NewItems is not { Count: > 0 } items) return;
+        if (items[0] is not DownloadTaskVm task) return;
+        task.Finished += OnDownloadTaskFinished;
+        DownloadTaskList.SelectedItem = task;
+        DownloadTaskList.ScrollIntoView(task);
+    }
+
+    private void DownloadTaskList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (e.RemovedItems != null)
+        {
+            foreach (var old in e.RemovedItems.OfType<DownloadTaskVm>())
+                old.PropertyChanged -= Task_CanCancelChanged;
+        }
+        if (e.AddedItems != null)
+        {
+            foreach (var added in e.AddedItems.OfType<DownloadTaskVm>())
+                added.PropertyChanged += Task_CanCancelChanged;
+        }
+        UpdateCancelButton();
+    }
+
+    /// <summary>选中任务能取消时才显示底部按钮；完成 / 已取消时隐藏。</summary>
+    private void UpdateCancelButton()
+    {
+        CancelDownloadBtn.Visibility = DownloadTaskList.SelectedItem is DownloadTaskVm { CanCancel: true }
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private void Task_CanCancelChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(DownloadTaskVm.CanCancel)) UpdateCancelButton();
+    }
+
+    /// <summary>完成或被取消的任务先留 3 秒，再移除条目。</summary>
+    private void OnDownloadTaskFinished(object? sender, EventArgs e)
+    {
+        if (sender is not DownloadTaskVm task) return;
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(new Action(() => OnDownloadTaskFinished(task, EventArgs.Empty)));
+            return;
+        }
+
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            RetireTaskItem(task);
+        };
+        timer.Start();
+    }
+
+    /// <summary>移除条目：开动画时向中心缩小并淡出；关闭动画时直接消失。</summary>
+    private void RetireTaskItem(DownloadTaskVm task)
+    {
+        if (!UiAnimations.Active ||
+            DownloadTaskList.ItemContainerGenerator.ContainerFromItem(task) is not ListBoxItem item)
+        {
+            DownloadService.DownloadTasks.Remove(task);
+            return;
+        }
+
+        var scale = new ScaleTransform(1, 1);
+        item.RenderTransformOrigin = new Point(0.5, 0.5);
+        item.RenderTransform = scale;
+
+        var ease = new CubicEase { EasingMode = EasingMode.EaseIn };
+        var duration = TimeSpan.FromMilliseconds(200);
+        var fade = new DoubleAnimation(1, 0, duration) { EasingFunction = ease };
+        fade.Completed += (_, _) => RemoveTaskWithShift(task);
+        item.BeginAnimation(UIElement.OpacityProperty, fade);
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty,
+            new DoubleAnimation(1, 0.86, duration) { EasingFunction = ease });
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty,
+            new DoubleAnimation(1, 0.86, duration) { EasingFunction = ease });
+    }
+
+    /// <summary>移除后让下面的条目从原位平移到新位置（Y 过渡），避免生硬跳变。</summary>
+    private void RemoveTaskWithShift(DownloadTaskVm task)
+    {
+        var items = DownloadService.DownloadTasks;
+        var index = items.IndexOf(task);
+        if (index < 0) return;
+
+        var before = new List<(DownloadTaskVm Item, double Y)>();
+        for (var i = index + 1; i < items.Count; i++)
+        {
+            if (DownloadTaskList.ItemContainerGenerator.ContainerFromItem(items[i]) is not ListBoxItem li) continue;
+            before.Add((items[i], li.TransformToAncestor(DownloadTaskList).Transform(new Point(0, 0)).Y));
+        }
+
+        items.Remove(task);
+        if (!UiAnimations.Active || before.Count == 0) return;
+
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            foreach (var (entry, oldY) in before)
+            {
+                if (DownloadTaskList.ItemContainerGenerator.ContainerFromItem(entry) is not ListBoxItem li) continue;
+                var delta = oldY - li.TransformToAncestor(DownloadTaskList).Transform(new Point(0, 0)).Y;
+                if (Math.Abs(delta) < 0.5) continue;
+                if (li.RenderTransform is not TranslateTransform shift)
+                {
+                    shift = new TranslateTransform();
+                    li.RenderTransform = shift;
+                }
+                shift.BeginAnimation(TranslateTransform.YProperty,
+                    new DoubleAnimation(delta, 0, TimeSpan.FromMilliseconds(180))
+                    {
+                        EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+                    });
+            }
+        }), DispatcherPriority.Loaded);
+    }
+
+    private void CancelDownload_Click(object sender, RoutedEventArgs e)
+    {
+        if (DownloadTaskList.SelectedItem is not DownloadTaskVm task)
+        {
+            AppDialog.Info("请先在下载列表里选择一个任务。", "下载列表");
+            return;
+        }
+        if (!task.CanCancel)
+        {
+            AppDialog.Info($"「{task.Name}」当前状态是「{task.State}」，不能取消。", "下载列表");
+            return;
+        }
+        task.Cancel();
+        Log($"已取消下载：{task.Name}");
     }
 
     private void SetDownloadBusy(bool busy)

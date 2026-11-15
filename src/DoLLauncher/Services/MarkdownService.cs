@@ -1,8 +1,8 @@
-using System.Diagnostics;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Documents;
 using System.Windows.Media;
+using DoLLauncher.Platform;
 
 namespace DoLLauncher.Services;
 
@@ -248,7 +248,7 @@ public static class MarkdownService
         {
             try
             {
-                Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
+                PlatformServices.Links.OpenUrl(e.Uri.AbsoluteUri);
             }
             catch
             {

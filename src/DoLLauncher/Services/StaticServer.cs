@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using DoLLauncher.Core.Data;
 using DoLLauncher.Core.Diagnostics;
+using DoLLauncher.Core.Story;
 
 namespace DoLLauncher.Services;
 
@@ -102,6 +103,10 @@ public sealed class StaticServer : IDisposable
     };
 
     public int Port { get; }
+
+    private readonly object _storySimLock = new();
+    private string? _storySimCommand;
+    private string _storySimStatus = "{\"state\":\"idle\",\"message\":\"尚未开始\"}";
 
     public StaticServer(string root, int port, string htmlName, string versionName, string versionFolder)
     {
@@ -395,6 +400,133 @@ public sealed class StaticServer : IDisposable
             var json = JsonSerializer.Serialize(new { ok });
             await WriteBytesAsync(stream, 200, "OK", "application/json; charset=utf-8",
                 Encoding.UTF8.GetBytes(json), method, ct);
+            return;
+        }
+
+        if (path.Equals("/__launcher/api/story-sim", StringComparison.OrdinalIgnoreCase))
+        {
+            if (method != "POST")
+            {
+                await WriteTextAsync(stream, 405, "Method Not Allowed", "text/plain; charset=utf-8",
+                    "405 Method Not Allowed", method, ct);
+                return;
+            }
+
+            string body;
+            try
+            {
+                body = await ReadBodyAsync(stream, leftover, lines, ct);
+            }
+            catch (Exception ex)
+            {
+                LogThrottled($"模拟结果上报读取失败（{_versionName}）：{ex.Message}");
+                return;
+            }
+
+            try
+            {
+                var saved = StoryBranchReader.SaveLatest(_root, body);
+                var json = JsonSerializer.Serialize(new { ok = true, file = saved });
+                await WriteBytesAsync(stream, 200, "OK", "application/json; charset=utf-8",
+                    Encoding.UTF8.GetBytes(json), method, ct);
+            }
+            catch (Exception ex)
+            {
+                LogThrottled($"保存模拟结果失败（{_versionName}）：{ex.Message}");
+                var json = JsonSerializer.Serialize(new { ok = false, error = ex.Message });
+                await WriteBytesAsync(stream, 400, "Bad Request", "application/json; charset=utf-8",
+                    Encoding.UTF8.GetBytes(json), method, ct);
+            }
+            return;
+        }
+
+        if (path.Equals("/__launcher/api/story-sim/run", StringComparison.OrdinalIgnoreCase))
+        {
+            if (method == "POST")
+            {
+                string body;
+                try
+                {
+                    body = await ReadBodyAsync(stream, leftover, lines, ct);
+                }
+                catch (Exception ex)
+                {
+                    LogThrottled($"模拟命令读取失败（{_versionName}）：{ex.Message}");
+                    return;
+                }
+
+                if (body.Length > 4000)
+                {
+                    await WriteTextAsync(stream, 400, "Bad Request", "text/plain; charset=utf-8",
+                        "命令过大", method, ct);
+                    return;
+                }
+
+                lock (_storySimLock)
+                {
+                    _storySimCommand = body;
+                    _storySimStatus = "{\"state\":\"queued\",\"message\":\"已加入队列，等待游戏页面接收\"}";
+                }
+                var json = JsonSerializer.Serialize(new { ok = true });
+                await WriteBytesAsync(stream, 200, "OK", "application/json; charset=utf-8",
+                    Encoding.UTF8.GetBytes(json), method, ct);
+                return;
+            }
+
+            if (method == "GET")
+            {
+                string? command;
+                lock (_storySimLock)
+                {
+                    command = _storySimCommand;
+                    _storySimCommand = null;
+                }
+                var json = "{\"ok\":true,\"command\":" + (command ?? "null") + "}";
+                await WriteBytesAsync(stream, 200, "OK", "application/json; charset=utf-8",
+                    Encoding.UTF8.GetBytes(json), method, ct);
+                return;
+            }
+
+            await WriteTextAsync(stream, 405, "Method Not Allowed", "text/plain; charset=utf-8",
+                "405 Method Not Allowed", method, ct);
+            return;
+        }
+
+        if (path.Equals("/__launcher/api/story-sim/status", StringComparison.OrdinalIgnoreCase))
+        {
+            if (method == "POST")
+            {
+                string body;
+                try
+                {
+                    body = await ReadBodyAsync(stream, leftover, lines, ct);
+                }
+                catch (Exception ex)
+                {
+                    LogThrottled($"模拟状态读取失败（{_versionName}）：{ex.Message}");
+                    return;
+                }
+
+                if (body.Length > 4000) body = body[..4000];
+                lock (_storySimLock) { _storySimStatus = body; }
+                var json = JsonSerializer.Serialize(new { ok = true });
+                await WriteBytesAsync(stream, 200, "OK", "application/json; charset=utf-8",
+                    Encoding.UTF8.GetBytes(json), method, ct);
+                return;
+            }
+
+            if (method == "GET")
+            {
+                string status;
+                lock (_storySimLock) { status = _storySimStatus; }
+                var json = "{\"ok\":true,\"status\":" + status + "}";
+                await WriteBytesAsync(stream, 200, "OK", "application/json; charset=utf-8",
+                    Encoding.UTF8.GetBytes(json), method, ct);
+                return;
+            }
+
+            await WriteTextAsync(stream, 405, "Method Not Allowed", "text/plain; charset=utf-8",
+                "405 Method Not Allowed", method, ct);
             return;
         }
 

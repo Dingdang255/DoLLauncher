@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.IO;
 using DoLLauncher.Models;
+using DoLLauncher.Platform;
 
 namespace DoLLauncher.Services;
 
@@ -104,9 +105,6 @@ public static class ServerManager
     public static void OpenFolder(string path)
     {
         if (!Directory.Exists(path)) return;
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path)
-        {
-            UseShellExecute = true,
-        });
+        PlatformServices.Links.OpenPath(path);
     }
 }

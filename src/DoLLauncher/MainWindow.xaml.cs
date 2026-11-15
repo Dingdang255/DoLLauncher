@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -18,7 +19,6 @@ using DoLLauncher.Core.Versions;
 using DoLLauncher.Models;
 using DoLLauncher.Platform;
 using DoLLauncher.Services;
-using Microsoft.Win32;
 using SubtitleTextHelper = DoLLauncher.Core.Ui.SubtitleText;
 
 namespace DoLLauncher;
@@ -36,6 +36,7 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<BackupEntry> _backupEntries = new();
     private readonly Dictionary<string, List<GameRelease>> _releaseCache = new();
     private readonly Dictionary<string, string> _readmeCache = new();
+    private int _assetVersionToken;
     private VersionVm? _selected;
     private bool _loadingMods;
     private bool _gameLoaded;
@@ -88,6 +89,8 @@ public partial class MainWindow : Window
         };
         VersionList.ItemsSource = _versions;
         ModList.ItemsSource = _mods;
+        GameSourceBox.ItemsSource = DownloadService.GameSources;
+        GameSourceBox.SelectedItem = DownloadService.CurrentGameSource();
         GameReleaseList.ItemsSource = _gameReleases;
         MarketList.ItemsSource = _marketView;
         MarketTargetBox.ItemsSource = _targets;
@@ -97,6 +100,9 @@ public partial class MainWindow : Window
         DiagTargetBox.ItemsSource = _targets;
         LegacyTargetBox.ItemsSource = _targets;
         BackupList.ItemsSource = _backupEntries;
+        DownloadTaskList.ItemsSource = DownloadService.DownloadTasks;
+        // 新任务入列时自动选中并滚到可见位置，方便直接用底部按钮取消
+        DownloadService.DownloadTasks.CollectionChanged += OnDownloadTasksChanged;
         // 选中项左侧的小三角：随选中项滑动，滚动/尺寸变化时跟随，不做动画
         VersionList.AddHandler(ScrollViewer.ScrollChangedEvent,
             new ScrollChangedEventHandler((_, _) => UpdateVersionIndicator(false)));
@@ -975,14 +981,10 @@ public partial class MainWindow : Window
 
     private void ImportMod_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new OpenFileDialog
-        {
-            Title = "导入模组",
-            Filter = "模组包 (*.zip;*.modpack)|*.zip;*.modpack|所有文件 (*.*)|*.*",
-            Multiselect = true,
-        };
-        if (dialog.ShowDialog(this) != true) return;
-        ImportModPaths(dialog.FileNames);
+        var paths = PlatformServices.FilePicker.PickFiles(
+            "导入模组", "模组包 (*.zip;*.modpack)|*.zip;*.modpack|所有文件 (*.*)|*.*", false);
+        if (paths.Count == 0) return;
+        ImportModPaths(paths);
     }
 
     private void ImportModPaths(IEnumerable<string> paths)
@@ -1138,7 +1140,7 @@ public partial class MainWindow : Window
             };
             open.Click += (_, _) =>
             {
-                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(detail.Homepage) { UseShellExecute = true }); }
+                try { PlatformServices.Links.OpenUrl(detail.Homepage); }
                 catch { }
             };
             bottom.Children.Add(open);
@@ -1265,24 +1267,19 @@ public partial class MainWindow : Window
         var dialog = new ExportDialog(version) { Owner = this };
         if (dialog.ShowDialog() != true) return;
 
-        var save = new SaveFileDialog
-        {
-            Title = "保存版本包",
-            Filter = "DoL 版本包 (*.dolpack)|*.dolpack|Zip 压缩包 (*.zip)|*.zip",
-            DefaultExt = ".dolpack",
-            AddExtension = true,
-            FileName = version.Folder + ".dolpack",
-        };
-        if (save.ShowDialog(this) != true) return;
+        var savePath = PlatformServices.FilePicker.PickSaveFile(
+            "保存版本包", "DoL 版本包 (*.dolpack)|*.dolpack|Zip 压缩包 (*.zip)|*.zip",
+            version.Folder + ".dolpack", ".dolpack");
+        if (savePath == null) return;
 
         ExportBtn.IsEnabled = false;
         DeleteBtn.IsEnabled = false;
-        Log($"开始导出到 {save.FileName} …");
+        Log($"开始导出到 {savePath} …");
         try
         {
             var includeGame = dialog.IncludeGame;
             var note = dialog.Note;
-            var path = save.FileName;
+            var path = savePath;
             var info = version;
 
             await Task.Run(() => PackService.Export(info, includeGame, path, note, Log));
@@ -1303,14 +1300,10 @@ public partial class MainWindow : Window
 
     private async void ImportPack_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new OpenFileDialog
-        {
-            Title = "选择版本包",
-            Filter = "DoL 版本包 (*.dolpack;*.zip)|*.dolpack;*.zip|所有文件 (*.*)|*.*",
-        };
-        if (dialog.ShowDialog(this) != true) return;
+        var path = PlatformServices.FilePicker.PickFile(
+            "选择版本包", "DoL 版本包 (*.dolpack;*.zip)|*.dolpack;*.zip|所有文件 (*.*)|*.*");
+        if (path == null) return;
 
-        var path = dialog.FileName;
         var hasGame = PackService.PeekHasGame(path);
         var target = _selected?.Info;
 
@@ -1361,13 +1354,11 @@ public partial class MainWindow : Window
 
     private async void AddVersion_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new OpenFolderDialog
-        {
-            Title = "选择包含 Degrees of Lewdity.html 的版本目录",
-        };
-        if (dialog.ShowDialog(this) != true) return;
+        var picked = PlatformServices.FilePicker.PickFolder(
+            "选择包含 Degrees of Lewdity.html 的版本目录");
+        if (picked == null) return;
 
-        var source = Path.GetFullPath(dialog.FolderName).TrimEnd(Path.DirectorySeparatorChar);
+        var source = Path.GetFullPath(picked).TrimEnd(Path.DirectorySeparatorChar);
         if (!Directory.Exists(source)) return;
 
         if (VersionService.FindHtml(source) == null)

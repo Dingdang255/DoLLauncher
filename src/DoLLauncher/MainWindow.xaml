@@ -60,6 +60,9 @@
                     <RadioButton x:Name="NavBackup" Style="{StaticResource NavItem}" GroupName="MainNav"
                                  Tag="&#xE74E;" Content="备份"
                                  Checked="Nav_Checked" />
+                    <RadioButton x:Name="NavStory" Style="{StaticResource NavItem}" GroupName="MainNav"
+                                 Tag="&#xE8A9;" Content="剧情"
+                                 Checked="Nav_Checked" />
                     <RadioButton x:Name="NavDiagnostic" Style="{StaticResource NavItem}" GroupName="MainNav"
                                  Tag="&#xE9D9;" Content="诊断"
                                  Checked="Nav_Checked" />
@@ -140,8 +143,28 @@
                                         <StackPanel>
                                         <DockPanel>
                                             <TextBlock Text="{Binding StatusText}" DockPanel.Dock="Right" FontSize="11"
-                                                       Foreground="{Binding StatusBrush}" VerticalAlignment="Center"
-                                                       Margin="8,0,0,0" />
+                                                       VerticalAlignment="Center"
+                                                       Margin="8,0,0,0">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="#9098A6" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Status}" Value="Running">
+                                                                <Setter Property="Foreground" Value="#6ECB8F" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Status}" Value="Helper">
+                                                                <Setter Property="Foreground" Value="#6C9CD9" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Status}" Value="Simulating">
+                                                                <Setter Property="Foreground" Value="#B39DDB" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Status}" Value="Legacy">
+                                                                <Setter Property="Foreground" Value="#E0A65C" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
                                             <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"
                                                        TextTrimming="CharacterEllipsis" />
                                         </DockPanel>
@@ -418,8 +441,43 @@
 
                         <TextBlock DockPanel.Dock="Bottom" Style="{StaticResource MutedText}" FontSize="10"
                                    TextWrapping="Wrap" Margin="6,12,6,0"
-                                   Text="本体来自 GitHub 汉化仓库 Release；模组索引来自 ModHub 市场。安装后会自动重建 modList.json。" />
-                        <Border Background="Transparent" />
+                                   Text="本体可选汉化整包或 ModLoader Neo 单文件，均来自 GitHub Release；模组索引来自 ModHub 市场。安装后会自动重建 modList.json。" />
+
+                        <!-- 分类底下的下载列表：一个文件一条任务，底部按钮取消选中的任务 -->
+                        <Grid Margin="0,14,0,0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="下载列表" FontSize="13" FontWeight="SemiBold"
+                                       Margin="6,0,0,6" />
+                            <ListBox x:Name="DownloadTaskList" Grid.Row="1" Background="Transparent"
+                                     BorderThickness="0" Padding="0" HorizontalContentAlignment="Stretch"
+                                     ItemContainerStyle="{StaticResource DownloadItem}"
+                                     SelectionChanged="DownloadTaskList_SelectionChanged"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     ScrollViewer.CanContentScroll="False">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource TextBrush}"
+                                                       TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" />
+                                            <ProgressBar Style="{StaticResource ThinProgress}" Maximum="1"
+                                                         Value="{Binding Progress, Mode=OneWay}"
+                                                         Margin="0,5,0,4" />
+                                            <TextBlock Text="{Binding InfoText}" Style="{StaticResource MutedText}"
+                                                       FontSize="10" TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding InfoText}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <Button x:Name="CancelDownloadBtn" Grid.Row="2" Tag="&#xE711;" Content="取消下载"
+                                    Style="{StaticResource IconButton}" Margin="4,10,4,0"
+                                    Visibility="Collapsed" Click="CancelDownload_Click" />
+                        </Grid>
                     </DockPanel>
                 </Border>
 
@@ -444,18 +502,33 @@
 
                                 <StackPanel Grid.Row="0">
                                     <TextBlock Text="游戏本体下载" FontSize="18" FontWeight="SemiBold" />
-                                    <TextBlock Style="{StaticResource MutedText}" Margin="0,5,0,0" TextWrapping="Wrap"
-                                               Text="从 GitHub 汉化仓库（Eltirosto/Degrees-of-Lewdity-Chinese-Localization）的 Release 拉取。安装后自动成为左侧的一个独立版本。" />
+                                    <TextBlock x:Name="GameSourceHintText" Style="{StaticResource MutedText}" Margin="0,5,0,0"
+                                               TextWrapping="Wrap" />
                                 </StackPanel>
 
-                                <WrapPanel Grid.Row="1" Margin="0,14,0,10">
-                                    <CheckBox x:Name="PolyfillCheck" Style="{StaticResource TextCheck}"
-                                              Content="使用 polyfill 版本" Margin="0,0,20,0" />
-                                    <CheckBox x:Name="I18nCheck" Style="{StaticResource TextCheck}"
-                                              Content="同时安装 ModI18N 汉化模组" IsChecked="True" Margin="0,0,20,0" />
-                                    <CheckBox x:Name="ImagePackCheck" Style="{StaticResource TextCheck}"
-                                              Content="同时安装原版图片包" IsChecked="True" />
-                                </WrapPanel>
+                                <StackPanel Grid.Row="1" Margin="0,14,0,10">
+                                    <WrapPanel>
+                                        <TextBlock Text="游戏源" Style="{StaticResource MutedText}"
+                                                   VerticalAlignment="Center" Margin="0,0,10,0" />
+                                        <ComboBox x:Name="GameSourceBox" Width="260" Style="{StaticResource FlatCombo}"
+                                                  ItemContainerStyle="{StaticResource FlatComboItem}"
+                                                  SelectionChanged="GameSource_Changed">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Name}" />
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                    </WrapPanel>
+                                    <WrapPanel Margin="0,10,0,0">
+                                        <CheckBox x:Name="PolyfillCheck" Style="{StaticResource TextCheck}"
+                                                  Content="使用 polyfill 版本" Margin="0,0,20,0" />
+                                        <CheckBox x:Name="I18nCheck" Style="{StaticResource TextCheck}"
+                                                  Content="同时安装 ModI18N 汉化模组" IsChecked="True" Margin="0,0,20,0" />
+                                        <CheckBox x:Name="ImagePackCheck" Style="{StaticResource TextCheck}"
+                                                  Content="同时安装原版图片包" IsChecked="True" />
+                                    </WrapPanel>
+                                </StackPanel>
 
                                 <ListBox x:Name="GameReleaseList" Grid.Row="2" Background="Transparent"
                                          BorderThickness="0" Padding="0" HorizontalContentAlignment="Stretch"
@@ -624,14 +697,17 @@
                                     </ListBox.ItemTemplate>
                                 </ListBox>
 
-                                <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0">
+                                <!-- 控件超宽时被裁剪在行内，按住 Shift + 滚轮可左右移动 -->
+                                <ScrollViewer Grid.Row="3" Style="{StaticResource RowScroller}" Margin="0,12,0,0">
+                                    <StackPanel Orientation="Horizontal">
                                     <Button x:Name="MarketDownloadBtn" Style="{StaticResource IconPrimaryButton}"
                                             Tag="&#xE896;" Content="下载并安装" Click="DownloadMod_Click" />
                                     <ComboBox x:Name="MarketVersionBox" Style="{StaticResource FlatCombo}"
                                               ItemContainerStyle="{StaticResource FlatComboItem}"
                                               ItemTemplate="{StaticResource ReleaseComboTemplate}"
                                               Width="150" Margin="10,0,0,0"
-                                              ToolTip="选择要安装的历史版本（选中模组后自动加载）" />
+                                              SelectionChanged="MarketVersion_SelectionChanged"
+                                              ToolTip="选择要安装的历史 Release（共享仓库的 mod / facemod 等 tag 代表不同产品）" />
                                     <StackPanel x:Name="MarketEditionPanel" Orientation="Horizontal"
                                                 Margin="10,0,0,0" VerticalAlignment="Center" Visibility="Collapsed">
                                         <TextBlock Text="包型" Style="{StaticResource MutedText}"
@@ -640,13 +716,24 @@
                                                   ItemContainerStyle="{StaticResource FlatComboItem}"
                                                   ItemTemplate="{StaticResource EditionComboTemplate}"
                                                   Width="170"
+                                                  SelectionChanged="MarketEdition_SelectionChanged"
                                                   ToolTip="同一个模组的不同包型 / 包体系列" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="10,0,0,0" VerticalAlignment="Center">
+                                        <TextBlock Text="包版本" Style="{StaticResource MutedText}"
+                                                   VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        <ComboBox x:Name="MarketAssetBox" Style="{StaticResource FlatCombo}"
+                                                  ItemContainerStyle="{StaticResource FlatComboItem}"
+                                                  ItemTemplate="{StaticResource EditionComboTemplate}"
+                                                  Width="110"
+                                                  ToolTip="这个包型下的具体版本，默认选最新" />
                                     </StackPanel>
                                     <Button x:Name="MarketVersionBtn" Style="{StaticResource IconButton}" Tag="&#xE72C;"
                                             Content="加载版本" Margin="8,0,0,0" Click="LoadModReleases_Click" />
                                     <TextBlock x:Name="MarketStatusText" Style="{StaticResource MutedText}"
                                                Margin="12,0,0,0" VerticalAlignment="Center" />
-                                </StackPanel>
+                                    </StackPanel>
+                                </ScrollViewer>
 
                                 <ProgressBar x:Name="MarketProgress" Grid.Row="4" Style="{StaticResource ThinProgress}"
                                              Margin="0,8,0,0" Maximum="1" Visibility="Collapsed" />
@@ -813,6 +900,415 @@
                                     Margin="0,0,8,8" />
                         </WrapPanel>
                     </Grid>
+                </Border>
+            </Grid>
+
+            <!-- ===== 剧情页 ===== -->
+            <Grid x:Name="StoryPage" Visibility="Collapsed" Margin="14">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- 顶部工具栏：版本 / 存档槽 / 刷新 / 数据来源 -->
+                <Border Grid.Row="0" Background="{DynamicResource PanelBrush}" CornerRadius="12"
+                        Padding="16,12" Margin="0,0,0,12">
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Column="0" Text="剧情" FontSize="16" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" Margin="2,0,18,0" />
+
+                            <ComboBox x:Name="StoryVersionBox" Grid.Column="1" Width="220"
+                                      Style="{StaticResource FlatCombo}"
+                                      ItemContainerStyle="{StaticResource FlatComboItem}"
+                                      Margin="0,0,10,0" SelectionChanged="StoryVersion_SelectionChanged">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis"
+                                                   ToolTip="{Binding DisplayName}" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+
+                            <ComboBox x:Name="StorySlotBox" Grid.Column="2" Width="230"
+                                      Style="{StaticResource FlatCombo}"
+                                      ItemContainerStyle="{StaticResource FlatComboItem}"
+                                      Margin="0,0,10,0" SelectionChanged="StorySlot_SelectionChanged">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis"
+                                                   ToolTip="{Binding DisplayName}" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+
+                            <Button x:Name="StoryRefreshBtn" Grid.Column="3" Content="刷新" Tag="&#xE72C;"
+                                    Style="{StaticResource IconButton}" Click="StoryRefresh_Click" />
+                        </Grid>
+
+                        <Grid Margin="2,8,2,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock x:Name="StoryStatusText" Grid.Column="0"
+                                       Style="{StaticResource MutedText}" FontSize="11"
+                                       TextWrapping="Wrap" VerticalAlignment="Top"
+                                       Text="选择一个存档作为起点，让游戏模拟后续剧情分支，结果只读展示。" />
+
+                            <TextBlock x:Name="StorySourceText" Grid.Column="1" Style="{StaticResource MutedText}"
+                                       FontSize="11" TextTrimming="CharacterEllipsis" MaxWidth="320"
+                                       VerticalAlignment="Top" Margin="12,0,0,0" Text="等待读取存档…" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- 主体：左侧导图 + 右侧节点详情（已停用，保留控件供旧逻辑引用） -->
+                <Grid x:Name="StoryPathPanel" Grid.Row="1" Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="14" />
+                        <ColumnDefinition Width="380" />
+                    </Grid.ColumnDefinitions>
+
+                    <controls:PaneSplitter Grid.Column="1" Axis="Columns" SettingKey="story.rightWidth"
+                                           DefaultSize="380" MinPrevious="420" MinNext="280"
+                                           Style="{StaticResource PaneSplitterStyle}" />
+
+                    <Border Grid.Column="0" Background="{DynamicResource PanelBrush}" CornerRadius="12"
+                            Padding="14">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <!-- 筛选与视图操作 -->
+                            <StackPanel Grid.Row="0" Margin="0,0,0,10">
+                                <WrapPanel Orientation="Horizontal">
+                                    <CheckBox x:Name="StoryCatCharacter" Style="{StaticResource TextCheck}"
+                                              Content="角色" IsChecked="True" Margin="2,0,16,0"
+                                              Checked="StoryFilter_Changed" Unchecked="StoryFilter_Changed" />
+                                    <CheckBox x:Name="StoryCatPlace" Style="{StaticResource TextCheck}"
+                                              Content="地点" IsChecked="True" Margin="0,0,16,0"
+                                              Checked="StoryFilter_Changed" Unchecked="StoryFilter_Changed" />
+                                    <CheckBox x:Name="StoryCatEvent" Style="{StaticResource TextCheck}"
+                                              Content="事件" IsChecked="True" Margin="0,0,16,0"
+                                              Checked="StoryFilter_Changed" Unchecked="StoryFilter_Changed" />
+                                    <CheckBox x:Name="StoryCatUnknown" Style="{StaticResource TextCheck}"
+                                              Content="未分类" IsChecked="True" Margin="0,0,16,0"
+                                              Checked="StoryFilter_Changed" Unchecked="StoryFilter_Changed" />
+                                </WrapPanel>
+
+                                <Grid Margin="0,8,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBox x:Name="StorySearchBox" Grid.Column="0" Style="{StaticResource DarkTextBox}"
+                                             Height="30" Padding="8,4" FontSize="12"
+                                             ToolTip="输入标题关键词后回车，定位到对应节点"
+                                             TextChanged="StorySearch_TextChanged" KeyDown="StorySearch_KeyDown" />
+
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="8,0,0,0">
+                                        <Button x:Name="StoryFitBtn" Content="适应窗口" Tag="&#xE9A6;"
+                                                Style="{StaticResource IconButton}" Click="StoryFit_Click"
+                                                Margin="0,0,8,0" />
+                                        <Button x:Name="StoryResetBtn" Content="重置视图" Tag="&#xE777;"
+                                                Style="{StaticResource IconButton}" Click="StoryReset_Click"
+                                                Margin="0,0,8,0" />
+                                        <Button x:Name="StoryExpandBtn" Content="展开全部" Tag="&#xE8A5;"
+                                                Style="{StaticResource IconButton}" Click="StoryExpand_Click" />
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+
+                            <Border Grid.Row="1" Background="{DynamicResource CardBrush}"
+                                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                    CornerRadius="10" ClipToBounds="True">
+                                <Grid>
+                                    <controls:StoryMapView x:Name="StoryMap"
+                                                           BackgroundBrush="{DynamicResource CardBrush}"
+                                                           NodeBackground="{DynamicResource CardBrush}"
+                                                           NodeBorderBrush="{DynamicResource BorderBrush}"
+                                                           NodeTextBrush="{DynamicResource TextBrush}"
+                                                           LinkBrush="{DynamicResource BorderBrush}"
+                                                           AccentBrush="{DynamicResource AccentBrush}" />
+
+                                    <TextBlock x:Name="StoryEmptyText" Style="{StaticResource MutedText}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               TextAlignment="Center" TextWrapping="Wrap" Margin="24"
+                                               IsHitTestVisible="False"
+                                               Text="先启动一次游戏完成数据落盘" />
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </Border>
+
+                    <!-- 节点详情 -->
+                    <Border Grid.Column="2" Background="{DynamicResource PanelBrush}" CornerRadius="12"
+                            Padding="16">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0" Text="节点详情" Style="{StaticResource SectionTitle}"
+                                       Margin="0,0,0,2" />
+
+                            <TextBlock x:Name="StoryDetailHint" Grid.Row="1" Style="{StaticResource MutedText}"
+                                       TextWrapping="Wrap" Margin="0,6,0,0"
+                                       Text="在左侧导图中点击步骤节点查看详情。" />
+
+                            <Grid x:Name="StoryDetailBody" Grid.Row="2" Visibility="Collapsed" Margin="0,8,0,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="150" />
+                                </Grid.RowDefinitions>
+
+                                <TextBlock x:Name="StoryDetailTitle" Grid.Row="0" TextWrapping="Wrap"
+                                           FontSize="14" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextBrush}" />
+
+                                <TextBlock x:Name="StoryDetailMeta" Grid.Row="1" TextWrapping="Wrap"
+                                           Style="{StaticResource MutedText}" FontSize="11" Margin="0,4,0,0" />
+
+                                <StackPanel x:Name="StoryKeySection" Grid.Row="2" Margin="0,10,0,0"
+                                            Visibility="Collapsed">
+                                    <TextBlock Text="关键字段" Style="{StaticResource MutedText}"
+                                               FontWeight="SemiBold" Margin="0,0,0,4" />
+                                    <ScrollViewer MaxHeight="170" VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Disabled">
+                                        <ItemsControl x:Name="StoryKeyFields">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <DockPanel Margin="0,2">
+                                                        <TextBlock Text="{Binding Key}" DockPanel.Dock="Left"
+                                                                   Width="96" FontSize="11"
+                                                                   Foreground="{DynamicResource MutedBrush}"
+                                                                   TextTrimming="CharacterEllipsis" />
+                                                        <TextBlock Text="{Binding Value}" TextWrapping="Wrap"
+                                                                   FontSize="11"
+                                                                   Foreground="{DynamicResource TextBrush}" />
+                                                    </DockPanel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                </StackPanel>
+
+                                <DockPanel Grid.Row="3" Margin="0,12,0,4">
+                                    <TextBlock x:Name="StoryVarCountText" DockPanel.Dock="Right"
+                                               Style="{StaticResource MutedText}" FontSize="10" />
+                                    <TextBlock Text="全部变量" Style="{StaticResource MutedText}"
+                                               FontWeight="SemiBold" />
+                                </DockPanel>
+
+                                <ListBox x:Name="StoryVarList" Grid.Row="4" Background="Transparent"
+                                         BorderThickness="0" Padding="0"
+                                         HorizontalContentAlignment="Stretch"
+                                         ItemContainerStyle="{StaticResource ModItem}"
+                                         VirtualizingStackPanel.IsVirtualizing="True"
+                                         VirtualizingStackPanel.VirtualizationMode="Recycling"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Key}" FontSize="11"
+                                                           TextWrapping="Wrap"
+                                                           Foreground="{DynamicResource MutedBrush}" />
+                                                <TextBlock Text="{Binding Value}" FontSize="11"
+                                                           TextWrapping="Wrap" FontFamily="Consolas"
+                                                           Foreground="{DynamicResource TextBrush}"
+                                                           Margin="0,2,0,0" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+
+                                <DockPanel Grid.Row="5" Margin="0,10,0,4">
+                                    <Button x:Name="StoryCopyJsonBtn" DockPanel.Dock="Right" Content="复制 JSON"
+                                            Style="{StaticResource TinyButton}" Width="Auto" Height="24"
+                                            Padding="8,0" Click="StoryCopyJson_Click" />
+                                    <TextBlock Text="原始 JSON" Style="{StaticResource MutedText}"
+                                               FontWeight="SemiBold" />
+                                </DockPanel>
+
+                                <TextBox x:Name="StoryJsonBox" Grid.Row="6" Style="{StaticResource DarkTextBox}"
+                                         IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
+                                         VerticalScrollBarVisibility="Auto"
+                                         HorizontalScrollBarVisibility="Disabled"
+                                         FontFamily="Consolas" FontSize="11" />
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </Grid>
+
+                <!-- 模拟分支：默认视图，游戏内导出结果的只读树 -->
+                <Grid x:Name="StoryBranchPanel" Grid.Row="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="14" />
+                        <ColumnDefinition Width="380" />
+                    </Grid.ColumnDefinitions>
+
+                    <controls:PaneSplitter Grid.Column="1" Axis="Columns" SettingKey="story.branchRightWidth"
+                                           DefaultSize="380" MinPrevious="420" MinNext="280"
+                                           Style="{StaticResource PaneSplitterStyle}" />
+
+                    <Border Grid.Column="0" Background="{DynamicResource PanelBrush}" CornerRadius="12"
+                            Padding="14">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0" Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock x:Name="StoryBranchStatusText" Grid.Column="0"
+                                           Style="{StaticResource MutedText}" FontSize="11"
+                                           TextWrapping="Wrap" VerticalAlignment="Top" Margin="0,2,12,0"
+                                           Text="在游戏内使用「分支模拟」导出结果后，这里会显示可展开的模拟分支树。" />
+
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                                    <CheckBox x:Name="StoryBranchSuccessOnly" Content="仅成功"
+                                              Style="{StaticResource TextCheck}" VerticalAlignment="Center"
+                                              Margin="0,0,10,0"
+                                              Checked="StoryBranchFilter_Changed" Unchecked="StoryBranchFilter_Changed"
+                                              ToolTip="只显示成功的分支节点，隐藏失败与界面类节点" />
+                                    <Button x:Name="StoryBranchRefreshBtn" Content="刷新" Tag="&#xE72C;"
+                                            Style="{StaticResource IconButton}" Click="StoryBranchRefresh_Click"
+                                            Padding="10,4" FontSize="12" />
+                                </StackPanel>
+                            </Grid>
+
+                            <WrapPanel Grid.Row="1" Margin="0,0,0,2">
+                                <TextBlock Text="起始存档：剧情页所选" Style="{StaticResource MutedText}"
+                                           VerticalAlignment="Center" Margin="2,0,14,6" />
+                                <TextBlock Text="深度" Style="{StaticResource MutedText}"
+                                           VerticalAlignment="Center" Margin="0,0,4,6" />
+                                <TextBox x:Name="StoryBranchDepthBox" Text="3" Width="40"
+                                         Style="{StaticResource DarkTextBox}" VerticalAlignment="Center"
+                                         VerticalContentAlignment="Center" Padding="6,3" Height="26"
+                                         FontSize="12" Margin="0,0,12,6" />
+                                <TextBlock Text="预算" Style="{StaticResource MutedText}"
+                                           VerticalAlignment="Center" Margin="0,0,4,6" />
+                                <TextBox x:Name="StoryBranchBudgetBox" Text="150" Width="56"
+                                         Style="{StaticResource DarkTextBox}" VerticalAlignment="Center"
+                                         VerticalContentAlignment="Center" Padding="6,3" Height="26"
+                                         FontSize="12" Margin="0,0,12,6" />
+                                <TextBlock Text="种子" Style="{StaticResource MutedText}"
+                                           VerticalAlignment="Center" Margin="0,0,4,6" />
+                                <TextBox x:Name="StoryBranchSeedBox" Width="96"
+                                         Style="{StaticResource DarkTextBox}" VerticalAlignment="Center"
+                                         VerticalContentAlignment="Center" Padding="6,3" Height="26"
+                                         FontSize="12" Margin="0,0,12,6"
+                                         ToolTip="纯数字；留空则由游戏随机生成" />
+                                <Button x:Name="StoryBranchRunBtn" Content="开始模拟" Tag="&#xE768;"
+                                        Style="{StaticResource IconPrimaryButton}"
+                                        Click="StoryBranchRun_Click" Padding="13,5" FontSize="12"
+                                        IsEnabled="False" Margin="0,0,10,6" />
+                                <Button x:Name="StoryBranchContinueBtn" Content="继续模拟" Tag="&#xE72A;"
+                                        Style="{StaticResource IconButton}"
+                                        Click="StoryBranchContinue_Click" Padding="11,5" FontSize="12"
+                                        IsEnabled="False" Margin="0,0,10,6"
+                                        ToolTip="从左侧选中的末端节点继续往下展开，会复用仍然开着的模拟页面" />
+                                <Button x:Name="StoryBranchExportImageBtn" Content="导出图片" Tag="&#xE91B;"
+                                        Style="{StaticResource IconButton}"
+                                        Click="StoryBranchExportImage_Click" Padding="11,5" FontSize="12"
+                                        IsEnabled="False" Margin="0,0,10,6"
+                                        ToolTip="把整棵分支图（含节点与汇入箭头）导出为 PNG 图片" />
+                                <Button x:Name="StoryBranchExportJsonBtn" Content="导出结果" Tag="&#xE896;"
+                                        Style="{StaticResource IconButton}"
+                                        Click="StoryBranchExportJson_Click" Padding="11,5" FontSize="12"
+                                        IsEnabled="False" Margin="0,0,10,6"
+                                        ToolTip="导出包含完整节点详情的 JSON 结果文件" />
+                            </WrapPanel>
+
+                            <TextBlock x:Name="StoryBranchRunStatus" Grid.Row="2"
+                                       Style="{StaticResource MutedText}" FontSize="11"
+                                       TextWrapping="Wrap" Margin="2,0,2,8"
+                                       Text="尚未开始" />
+
+                            <Border Grid.Row="3" Background="{DynamicResource CardBrush}"
+                                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                    CornerRadius="10" ClipToBounds="True">
+                                <Grid>
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Auto"
+                                                  PanningMode="Both">
+                                        <controls:StoryBranchGraphView x:Name="StoryBranchGraph"
+                                                                      TextBrush="{DynamicResource TextBrush}"
+                                                                      MutedBrush="{DynamicResource MutedBrush}"
+                                                                      AccentBrush="{DynamicResource AccentBrush}" />
+                                    </ScrollViewer>
+
+                                    <TextBlock x:Name="StoryBranchEmptyText" Style="{StaticResource MutedText}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               TextAlignment="Center" TextWrapping="Wrap" Margin="24"
+                                               IsHitTestVisible="False"
+                                               Text="还没有模拟结果&#x0a;选择存档槽后点「开始模拟」，或在游戏内点「导出到启动器」" />
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </Border>
+
+                    <Border Grid.Column="2" Background="{DynamicResource PanelBrush}" CornerRadius="12"
+                            Padding="16">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0" Text="节点详情" Style="{StaticResource SectionTitle}"
+                                       Margin="0,0,0,6" />
+
+                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel x:Name="StoryBranchDetailPanel" />
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
+                </Grid>
+
+                <!-- 未检测到剧情分支模拟模组时的占位：引导安装 -->
+                <Border x:Name="StoryModMissingPanel" Grid.Row="1" Visibility="Collapsed"
+                        Background="{DynamicResource PanelBrush}" CornerRadius="12" Padding="24">
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="560">
+                        <TextBlock Text="请先安装「剧情分支模拟」模组"
+                                   FontSize="15" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextBrush}"
+                                   HorizontalAlignment="Center" />
+                        <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
+                                   TextAlignment="Center" Margin="0,10,0,0"
+                                   Text="剧情页依赖游戏内的 Story Branch Simulator（剧情分支模拟）模组。安装并在模组列表启用后，重新打开游戏页面即可开始模拟。" />
+                        <StackPanel x:Name="StoryModActionPanel" Orientation="Horizontal"
+                                    HorizontalAlignment="Center" Margin="0,18,0,0" />
+                    </StackPanel>
                 </Border>
             </Grid>
 
@@ -1161,12 +1657,14 @@
                                                       ItemContainerStyle="{StaticResource FlatComboItem}"
                                                       Width="236" HorizontalAlignment="Left"
                                                       SelectionChanged="DownloadSource_Changed">
-                                                <ComboBoxItem Content="自动（依次回退）" Tag="auto" />
+                                                <ComboBoxItem Content="自动（测速选最快）" Tag="auto" />
                                                 <ComboBoxItem Content="GH-Proxy 镜像" Tag="ghproxy" />
+                                                <ComboBoxItem Content="GH-Proxy.com 镜像" Tag="ghproxycom" />
                                                 <ComboBoxItem Content="LLKK 镜像" Tag="llkk" />
                                                 <ComboBoxItem Content="FastGit 镜像" Tag="fastgit" />
                                                 <ComboBoxItem Content="DDLC 镜像" Tag="ddlc" />
                                                 <ComboBoxItem Content="Boki 镜像" Tag="boki" />
+                                                <ComboBoxItem Content="GHProxy.net 镜像" Tag="ghproxynet" />
                                                 <ComboBoxItem Content="ModHub 加速" Tag="worker" />
                                                 <ComboBoxItem Content="GitHub 直连" Tag="github" />
                                             </ComboBox>
@@ -1237,9 +1735,9 @@
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <Border Width="38" Height="38" CornerRadius="9"
-                                                    Background="{StaticResource AccentPaleBrush}">
+                                                    Background="{DynamicResource AccentPaleBrush}">
                                                 <TextBlock Text="&#xE8A5;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
-                                                           FontSize="17" Foreground="{StaticResource AccentBrush}"
+                                                           FontSize="17" Foreground="{DynamicResource AccentBrush}"
                                                            HorizontalAlignment="Center" VerticalAlignment="Center" />
                                             </Border>
                                             <StackPanel Grid.Column="1" Margin="12,0,12,0" VerticalAlignment="Center">
@@ -1250,7 +1748,7 @@
                                             </StackPanel>
                                             <TextBlock Grid.Column="2" Text="&#xE76C;"
                                                        FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
-                                                       FontSize="14" Foreground="{StaticResource MutedBrush}"
+                                                       FontSize="14" Foreground="{DynamicResource MutedBrush}"
                                                        VerticalAlignment="Center" />
                                         </Grid>
                                     </Button>

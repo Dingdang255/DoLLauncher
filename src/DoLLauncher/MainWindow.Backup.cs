@@ -18,7 +18,6 @@ using DoLLauncher.Core.Versions;
 using DoLLauncher.Models;
 using DoLLauncher.Platform;
 using DoLLauncher.Services;
-using Microsoft.Win32;
 using SubtitleTextHelper = DoLLauncher.Core.Ui.SubtitleText;
 
 namespace DoLLauncher;
@@ -335,19 +334,16 @@ public partial class MainWindow
         var version = BackupVersion();
         if (version == null) return;
 
-        var dialog = new OpenFileDialog
-        {
-            Title = "选择模组配置",
-            Filter = "模组配置 (*.json)|*.json|所有文件 (*.*)|*.*",
-        };
-        if (dialog.ShowDialog(this) != true) return;
+        var path = PlatformServices.FilePicker.PickFile(
+            "选择模组配置", "模组配置 (*.json)|*.json|所有文件 (*.*)|*.*");
+        if (path == null) return;
 
         if (!AppDialog.Confirm("将用这个文件里的顺序与启停覆盖当前模组列表，继续吗？",
                 "还原模组配置", "覆盖")) return;
 
         try
         {
-            BackupService.RestoreModsConfig(version.FullPath, dialog.FileName, Log);
+            BackupService.RestoreModsConfig(version.FullPath, path, Log);
             LoadMods(version);
             RefreshMarketStatus();
         }
@@ -516,20 +512,15 @@ public partial class MainWindow
         var version = DiagVersion();
         if (version == null) return;
 
-        var dialog = new SaveFileDialog
-        {
-            Title = "保存诊断包",
-            Filter = "Zip 压缩包 (*.zip)|*.zip",
-            DefaultExt = ".zip",
-            AddExtension = true,
-            FileName = $"dol-diagnostic-{version.Folder}-{DateTime.Now:yyyyMMdd-HHmm}.zip",
-        };
-        if (dialog.ShowDialog(this) != true) return;
+        var target = PlatformServices.FilePicker.PickSaveFile(
+            "保存诊断包", "Zip 压缩包 (*.zip)|*.zip",
+            $"dol-diagnostic-{version.Folder}-{DateTime.Now:yyyyMMdd-HHmm}.zip", ".zip");
+        if (target == null) return;
 
         ExportDiagBtn.IsEnabled = false;
         try
         {
-            var path = await Task.Run(() => DiagnosticService.ExportPackage(version, dialog.FileName, Log));
+            var path = await Task.Run(() => DiagnosticService.ExportPackage(version, target, Log));
             Log("诊断包已导出：" + path);
             AppDialog.Info("诊断包已导出：\n" + path, "导出诊断包");
         }
@@ -553,10 +544,7 @@ public partial class MainWindow
                 AppDialog.Info("还没有启动器日志文件。", "启动器日志");
                 return;
             }
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(LogService.FilePath)
-            {
-                UseShellExecute = true,
-            });
+            PlatformServices.Links.OpenPath(LogService.FilePath);
         }
         catch (Exception ex)
         {
@@ -576,10 +564,7 @@ public partial class MainWindow
                 AppDialog.Info("还没有游戏日志。\n启动一次游戏后，日志会写到版本目录的 logs\\game-日期.log。", "游戏日志");
                 return;
             }
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(log)
-            {
-                UseShellExecute = true,
-            });
+            PlatformServices.Links.OpenPath(log);
         }
         catch (Exception ex)
         {

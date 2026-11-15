@@ -1,27 +1,47 @@
 using System.ComponentModel;
-using System.Windows.Media;
 using DoLLauncher.Models;
 using DoLLauncher.Services;
 
 namespace DoLLauncher;
 
+/// <summary>版本卡片的状态，由界面层决定具体配色。</summary>
+public enum VersionStatus
+{
+    /// <summary>未启动。</summary>
+    Idle,
+
+    /// <summary>游戏本体正在运行。</summary>
+    Running,
+
+    /// <summary>只有存档助手在运行。</summary>
+    Helper,
+
+    /// <summary>正在做剧情分支模拟。</summary>
+    Simulating,
+
+    /// <summary>file:// 旧数据，没有可启动的本体。</summary>
+    Legacy,
+}
+
 public sealed class VersionVm : INotifyPropertyChanged
 {
-    private static readonly Brush RunningBrush = new SolidColorBrush(Color.FromRgb(0x6E, 0xCB, 0x8F));
-    private static readonly Brush IdleBrush = new SolidColorBrush(Color.FromRgb(0x90, 0x98, 0xA6));
-    private static readonly Brush HelperBrush = new SolidColorBrush(Color.FromRgb(0x6C, 0x9C, 0xD9));
-    private static readonly Brush LegacyBrush = new SolidColorBrush(Color.FromRgb(0xE0, 0xA6, 0x5C));
-
     public VersionInfo Info { get; }
 
     public VersionVm(VersionInfo info) => Info = info;
 
     public string DisplayName => Info.DisplayName;
 
+    /// <summary>版本使用的 ModLoader 类型：Neo 单文件源安装的是 Neo，其余按 JML 计。</summary>
+    public string LoaderType => Info.IsFileMode
+        ? ""
+        : Info.Folder.StartsWith("Neo-", StringComparison.OrdinalIgnoreCase) ? "Neo" : "JML";
+
     /// <summary>下拉框里用的短名称，避免在窄列里被截断。</summary>
     public string ComboName => Info.IsFileMode
         ? "旧数据（file://）"
-        : Info.GameVersion != null ? $"DoL {Info.GameVersion} · {Info.Port}" : Info.DisplayName;
+        : Info.GameVersion != null
+            ? $"DoL {Info.GameVersion} · {LoaderType} · {Info.Port}"
+            : $"{Info.DisplayName} · {LoaderType} · {Info.Port}";
 
     public string Subtitle => Info.IsFileMode
         ? "file:// 模式 · 与所有本地网页共享浏览器数据"
@@ -32,6 +52,7 @@ public sealed class VersionVm : INotifyPropertyChanged
         get
         {
             if (Info.IsFileMode) return "旧数据";
+            if (SimulationTracker.IsSimulating(Info.Folder)) return "模拟中";
             if (!ServerManager.IsRunning(Info.Folder)) return "未启动";
             return ServerManager.IsHelperOnly(Info.Folder) ? "存档助手" : "运行中";
         }
@@ -39,13 +60,14 @@ public sealed class VersionVm : INotifyPropertyChanged
 
     public bool IsRunning => !Info.IsFileMode && ServerManager.IsRunning(Info.Folder);
 
-    public Brush StatusBrush
+    public VersionStatus Status
     {
         get
         {
-            if (Info.IsFileMode) return LegacyBrush;
-            if (!ServerManager.IsRunning(Info.Folder)) return IdleBrush;
-            return ServerManager.IsHelperOnly(Info.Folder) ? HelperBrush : RunningBrush;
+            if (Info.IsFileMode) return VersionStatus.Legacy;
+            if (SimulationTracker.IsSimulating(Info.Folder)) return VersionStatus.Simulating;
+            if (!ServerManager.IsRunning(Info.Folder)) return VersionStatus.Idle;
+            return ServerManager.IsHelperOnly(Info.Folder) ? VersionStatus.Helper : VersionStatus.Running;
         }
     }
 
