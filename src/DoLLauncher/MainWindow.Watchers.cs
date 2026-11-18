@@ -40,6 +40,7 @@ public partial class MainWindow
             _modsWatcher = CreateModsWatcher(modsDir);
             // 版本根目录只关心启动器自己写的两个清单文件；logs 等其它子目录变动一律忽略
             _versionWatcher = CreateVersionWatcher(version.FullPath);
+            _logsWatcher = CreateLogsWatcher(version.FullPath);
             _watchedVersionDir = version.FullPath;
         }
         catch (Exception ex)
@@ -103,6 +104,54 @@ public partial class MainWindow
         Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(ScheduleModsReload));
     }
 
+    /// <summary>logs 目录监听：游戏日志有新内容时重新计算模组列表上的问题提示。</summary>
+    private FileSystemWatcher CreateLogsWatcher(string versionDir)
+    {
+        var dir = GameLogService.Dir(versionDir);
+        if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+        var watcher = new FileSystemWatcher(dir)
+        {
+            IncludeSubdirectories = false,
+            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+            EnableRaisingEvents = true,
+        };
+
+        void OnLogChanged(object sender, FileSystemEventArgs e)
+        {
+            var name = e.Name ?? string.Empty;
+            if (!name.StartsWith("game-", StringComparison.OrdinalIgnoreCase) ||
+                !name.EndsWith(".log", StringComparison.OrdinalIgnoreCase)) return;
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(ScheduleIssueRefresh));
+        }
+
+        watcher.Created += OnLogChanged;
+        watcher.Changed += OnLogChanged;
+        watcher.Deleted += OnLogChanged;
+        watcher.Renamed += (s, e) => OnLogChanged(s, e);
+        watcher.Error += (_, args) => Log("游戏日志监听出错：" + args.GetException().Message);
+        return watcher;
+    }
+
+    /// <summary>节流刷新：游戏持续写日志时最多每 1.5 秒重算一次问题列表。</summary>
+    private void ScheduleIssueRefresh()
+    {
+        var version = _selected?.Info;
+        if (version == null || version.IsFileMode) return;
+
+        if (_issueRefreshTimer == null)
+        {
+            _issueRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+            _issueRefreshTimer.Tick += (_, _) =>
+            {
+                _issueRefreshTimer.Stop();
+                if (_selected == null || _selected.Info.IsFileMode) return;
+                ApplyModIssues();
+            };
+        }
+        if (!_issueRefreshTimer.IsEnabled) _issueRefreshTimer.Start();
+    }
+
     private static bool IsModsWatchRelevant(string? name)
     {
         // 目录级事件（例如游戏往 logs 里写日志、新建子目录）可能拿到空名字，
@@ -161,6 +210,9 @@ public partial class MainWindow
         _modsWatcher = null;
         _versionWatcher?.Dispose();
         _versionWatcher = null;
+        _logsWatcher?.Dispose();
+        _logsWatcher = null;
+        _issueRefreshTimer?.Stop();
         _watchedVersionDir = null;
     }
 

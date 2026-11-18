@@ -10,6 +10,9 @@ public sealed class VersionEntry
 
     /// <summary>用户已确认「知晓风险、忽略」的冲突对键（双方市场 id 排序后以 | 连接）。</summary>
     [JsonPropertyName("ignoredConflicts")] public List<string> IgnoredConflicts { get; set; } = new();
+
+    /// <summary>用户已忽略的「模组版本不匹配」条目键。</summary>
+    [JsonPropertyName("ignoredVersionIssues")] public List<string> IgnoredVersionIssues { get; set; } = new();
 }
 
 public sealed class BackupSettings

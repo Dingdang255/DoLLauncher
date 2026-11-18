@@ -19,6 +19,7 @@ public partial class ConflictDialog : Window
     private readonly Func<string, bool> _disableByFile;
     private readonly Func<string, Task<bool>> _enableByFile;
     private readonly Action<ModConflict, bool> _setIgnored;
+    private readonly Action<ModVersionMismatch, bool> _setVersionIgnored;
     private readonly Action<string> _locateDependency;
     private readonly Func<(IEnumerable<ModConflict> Conflicts,
         IEnumerable<ModMissingDependency> Missing,
@@ -34,6 +35,7 @@ public partial class ConflictDialog : Window
         Func<string, bool> disableByFile,
         Func<string, Task<bool>> enableByFile,
         Action<ModConflict, bool> setIgnored,
+        Action<ModVersionMismatch, bool> setVersionIgnored,
         Action<string> locateDependency,
         Func<(IEnumerable<ModConflict> Conflicts,
             IEnumerable<ModMissingDependency> Missing,
@@ -46,6 +48,7 @@ public partial class ConflictDialog : Window
         _disableByFile = disableByFile;
         _enableByFile = enableByFile;
         _setIgnored = setIgnored;
+        _setVersionIgnored = setVersionIgnored;
         _locateDependency = locateDependency;
         _loadProblems = loadProblems;
 
@@ -84,11 +87,12 @@ public partial class ConflictDialog : Window
         RefreshUi();
     }
 
-    private int TotalProblems => _active.Count + _mismatches.Count + _missing.Count + _duplicates.Count;
+    private int TotalProblems => _active.Count + _mismatches.Count(m => !m.Ignored) +
+                                 _missing.Count + _duplicates.Count;
 
     private bool HasRed =>
         _active.Count > 0 || _missing.Count > 0 || _duplicates.Count > 0 ||
-        _mismatches.Any(m => m.Severity == ProblemSeverity.Red);
+        _mismatches.Any(m => !m.Ignored && m.Severity == ProblemSeverity.Red);
 
     private void RefreshUi()
     {
@@ -102,7 +106,9 @@ public partial class ConflictDialog : Window
         DuplicateEmpty.Visibility = _duplicates.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
         ConflictTab.Header = _active.Count > 0 ? $"模组冲突 ({_active.Count})" : "模组冲突";
-        VersionTab.Header = _mismatches.Count > 0 ? $"模组版本不匹配 ({_mismatches.Count})" : "模组版本不匹配";
+        VersionTab.Header = _mismatches.Count(m => !m.Ignored) > 0
+            ? $"模组版本不匹配 ({_mismatches.Count(m => !m.Ignored)})"
+            : "模组版本不匹配";
         DependencyTab.Header = _missing.Count > 0 ? $"模组前置缺失 ({_missing.Count})" : "模组前置缺失";
         DuplicateTab.Header = _duplicates.Count > 0 ? $"模组重复 ({_duplicates.Count})" : "模组重复";
 
@@ -114,7 +120,10 @@ public partial class ConflictDialog : Window
         UpdateIntro();
 
         HintText.Visibility = clean ? Visibility.Collapsed : Visibility.Visible;
-        IgnoreAllBtn.Visibility = _active.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        // 冲突和版本不匹配都可以批量忽略，没有可忽略项时按钮收起
+        IgnoreAllBtn.Visibility = _active.Count > 0 || _mismatches.Any(m => !m.Ignored)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         LaunchBtn.Visibility = _launchMode ? Visibility.Visible : Visibility.Collapsed;
         // 问题全部修完后按钮回到正常文案，不再显示「仍然启动」
         LaunchBtn.Content = clean ? "启动游戏" : "仍然启动（忽略并启动）";
@@ -131,7 +140,7 @@ public partial class ConflictDialog : Window
         }
 
         IntroText.Text = ProblemTabs.SelectedItem == VersionTab
-            ? "按模组声明的目标游戏版本与当前版本的第三段（z）比较：相差等于设置里的阈值只作橙色提醒，超过阈值则按红色警告；同时扫描最近几份游戏日志，把补丁匹配失败、界面区域不存在这类运行期不兼容也列在这一页；只检查已启用的模组。"
+            ? "按模组声明的目标游戏版本与当前版本的第三段（z）比较：相差等于设置里的阈值只作橙色提醒，超过阈值则按红色警告；同时扫描最新一份游戏日志，把补丁匹配失败、界面区域不存在这类运行期不兼容也列在这一页；只检查已启用的模组。确认无碍的可逐条点「忽略」，记录按版本保存。"
             : ProblemTabs.SelectedItem == DependencyTab
                 ? "缺少前置来自 boot.json 的 dependencies：完全未安装、已安装但被停用、版本不满足都按红色问题列出，可在下方启用前置或去下载中心补装。"
                 : ProblemTabs.SelectedItem == DuplicateTab
@@ -233,6 +242,18 @@ public partial class ConflictDialog : Window
             _active.Remove(conflict);
             _ignored.Add(conflict);
         }
+        foreach (var issue in _mismatches.Where(m => !m.Ignored).ToList())
+            _setVersionIgnored(issue, true);
+        VersionList.Items.Refresh();
+        RefreshUi();
+    }
+
+    /// <summary>逐条忽略 / 恢复「模组版本不匹配」；记录按版本持久化。</summary>
+    private void IgnoreVersion_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not ModVersionMismatch issue) return;
+        _setVersionIgnored(issue, !issue.Ignored);
+        VersionList.Items.Refresh();
         RefreshUi();
     }
 

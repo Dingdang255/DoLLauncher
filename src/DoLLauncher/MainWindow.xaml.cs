@@ -64,6 +64,10 @@ public partial class MainWindow : Window
     private string? _watchedVersionDir;
     private DateTime _ignoreModsWatchUntil = DateTime.MinValue;
 
+    // 游戏日志变动监听：日志更新后重新计算模组列表的问题提示
+    private FileSystemWatcher? _logsWatcher;
+    private DispatcherTimer? _issueRefreshTimer;
+
     // 设置页当前所在分类路径（空表示分类首页）
     private readonly List<string> _settingsPath = new();
 
@@ -371,8 +375,11 @@ public partial class MainWindow : Window
         var runtime = _selected == null
             ? new List<ModVersionMismatch>()
             : RuntimeIssueScanner.Scan(_selected.Info.FullPath, infos, _selected.Info.GameVersion);
+        var ignoredVersion = LoadIgnoredVersionIssues(_selected?.Info.Folder);
+        foreach (var issue in runtime)
+            issue.Ignored = ignoredVersion.Contains(issue.Key);
         var runtimeByFile = runtime
-            .Where(r => r.ModFile.Length > 0)
+            .Where(r => !r.Ignored && r.ModFile.Length > 0)
             .GroupBy(r => r.ModFile, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
@@ -437,6 +444,11 @@ public partial class MainWindow : Window
             _versionMismatches.Add(issue);
         }
         _duplicates = ProblemService.Duplicates(infos);
+
+        // 用户显式忽略的条目：保留在列表里可恢复，但不计入问题数、不再拦启动
+        foreach (var issue in _versionMismatches)
+            issue.Ignored = ignoredVersion.Contains(issue.Key);
+
         UpdateProblemButton();
     }
 
@@ -445,11 +457,12 @@ public partial class MainWindow : Window
     private List<ModConflict> ActiveConflicts => _conflicts.Where(c => !c.Ignored).ToList();
 
     private int TotalProblems =>
-        ActiveConflicts.Count + _missingDeps.Count + _versionMismatches.Count + _duplicates.Count;
+        ActiveConflicts.Count + _missingDeps.Count +
+        _versionMismatches.Count(m => !m.Ignored) + _duplicates.Count;
 
     private int RedProblems =>
         ActiveConflicts.Count + _missingDeps.Count + _duplicates.Count +
-        _versionMismatches.Count(m => m.Severity == ProblemSeverity.Red);
+        _versionMismatches.Count(m => !m.Ignored && m.Severity == ProblemSeverity.Red);
 
     private bool HasProblems => TotalProblems > 0;
 
@@ -537,7 +550,12 @@ public partial class MainWindow : Window
             : $"{total} 个提醒项可能影响模组运行，点此查看详情";
     }
 
-    private void Conflict_Click(object sender, RoutedEventArgs e) => ShowConflictDialog(launchMode: false);
+    private void Conflict_Click(object sender, RoutedEventArgs e)
+    {
+        // 打开前重扫一次：日志可能已经换成了没有报错的新文件
+        ApplyModIssues();
+        ShowConflictDialog(launchMode: false);
+    }
 
     /// <summary>打开问题窗口；返回是否继续启动（仅「仍然启动」为 true）。</summary>
     private bool ShowConflictDialog(bool launchMode)
@@ -552,7 +570,7 @@ public partial class MainWindow : Window
             var dialog = new ConflictDialog(
                 _conflicts, _missingDeps, _versionMismatches, _duplicates, launchMode,
                 DisableConflictSide, EnableMissingDependencyAsync,
-                SetConflictIgnored, LocateDependencyInMarket, CurrentProblemSet)
+                SetConflictIgnored, SetVersionIssueIgnored, LocateDependencyInMarket, CurrentProblemSet)
             {
                 Owner = this,
             };
@@ -631,6 +649,48 @@ public partial class MainWindow : Window
     {
         var entry = AppConfig.Load().Versions.FirstOrDefault(v => v.Folder == folder);
         return new HashSet<string>(entry?.IgnoredConflicts ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static HashSet<string> LoadIgnoredVersionIssues(string? folder)
+    {
+        if (string.IsNullOrEmpty(folder)) return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var entry = AppConfig.Load().Versions.FirstOrDefault(v => v.Folder == folder);
+        return new HashSet<string>(entry?.IgnoredVersionIssues ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>「模组版本不匹配」条目的忽略记录，按版本保存在 ignoredVersionIssues 里。</summary>
+    private void SetVersionIssueIgnored(ModVersionMismatch issue, bool ignored)
+    {
+        var version = _selected?.Info;
+        if (version == null || version.IsFileMode) return;
+
+        var cfg = AppConfig.Load();
+        var entry = AppConfig.GetOrAdd(cfg, version.Folder);
+        entry.IgnoredVersionIssues ??= new List<string>();
+        entry.IgnoredVersionIssues.RemoveAll(k =>
+            string.Equals(k, issue.Key, StringComparison.OrdinalIgnoreCase));
+        if (ignored) entry.IgnoredVersionIssues.Add(issue.Key);
+        AppConfig.Save(cfg);
+
+        issue.Ignored = ignored;
+        // 忽略状态写在 launcher-versions.json 里，模组列表的小字要立刻跟着刷新；
+        // 批量忽略时这里会被连续调用，合并成一次重算。
+        QueueApplyModIssues();
+    }
+
+    private bool _issueRefreshQueued;
+
+    /// <summary>把多次忽略/恢复合并成一次问题重算，避免批量操作时重复扫描。</summary>
+    private void QueueApplyModIssues()
+    {
+        if (_issueRefreshQueued) return;
+        _issueRefreshQueued = true;
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            _issueRefreshQueued = false;
+            if (_selected == null || _selected.Info.IsFileMode) return;
+            ApplyModIssues();
+        }));
     }
 
     /// <summary>忽略记录按版本保存在 launcher-versions.json 的 ignoredConflicts 里。</summary>
@@ -756,6 +816,8 @@ public partial class MainWindow : Window
 
             // 每次启动前重新核对；存在冲突 / 版本不匹配 / 缺前置就弹窗提示
             if (_marketCatalog != null) await CheckConflictsAsync();
+            // 重扫最新日志，避免上一局的补丁/解码报错一直挂在问题列表里
+            ApplyModIssues();
             if (HasProblems && !ShowConflictDialog(launchMode: true)) return;
 
             ModService.Apply(version.FullPath);

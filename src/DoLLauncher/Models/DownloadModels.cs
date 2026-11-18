@@ -366,6 +366,16 @@ public sealed class ModVersionMismatch
     public bool CanDisable => ModFile.Length > 0;
 
     public string DisableText => $"停用「{ModName}」";
+
+    /// <summary>用户已确认忽略的标记。</summary>
+    public bool Ignored { get; set; }
+
+    public string IgnoreText => Ignored ? "恢复" : "忽略";
+
+    /// <summary>忽略用的稳定键：同一模组 + 同一类问题（运行日志原因或目标游戏版本）。</summary>
+    public string Key =>
+        (Runtime && RuntimeReason.Length > 0 ? "runtime:" + RuntimeReason : "boot:" + TargetGameVersion) +
+        "|" + (ModFile.Length > 0 ? ModFile : ModName);
 }
 
 /// <summary>同名模组组里的一个文件。</summary>

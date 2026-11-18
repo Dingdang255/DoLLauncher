@@ -48,6 +48,10 @@ public static class ModService
     private const string StateFileName = "mods-state.json";
     private const string ModListFileName = "modList.json";
 
+    /// <summary>内置补丁锚点兼容层的文件名，随 modList 注入，但不出现在模组列表里。</summary>
+    private const string CompatModFileName = "_DoLL-PatchAnchor.mod.zip";
+    private const string CompatModVersion = "1.0.0";
+
     /// <summary>ModLoader 自带部件，不是磁盘模组，依赖里出现时直接视作满足。</summary>
     private static readonly string[] BuiltinPrefixes = { "ModLoader", "DoL ModLoader" };
 
@@ -314,6 +318,7 @@ public static class ModService
 
         var files = Directory.GetFiles(modsDir)
             .Where(IsModPackage)
+            .Where(f => !IsCompatMod(f))
             .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -367,9 +372,92 @@ public static class ModService
         File.WriteAllText(statePath, JsonSerializer.Serialize(state, JsonOpts), new UTF8Encoding(false));
 
         var enabled = list.Where(m => m.Enabled).Select(m => "mods/" + m.FileName).ToList();
+
+        // 装了汉化包时，把内置的补丁锚点兼容层排在它后面加载，用来修正偏移漂移的补丁。
+        var i18nIndex = enabled.FindLastIndex(p =>
+            Path.GetFileName(p).StartsWith("ModI18N", StringComparison.OrdinalIgnoreCase));
+        if (i18nIndex >= 0 && EnsureCompatMod(versionDir))
+            enabled.Insert(i18nIndex + 1, "mods/" + CompatModFileName);
+
         var json = enabled.Count == 0 ? "[]" : JsonSerializer.Serialize(enabled, JsonOpts);
         File.WriteAllText(Path.Combine(versionDir, ModListFileName), json, new UTF8Encoding(false));
     }
+
+    private static bool IsCompatMod(string path) =>
+        string.Equals(Path.GetFileName(path), CompatModFileName, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>把内置兼容层写成模组包；文件缺失或版本落后时重建。</summary>
+    private static bool EnsureCompatMod(string versionDir)
+    {
+        try
+        {
+            var modsDir = ModsDir(versionDir);
+            Directory.CreateDirectory(modsDir);
+            var path = Path.Combine(modsDir, CompatModFileName);
+            if (File.Exists(path) && CompatModIsCurrent(path)) return true;
+
+            using var stream = typeof(ModService).Assembly
+                .GetManifestResourceStream("DoLLauncher.compat.patch-anchor.js");
+            if (stream == null) return false;
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            var script = reader.ReadToEnd();
+
+            var temp = path + ".tmp";
+            if (File.Exists(temp)) File.Delete(temp);
+            using (var zip = ZipFile.Open(temp, ZipArchiveMode.Create))
+            {
+                WriteZipEntry(zip, "boot.json", CompatBootJson());
+                WriteZipEntry(zip, "patch-anchor.js", script);
+            }
+            File.Move(temp, path, overwrite: true);
+            return true;
+        }
+        catch
+        {
+            // 游戏运行时包可能被占用：这次先跳过，下次重建 modList 时再写。
+            return false;
+        }
+    }
+
+    private static bool CompatModIsCurrent(string path)
+    {
+        try
+        {
+            using var zip = ZipFile.OpenRead(path);
+            var entry = zip.GetEntry("boot.json");
+            if (entry == null) return false;
+            using var reader = new StreamReader(entry.Open(), Encoding.UTF8);
+            return reader.ReadToEnd()
+                .Contains($"\"version\": \"{CompatModVersion}\"", StringComparison.Ordinal);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void WriteZipEntry(ZipArchive zip, string name, string text)
+    {
+        var entry = zip.CreateEntry(name, CompressionLevel.Optimal);
+        using var writer = new StreamWriter(entry.Open(), new UTF8Encoding(false));
+        writer.Write(text);
+    }
+
+    private static string CompatBootJson() =>
+        "{\n" +
+        "  \"name\": \"DoLL 补丁兼容层\",\n" +
+        $"  \"version\": \"{CompatModVersion}\",\n" +
+        "  \"scriptFileList_inject_early\": [\"patch-anchor.js\"],\n" +
+        "  \"scriptFileList_earlyload\": [],\n" +
+        "  \"scriptFileList_preload\": [],\n" +
+        "  \"scriptFileList\": [],\n" +
+        "  \"styleFileList\": [],\n" +
+        "  \"tweeFileList\": [],\n" +
+        "  \"imgFileList\": [],\n" +
+        "  \"additionFile\": [],\n" +
+        "  \"addonPlugin\": [],\n" +
+        "  \"dependenceInfo\": []\n" +
+        "}";
 
     public static void Apply(string versionDir) => Save(versionDir, Load(versionDir));
 

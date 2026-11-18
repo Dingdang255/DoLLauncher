@@ -9,11 +9,12 @@ namespace DoLLauncher.Services;
 /// <summary>
 /// 从最近的游戏日志里识别「模组补丁没匹配上当前游戏版本」这类运行期不兼容，
 /// 与 boot.json 声明的版本差异一起展示在「模组版本不匹配」里。
-/// 只扫描最近几份日志，并按当前已启用的模组过滤，避免把早已停用模组的旧报错翻出来。
+/// 只扫描最新一份游戏日志，并按当前已启用的模组过滤；
+/// 新一局启动后生成了没有报错的新日志，旧的补丁/解码问题就不再显示。
 /// </summary>
 public static class RuntimeIssueScanner
 {
-    private const int MaxFiles = 3;
+    private const int MaxFiles = 1;
     private const int MaxBytesPerFile = 2_000_000;
     private const int HeadBytes = 512 * 1024;
     private const int HeadLength = 400;
@@ -34,6 +35,10 @@ public static class RuntimeIssueScanner
     /// <summary>图片包替换页面上图片的日志行，行首方括号里是模组名。</summary>
     private static readonly Regex ImagePackReplace = new(
         @"\[(?<mod>[^\[\]]{2,80})\] findAllInputImageAndReplaceSrc", RegexOptions.Compiled);
+
+    /// <summary>ModI18N 补丁未命中时日志里的目标：in ["&lt;文件名或段落&gt;"]。</summary>
+    private static readonly Regex I18nMissTarget = new(
+        "in\\s+\\[\"(?<file>[^\"]{1,120})\"\\]", RegexOptions.Compiled);
 
     private sealed class Aggregate
     {
@@ -168,6 +173,20 @@ public static class RuntimeIssueScanner
                     continue;
                 }
 
+                // ModI18N 按绝对偏移打补丁：ModLoader 改动导致偏移漂移时会报找不到原文。
+                // 只看报错行本身，避免把后面的调用栈行也计进去。
+                if ((head.Contains("cannot find", StringComparison.Ordinal) &&
+                     head.Contains("tryReplaceStringFuzzy", StringComparison.Ordinal)) ||
+                    head.Contains("skip passage due to error", StringComparison.Ordinal))
+                {
+                    var i18n = FindByName(enabled, "ModI18N");
+                    if (i18n == null) continue;
+                    var target = I18nMissTarget.Match(head);
+                    Add(groups, "i18n", i18n.Name, i18n.FileName, line,
+                        target.Success ? target.Groups["file"].Value : null);
+                    continue;
+                }
+
                 // maplebirch 之类的框架注入界面区域失败。
                 if (head.Contains("[zone]", StringComparison.OrdinalIgnoreCase) &&
                     head.Contains("不存在", StringComparison.Ordinal))
@@ -227,6 +246,25 @@ public static class RuntimeIssueScanner
                             $"运行日志里出现 {agg.Count} 处 match failed{samples}。" +
                             "补丁要找的原文在当前游戏版本里已经改动，做侧边栏或状态栏改造的模组在漏匹配时可能出现文字重叠、错位。" +
                             "建议更新模组或先停用。" + time,
+                    });
+                    break;
+
+                case "i18n":
+                    var files = agg.Samples.Count > 0 ? "，涉及：" + string.Join("、", agg.Samples) : "";
+                    result.Add(new ModVersionMismatch
+                    {
+                        Runtime = true,
+                        RuntimeReason = "汉化补丁未命中",
+                        ModFile = agg.ModFile,
+                        ModName = agg.ModName,
+                        CurrentGameVersion = gameVersion ?? "",
+                        Severity = ProblemSeverity.Orange,
+                        RuntimeTitle = $"「{agg.ModName}」有 {agg.Count} 处汉化补丁未命中（偏移与当前 ModLoader 输出不一致）",
+                        RuntimeDetail =
+                            $"运行日志里出现 {agg.Count} 次补丁锚点失配{files}。" +
+                            "汉化包按固定字符偏移打补丁，ModLoader 更新后核心文件内容变化会让偏移失效，" +
+                            "相关文本会保留原文或只翻译了一部分。" +
+                            "启动器已尝试自动重定位；仍有失配时请换用匹配当前 ModLoader 的汉化包。" + time,
                     });
                     break;
 
