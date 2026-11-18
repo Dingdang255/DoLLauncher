@@ -1313,50 +1313,115 @@ public partial class MainWindow : Window
 
     private async void ImportPack_Click(object sender, RoutedEventArgs e)
     {
-        var path = PlatformServices.FilePicker.PickFile(
-            "选择版本包", "DoL 版本包 (*.dolpack;*.zip)|*.dolpack;*.zip|所有文件 (*.*)|*.*");
-        if (path == null) return;
+        var paths = PlatformServices.FilePicker.PickFiles(
+            "选择版本/模组包（可多选）", "版本/模组包 (*.dolpack;*.zip)|*.dolpack;*.zip|所有文件 (*.*)|*.*");
+        if (paths.Count == 0) return;
 
-        var hasGame = PackService.PeekHasGame(path);
         var target = _selected?.Info;
 
-        if (!hasGame)
+        // 1. 先只做格式校验，不写任何文件
+        var pending = new List<(string Path, PackService.PackInspection Inspection)>();
+        var failed = new List<string>();
+        foreach (var path in paths)
         {
-            if (target == null || target.IsFileMode)
+            var name = Path.GetFileName(path);
+            var inspection = PackService.Inspect(path);
+            if (inspection.IsUnknown)
             {
-                AppDialog.Info("这个包不含游戏本体，请先在左侧选中一个要接收模组的版本。");
-                return;
+                failed.Add($"{name}（无法识别的包）");
+                continue;
             }
 
+            if (inspection.IsModPack && (target == null || target.IsFileMode))
+            {
+                failed.Add($"{name}（未选中接收模组的版本）");
+                continue;
+            }
+
+            pending.Add((path, inspection));
+        }
+
+        // 2. 校验失败的包先警示一次
+        if (failed.Count > 0)
+        {
+            AppDialog.Warn("以下包未能导入：\n" + string.Join("\n", failed),
+                pending.Count > 0 ? "部分包未能导入" : "无法导入");
+        }
+
+        if (pending.Count == 0) return;
+
+        // 3. 列出将要导入的包；多选时统一确认
+        if (paths.Count > 1)
+        {
+            var lines = pending
+                .Select(p => (p.Inspection.IsGame ? "[版本] " : "[模组] ") + Path.GetFileName(p.Path))
+                .ToList();
+            var message = $"将导入以下 {pending.Count} 个包：\n\n" + string.Join("\n", lines);
+            if (pending.Any(p => p.Inspection.IsModPack))
+                message += $"\n\n模组包将会导入启动器当前选中的版本「{target!.DisplayName}」。";
+            if (!AppDialog.Confirm(message, "导入版本/模组包", "开始导入")) return;
+        }
+        else if (pending[0].Inspection.IsModPack)
+        {
+            var name = Path.GetFileName(pending[0].Path);
             if (!AppDialog.Confirm(
-                    $"这个包不含游戏本体，将把包内模组导入到版本「{target.DisplayName}」。\n" +
+                    $"「{name}」是一个模组包，将导入到启动器当前选中的版本「{target!.DisplayName}」。\n" +
                     "包内同名模组会被覆盖，是否继续？",
                     "导入模组包", "继续导入")) return;
         }
 
         ImportPackBtn.IsEnabled = false;
         AddVersionBtn.IsEnabled = false;
-        Log("开始导入：" + path);
         try
         {
-            var targetPath = hasGame ? null : target!.FullPath;
-            var result = await Task.Run(() => PackService.Import(path, targetPath, Log));
+            string? lastFolder = null;
+            var imported = 0;
+            foreach (var (path, inspection) in pending)
+            {
+                var name = Path.GetFileName(path);
+                Log("开始导入：" + path);
 
-            if (result.NewVersionFolder != null)
-            {
-                Log($"导入完成，新版本目录：{result.NewVersionFolder}（模组 {result.ModCount} 个）");
-                ReloadVersions(result.NewVersionFolder);
+                if (inspection.Game.Kind == PackGameKind.SingleHtml)
+                {
+                    if (!AppDialog.Confirm(
+                            $"「{name}」里没有找到 Degrees of Lewdity.html，只找到一个 HTML（{Path.GetFileName(inspection.Game.HtmlEntry)}）。\n" +
+                            "该包可能不是可用的DoL版本，确定导入吗？",
+                            "导入版本包", "确定导入")) continue;
+                }
+
+                try
+                {
+                    var targetPath = inspection.IsGame ? null : target!.FullPath;
+                    var result = await Task.Run(() => PackService.Import(path, inspection, targetPath, Log));
+
+                    imported++;
+                    if (result.NewVersionFolder != null)
+                    {
+                        lastFolder = result.NewVersionFolder;
+                        Log($"导入完成，新版本目录：{result.NewVersionFolder}（模组 {result.ModCount} 个）");
+                    }
+                    else
+                    {
+                        Log($"导入完成，已写入 {result.ModCount} 个模组到当前版本。");
+                    }
+
+                    if (result.FailedMods.Count > 0)
+                    {
+                        AppDialog.Warn(
+                            $"「{name}」里有 {result.FailedMods.Count} 个文件不是有效模组，已跳过：\n" +
+                            string.Join("\n", result.FailedMods),
+                            "导入模组包");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogError("导入失败：" + name, ex);
+                    AppDialog.Error($"「{name}」导入失败：{ex.Message}", "导入版本/模组包");
+                }
             }
-            else
-            {
-                Log($"导入完成，已写入 {result.ModCount} 个模组到当前版本。");
-                ReloadVersions(target!.Folder);
-            }
-        }
-        catch (Exception ex)
-        {
-            LogError("导入失败", ex);
-            AppDialog.Error("导入失败：" + ex.Message);
+
+            if (lastFolder != null) ReloadVersions(lastFolder);
+            else if (imported > 0 && target != null && !target.IsFileMode) ReloadVersions(target.Folder);
         }
         finally
         {

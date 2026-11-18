@@ -35,6 +35,9 @@ public partial class MainWindow
     private Popup? _tagPartialPopup;
     private ComboBoxItem? _pendingPartialItem;
 
+    /// <summary>游戏本体进度条完成后的延迟收起序号，新下载开始时会作废旧任务。</summary>
+    private int _gameProgressDismissSeq;
+
     /// <summary>详情窗打开后按需拉取仓库 Star（有 24 小时缓存则直接用），取到就追加到信息行末尾。</summary>
     private async Task AppendStarAsync(TextBlock target, string repo)
     {
@@ -1120,6 +1123,7 @@ public partial class MainWindow
                 "下载游戏本体", "开始下载")) return;
 
         SetDownloadBusy(true);
+        _gameProgressDismissSeq++;
         GameProgress.Visibility = Visibility.Visible;
         GameProgress.Value = 0;
         GameStatusText.Text = "0%";
@@ -1138,6 +1142,7 @@ public partial class MainWindow
             Log($"本体安装完成：versions\\{folder}");
             ReloadVersions(folder);
             NavVersions.IsChecked = true;
+            ScheduleGameProgressDismiss();
         }
         catch (OperationCanceledException)
         {
@@ -1154,6 +1159,16 @@ public partial class MainWindow
         {
             SetDownloadBusy(false);
         }
+    }
+
+    /// <summary>本体安装完成后 3 秒收起进度条并归零；期间若开始新下载则放弃。</summary>
+    private async void ScheduleGameProgressDismiss()
+    {
+        var seq = ++_gameProgressDismissSeq;
+        await Task.Delay(TimeSpan.FromSeconds(3));
+        if (seq != _gameProgressDismissSeq) return;
+        GameProgress.Value = 0;
+        GameProgress.Visibility = Visibility.Collapsed;
     }
 
     private async void DownloadMod_Click(object sender, RoutedEventArgs e)

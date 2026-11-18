@@ -11,6 +11,35 @@ using DoLLauncher.Models;
 
 namespace DoLLauncher.Services;
 
+/// <summary>模组包导入结果：成功数量与被剔除的无效模组。</summary>
+public sealed class ModPackImportResult
+{
+    public int Imported { get; set; }
+    public List<string> Failed { get; } = new();
+}
+
+/// <summary>模组包形态。</summary>
+public enum ModPackKind
+{
+    Unknown,
+    /// <summary>整个压缩包就是一个模组包。</summary>
+    SingleMod,
+    /// <summary>启动器导出的模组包：manifest.json + mods/。</summary>
+    LauncherPack,
+    /// <summary>仅含 mods/ 文件夹。</summary>
+    ModsFolder,
+    /// <summary>只含一堆压缩包。</summary>
+    ArchivesOnly,
+}
+
+/// <summary>模组包校验结果。Candidates 是包内待导入的模组条目（不含 manifest.json）。</summary>
+public sealed class ModPackInfo
+{
+    public ModPackKind Kind { get; init; } = ModPackKind.Unknown;
+    public List<string> Candidates { get; init; } = new();
+    public bool IsValid => Kind != ModPackKind.Unknown;
+}
+
 /// <summary>
 /// 版本目录下 mods/*.zip 与 mods/*.modpack 的读取、启停、排序，并生成 ModLoader 原生读取的 modList.json。
 /// </summary>
@@ -77,6 +106,205 @@ public static class ModService
 
     public static bool IsNativePack(string path) =>
         !path.EndsWith(".zip", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>只做格式校验，不解压、不写盘。</summary>
+    public static ModPackInfo ValidateModPack(ZipArchive zip)
+    {
+        var files = zip.Entries
+            .Where(e => !e.FullName.EndsWith('/'))
+            .Select(e => e.FullName.Replace('\\', '/'))
+            .ToList();
+        if (files.Count == 0) return new ModPackInfo();
+
+        var hasManifest = files.Any(n => n.Equals("manifest.json", StringComparison.OrdinalIgnoreCase));
+        var content = files
+            .Where(n => !n.Equals("manifest.json", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var underMods = content.Count > 0 &&
+                        content.All(n => n.StartsWith("mods/", StringComparison.OrdinalIgnoreCase));
+        var allArchives = content.Count > 0 && content.All(IsModPackage);
+        var singleMod = files.Any(n => n.Equals("boot.json", StringComparison.OrdinalIgnoreCase)) ||
+                        UniqueNestedBootPrefix(zip) != null;
+
+        if (hasManifest)
+        {
+            if (!underMods) return new ModPackInfo();
+            var candidates = content.Where(IsModPackage).ToList();
+            return candidates.Count == 0
+                ? new ModPackInfo()
+                : new ModPackInfo { Kind = ModPackKind.LauncherPack, Candidates = candidates };
+        }
+
+        if (singleMod) return new ModPackInfo { Kind = ModPackKind.SingleMod };
+
+        if (underMods)
+        {
+            var candidates = content.Where(IsModPackage).ToList();
+            return candidates.Count == 0
+                ? new ModPackInfo()
+                : new ModPackInfo { Kind = ModPackKind.ModsFolder, Candidates = candidates };
+        }
+
+        return allArchives
+            ? new ModPackInfo { Kind = ModPackKind.ArchivesOnly, Candidates = content }
+            : new ModPackInfo();
+    }
+
+    /// <summary>
+    /// 把已校验的模组包导入版本的 mods 目录：先写入 mods 下的隐藏临时目录，逐个校验后只把有效模组移入 mods。
+    /// </summary>
+    public static ModPackImportResult ImportPack(string versionDir, string packPath, ZipArchive zip,
+        ModPackInfo info, Action<string> log)
+    {
+        if (!info.IsValid)
+            throw new InvalidOperationException("这个压缩包不是可识别的模组包。");
+
+        var copySelf = info.Kind == ModPackKind.SingleMod;
+        var wanted = new HashSet<string>(info.Candidates, StringComparer.OrdinalIgnoreCase);
+        var files = zip.Entries
+            .Where(e => !e.FullName.EndsWith('/'))
+            .Select(e => (Entry: e, Name: e.FullName.Replace('\\', '/')))
+            .ToList();
+        var candidates = files.Where(f => wanted.Contains(f.Name)).ToList();
+
+        if (!copySelf)
+        {
+            foreach (var skipped in files.Where(f => !wanted.Contains(f.Name) &&
+                         !f.Name.Equals("manifest.json", StringComparison.OrdinalIgnoreCase)))
+                log($"跳过非模组文件：{skipped.Name}");
+        }
+
+        var modsDir = ModsDir(versionDir);
+        Directory.CreateDirectory(modsDir);
+
+        var tempDir = Path.Combine(modsDir, ".import-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(tempDir);
+        try { File.SetAttributes(tempDir, FileAttributes.Hidden); } catch { }
+
+        var result = new ModPackImportResult();
+        var staged = new List<string>();
+
+        try
+        {
+            if (copySelf)
+            {
+                var name = SanitizeFileName(Path.GetFileName(packPath));
+                var path = Path.Combine(tempDir, name);
+                File.Copy(packPath, path, overwrite: true);
+                if (NormalizeStaged(path, log)) staged.Add(path);
+                else
+                {
+                    log($"跳过 {name}：不是有效的模组包。");
+                    TryDeleteFile(path);
+                    result.Failed.Add(name);
+                }
+            }
+            else
+            {
+                foreach (var (entry, entryName) in candidates)
+                {
+                    var name = SanitizeFileName(Path.GetFileName(entryName));
+                    if (name.Length == 0) continue;
+
+                    var path = UniquePath(tempDir, name);
+                    using (var input = entry.Open())
+                    using (var output = File.Create(path))
+                    {
+                        input.CopyTo(output);
+                    }
+
+                    if (NormalizeStaged(path, log)) staged.Add(path);
+                    else
+                    {
+                        log($"跳过 {name}：不是有效的模组包。");
+                        TryDeleteFile(path);
+                        result.Failed.Add(name);
+                    }
+                }
+            }
+
+            foreach (var path in staged)
+            {
+                File.Move(path, Path.Combine(modsDir, Path.GetFileName(path)), overwrite: true);
+                result.Imported++;
+            }
+
+            return result;
+        }
+        finally
+        {
+            try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+
+    /// <summary>暂存模组校验：原生包按扩展名信任；zip 需根目录 boot.json，或去掉唯一一层子目录后可用。</summary>
+    private static bool NormalizeStaged(string path, Action<string> log)
+    {
+        if (IsNativePack(path)) return true;
+
+        try
+        {
+            string? tmp = null;
+            using (var zip = ZipFile.OpenRead(path))
+            {
+                if (zip.Entries.Any(e => e.FullName.Equals("boot.json", StringComparison.OrdinalIgnoreCase)))
+                    return true;
+
+                var prefix = UniqueNestedBootPrefix(zip);
+                if (prefix == null) return false;
+
+                tmp = path + ".tmp";
+                RepackNestedMod(zip, prefix, tmp);
+            }
+
+            File.Move(tmp, path, overwrite: true);
+            log($"已去掉多余的一层目录：{Path.GetFileName(path)}");
+            return true;
+        }
+        catch
+        {
+            try { if (File.Exists(path + ".tmp")) File.Delete(path + ".tmp"); } catch { }
+            return false;
+        }
+    }
+
+    /// <summary>zip 内唯一一层子目录带 boot.json 时返回该目录名，否则返回 null。</summary>
+    private static string? UniqueNestedBootPrefix(ZipArchive zip)
+    {
+        var prefixes = zip.Entries
+            .Select(e => e.FullName.Replace('\\', '/'))
+            .Where(n => n.EndsWith("/boot.json", StringComparison.OrdinalIgnoreCase))
+            .Select(n => n.Split('/'))
+            .Where(parts => parts.Length == 2)
+            .Select(parts => parts[0])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return prefixes.Count == 1 ? prefixes[0] : null;
+    }
+
+    /// <summary>把 zip 里指定子目录的内容重打包到 target，去掉该层目录。</summary>
+    private static void RepackNestedMod(ZipArchive zip, string prefix, string target)
+    {
+        using var dest = ZipFile.Open(target, ZipArchiveMode.Create);
+        foreach (var entry in zip.Entries)
+        {
+            var name = entry.FullName.Replace('\\', '/');
+            if (!name.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase)) continue;
+            var rel = name[(prefix.Length + 1)..];
+            if (rel.Length == 0 || rel.EndsWith('/')) continue;
+
+            var created = dest.CreateEntry(rel, CompressionLevel.Optimal);
+            using var input = entry.Open();
+            using var output = created.Open();
+            input.CopyTo(output);
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); } catch { }
+    }
 
     /// <summary>读取磁盘模组列表（按用户在启动器里调整的顺序），并套用启停状态。</summary>
     public static List<ModInfo> Load(string versionDir)
@@ -435,37 +663,15 @@ public static class ModService
                 }
 
                 // 没有根 boot.json：尝试取唯一一层子目录里的 boot.json，重新打包
-                var nested = zip.Entries
-                    .Select(e => e.FullName.Replace('\\', '/'))
-                    .Where(n => n.EndsWith("/boot.json", StringComparison.OrdinalIgnoreCase))
-                    .Select(n => n.Split('/'))
-                    .Where(parts => parts.Length == 2)
-                    .Select(parts => parts[0])
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
-                if (nested.Count != 1)
+                var prefix = UniqueNestedBootPrefix(zip);
+                if (prefix == null)
                 {
                     log($"跳过 {Path.GetFileName(file)}：压缩包内找不到 boot.json（不是有效模组）。");
                     continue;
                 }
 
-                var prefix = nested[0];
                 var repackTarget = UniquePath(modsDir, SanitizeFileName(prefix) + ".zip");
-                using (var dest = ZipFile.Open(repackTarget, ZipArchiveMode.Create))
-                {
-                    foreach (var entry in zip.Entries)
-                    {
-                        var name = entry.FullName.Replace('\\', '/');
-                        if (!name.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase)) continue;
-                        var rel = name[(prefix.Length + 1)..];
-                        if (rel.Length == 0 || rel.EndsWith('/')) continue;
-                        var created = dest.CreateEntry(rel, CompressionLevel.Optimal);
-                        using var input = entry.Open();
-                        using var output = created.Open();
-                        input.CopyTo(output);
-                    }
-                }
+                RepackNestedMod(zip, prefix, repackTarget);
                 log($"已导入 {Path.GetFileName(repackTarget)}（已去掉多余的一层目录 {prefix}/）");
                 count++;
             }

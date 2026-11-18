@@ -705,9 +705,19 @@ public partial class MainWindow
 
         if (!entry.IsSnapshot) return;
 
-        var hasGame = PackService.PeekHasGame(entry.FullPath);
+        var inspection = PackService.Inspect(entry.FullPath);
+        if (inspection.IsUnknown)
+        {
+            AppDialog.Warn($"「{entry.FileName}」不是可识别的版本包或模组包，无法还原。", "还原快照");
+            return;
+        }
+
+        var hasGame = inspection.IsGame;
         var message = hasGame
-            ? $"「{entry.FileName}」含游戏本体，将作为新版本导入到 versions 目录。继续吗？"
+            ? inspection.Game.Kind == PackGameKind.SingleHtml
+                ? $"「{entry.FileName}」里没有找到 Degrees of Lewdity.html，只找到一个 HTML。\n" +
+                  "该包可能不是可用的DoL版本，确定导入吗？"
+                : $"「{entry.FileName}」含游戏本体，将作为新版本导入到 versions 目录。继续吗？"
             : $"「{entry.FileName}」只含模组，将导入到版本「{version.DisplayName}」，同名模组会被覆盖。继续吗？";
         if (!AppDialog.Confirm(message, "还原快照", "还原")) return;
 
@@ -715,7 +725,7 @@ public partial class MainWindow
         {
             Log("正在还原快照：" + entry.FileName);
             var targetPath = hasGame ? null : version.FullPath;
-            var result = await Task.Run(() => PackService.Import(entry.FullPath, targetPath, Log));
+            var result = await Task.Run(() => PackService.Import(entry.FullPath, inspection, targetPath, Log));
             if (result.NewVersionFolder != null)
             {
                 ReloadVersions(result.NewVersionFolder);

@@ -468,7 +468,7 @@ public static class SelfTest
         // 导入（仅模组）到空版本目录
         var target = Path.Combine(temp, "target");
         Directory.CreateDirectory(target);
-        var result = PackService.Import(pack1, target, W);
+        var result = PackService.Import(pack1, PackService.Inspect(pack1), target, W);
         W($"导入结果：hasGame={result.HasGame} mods={result.ModCount}");
         W("目标 modList.json -> " + File.ReadAllText(Path.Combine(target, "modList.json")).Trim());
 
@@ -481,7 +481,7 @@ public static class SelfTest
         }
 
         // 导入含本体包（会在 versions 下建目录，随后清理）
-        var gameResult = PackService.Import(pack2, null, W);
+        var gameResult = PackService.Import(pack2, PackService.Inspect(pack2), null, W);
         W($"含本体包导入：新目录={gameResult.NewVersionFolder}，模组 {gameResult.ModCount} 个");
         if (gameResult.NewVersionFolder != null)
         {
@@ -495,7 +495,7 @@ public static class SelfTest
         // 未含本体的包在没有目标版本时应报错
         try
         {
-            PackService.Import(pack1, null, W);
+            PackService.Import(pack1, PackService.Inspect(pack1), null, W);
             W("异常：仅模组包在没有目标版本时没有报错");
         }
         catch (Exception ex)

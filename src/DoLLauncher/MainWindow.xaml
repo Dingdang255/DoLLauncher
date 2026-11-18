@@ -110,7 +110,7 @@
                             <UniformGrid Columns="2" Margin="0,0,0,12">
                                 <Button x:Name="AddVersionBtn" Content="添加版本" Tag="&#xE710;"
                                         Style="{StaticResource IconButton}" Margin="0,0,5,0" Click="AddVersion_Click" />
-                                <Button x:Name="ImportPackBtn" Content="导入版本包" Tag="&#xE8E5;"
+                                <Button x:Name="ImportPackBtn" Content="导入版本/模组包" Tag="&#xE8E5;" FontSize="12"
                                         Style="{StaticResource IconButton}" Margin="5,0,0,0" Click="ImportPack_Click" />
                             </UniformGrid>
                         </StackPanel>
