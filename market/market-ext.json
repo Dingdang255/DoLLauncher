@@ -2,5 +2,20 @@
   "schemaVersion": 1,
   "updatedAt": "2026-11-18",
   "withdrawnIds": [],
-  "mods": []
+  "mods": [
+    {
+      "repo": "Dingdang255/StoryBranchSim",
+      "name": "剧情分支模拟",
+      "version": "0.1.0",
+      "category": "界面与便利",
+      "description": "在游戏内从当前存档末端模拟真实可点的剧情分支，支持全局与节点级随机种子、递归展开与时间线收束，并把结果导出给启动器剧情页查看。模拟全程只读，不写存档。",
+      "author": "Dingdang255",
+      "updateDate": "2026-11-15",
+      "tags": ["剧情", "分支", "模拟", "工具"],
+      "bootNames": ["StoryBranchSim"],
+      "verifiedReleaseAsset": {
+        "fileName": "story-branch-sim.zip"
+      }
+    }
+  ]
 }
