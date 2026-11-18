@@ -1,0 +1,179 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="DoLLauncher.Views.DiagnosticPage">
+
+  <Grid RowDefinitions="Auto,*">
+
+    <!-- 模式栏 -->
+    <Border Grid.Row="0" Background="{DynamicResource PanelBrush}" CornerRadius="12"
+            Padding="16,12" Margin="0,0,0,10">
+      <StackPanel Orientation="Horizontal">
+        <TextBlock Text="日志分析" Classes="section" VerticalAlignment="Center" />
+        <ComboBox ItemsSource="{Binding ModeOptions}"
+                  SelectedItem="{Binding SelectedMode, Mode=TwoWay}"
+                  Width="130" Margin="14,0,0,0" VerticalAlignment="Center"
+                  ToolTip.Tip="手动诊断：分析指定的历史日志文件；实时诊断：统计当前游戏实例并自动给出诊断">
+          <ComboBox.ItemTemplate>
+            <DataTemplate>
+              <TextBlock Text="{Binding Label}" />
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+        <ComboBox ItemsSource="{Binding LogFiles}"
+                  SelectedItem="{Binding SelectedLogFile, Mode=TwoWay}"
+                  Width="280" Margin="10,0,0,0" VerticalAlignment="Center"
+                  IsVisible="{Binding IsManualMode}"
+                  ToolTip.Tip="选择该版本 logs 目录下的日志文件，然后点左侧「分析」">
+          <ComboBox.ItemTemplate>
+            <DataTemplate>
+              <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"
+                         ToolTip.Tip="{Binding Detail}" />
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+        <TextBlock Text="{Binding LiveHint}" Classes="muted" FontSize="10"
+                   VerticalAlignment="Center" Margin="12,0,0,0"
+                   IsVisible="{Binding IsLiveMode}" />
+      </StackPanel>
+    </Border>
+
+    <Grid Grid.Row="1" ColumnDefinitions="340,14,*">
+
+      <!-- 操作区 -->
+      <Border Grid.Column="0" Background="{DynamicResource PanelBrush}" CornerRadius="12" Padding="16">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel>
+            <TextBlock Text="诊断" FontSize="16" FontWeight="SemiBold" Margin="2,2,0,4" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" Margin="2,0,0,12"
+                       Text="检查依赖、版本与模组完整性；也可以分析游戏日志里的报错。" />
+
+            <TextBlock Text="目标版本" Classes="muted" Margin="2,0,0,6" />
+            <ComboBox ItemsSource="{Binding Targets}"
+                      SelectedItem="{Binding SelectedTarget, Mode=TwoWay}"
+                      Margin="0,0,0,12">
+              <ComboBox.ItemTemplate>
+                <DataTemplate>
+                  <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+
+            <Button Content="兼容性检查" Tag="&#xE73E;" Theme="{StaticResource IconButton}"
+                    Command="{Binding CompatCheckCommand}" />
+            <Button Content="导出诊断包" Tag="&#xE7B8;" Theme="{StaticResource IconButton}"
+                    Command="{Binding ExportCommand}" Margin="0,8,0,0"
+                    ToolTip.Tip="把版本信息、依赖、模组清单与日志打包成 zip" />
+            <Button Content="打开启动器日志" Tag="&#xE7C3;" Theme="{StaticResource IconButton}"
+                    Command="{Binding OpenLauncherLogCommand}" Margin="0,8,0,0"
+                    ToolTip.Tip="用系统默认程序打开 logs\launcher.log" />
+            <Button Content="打开游戏日志" Tag="&#xE8A5;" Theme="{StaticResource IconButton}"
+                    Command="{Binding OpenGameLogCommand}" Margin="0,8,0,0"
+                    ToolTip.Tip="打开该版本目录 logs\game-yyyyMMdd-HHmmss.log" />
+            <Button Content="分析" Tag="&#xE9D9;" Theme="{StaticResource IconButton}"
+                    Command="{Binding AnalyzeCommand}" Margin="0,8,0,0"
+                    ToolTip.Tip="手动诊断：分析已选日志文件；实时诊断：立即刷新当前游戏实例的统计与诊断" />
+
+            <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="0,14,0,14" />
+
+            <TextBlock Text="存储维护" Classes="section" Margin="2,0,0,10" />
+            <Button Content="清空 Mod 缓存（保留存档）" Tag="&#xE74D;" Theme="{StaticResource IconButton}"
+                    Command="{Binding ClearCachesCommand}"
+                    ToolTip.Tip="删除该版本除存档库外的所有 IndexedDB（Mod 图片/翻译/包缓存与 Mod 设置），下次启动生效" />
+            <TextBlock Classes="muted" FontSize="11" TextWrapping="Wrap" Margin="2,8,0,0"
+                       Text="将清除 Mod 缓存与 Mod 本地设置，保留 saves/details 存档；下次启动自动执行并重新加载页面。建议先关闭正在运行的游戏页面。" />
+
+            <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="0,14,0,14" />
+
+            <TextBlock Text="游戏日志" Classes="section" Margin="2,0,0,10" />
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="游戏日志保留份数" Classes="muted" VerticalAlignment="Center" />
+              <ComboBox ItemsSource="{Binding KeepOptions}"
+                        SelectedItem="{Binding Keep, Mode=TwoWay}"
+                        Width="76" Margin="10,0,0,0" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+              <TextBlock Text="单份上限" Classes="muted" VerticalAlignment="Center" />
+              <ComboBox ItemsSource="{Binding MaxOptions}"
+                        SelectedItem="{Binding SelectedMax, Mode=TwoWay}"
+                        Width="96" Margin="10,0,0,0">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate>
+                    <TextBlock Text="{Binding Label}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+              <TextBlock Text="超限后" Classes="muted" VerticalAlignment="Center" />
+              <ComboBox ItemsSource="{Binding OverflowOptions}"
+                        SelectedItem="{Binding SelectedOverflow, Mode=TwoWay}"
+                        Width="172" Margin="10,0,0,0">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate>
+                    <TextBlock Text="{Binding Label}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+              <TextBlock Text="日志详细度" Classes="muted" VerticalAlignment="Center" />
+              <ComboBox ItemsSource="{Binding VerbosityOptions}"
+                        SelectedItem="{Binding SelectedVerbosity, Mode=TwoWay}"
+                        Width="150" Margin="10,0,0,0"
+                        ToolTip.Tip="标准：错误只记录消息；详细：错误额外记录完整堆栈、内部异常与调用位置（日志体积更大）">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate>
+                    <TextBlock Text="{Binding Label}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </StackPanel>
+
+            <TextBlock Text="上报队列上限" Classes="muted" Margin="0,10,0,4" />
+            <StackPanel Orientation="Horizontal">
+              <Slider Width="180" Minimum="1" Maximum="64"
+                      Value="{Binding QueueKb, Mode=TwoWay}"
+                      PointerCaptureLost="OnLogUploadCommit" />
+              <TextBlock Text="{Binding QueueKbText}" Classes="muted"
+                         Width="56" VerticalAlignment="Center" Margin="10,0,0,0" />
+            </StackPanel>
+
+            <TextBlock Text="上报合并间隔" Classes="muted" Margin="0,10,0,4" />
+            <StackPanel Orientation="Horizontal">
+              <Slider Width="180" Minimum="200" Maximum="5000"
+                      Value="{Binding FlushMs, Mode=TwoWay}"
+                      PointerCaptureLost="OnLogUploadCommit" />
+              <TextBlock Text="{Binding FlushMsText}" Classes="muted"
+                         Width="56" VerticalAlignment="Center" Margin="10,0,0,0" />
+            </StackPanel>
+
+            <TextBlock Text="{Binding LogStatusText}" Classes="muted" FontSize="10"
+                       TextWrapping="Wrap" Margin="2,12,2,0" />
+            <TextBlock Classes="muted" FontSize="10" TextWrapping="Wrap" Margin="2,8,2,0"
+                       Text="诊断结果只在本页显示，不会改动游戏文件；日志设置对所有版本生效。" />
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+
+      <Border Grid.Column="1" Background="Transparent" />
+
+      <!-- 输出 -->
+      <Border Grid.Column="2" Background="{DynamicResource PanelBrush}" CornerRadius="12" Padding="18">
+        <Grid RowDefinitions="Auto,*">
+          <DockPanel Grid.Row="0" Margin="0,0,0,8">
+            <TextBlock Text="诊断输出" Classes="section" />
+            <TextBlock Classes="muted" FontSize="11" Margin="12,0,0,0"
+                       VerticalAlignment="Center"
+                       Text="选择左侧操作查看结果；内容可选中复制。" />
+          </DockPanel>
+          <TextBox Grid.Row="1" Text="{Binding Output}"
+                   IsReadOnly="True" FontFamily="Consolas" FontSize="12"
+                   Foreground="{DynamicResource MutedBrush}"
+                   TextWrapping="Wrap"
+                   ScrollViewer.VerticalScrollBarVisibility="Auto"
+                   ScrollViewer.HorizontalScrollBarVisibility="Disabled" />
+        </Grid>
+      </Border>
+    </Grid>
+  </Grid>
+</UserControl>

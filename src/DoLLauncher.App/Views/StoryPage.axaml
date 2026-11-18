@@ -1,0 +1,102 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="DoLLauncher.Views.StoryPage">
+
+  <Grid ColumnDefinitions="340,14,*">
+
+    <Border Grid.Column="0" Background="{DynamicResource PanelBrush}" CornerRadius="12" Padding="16">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Top">
+          <TextBlock Text="剧情分支" FontSize="16" FontWeight="SemiBold" Margin="2,2,0,4" />
+          <TextBlock Classes="muted" TextWrapping="Wrap" Margin="2,0,0,12"
+                     Text="读取游戏内「剧情分支模拟」模组导出的结果，按树形列出每次试走的选项、状态与变量差异。图形导图将在后续阶段补齐。" />
+
+          <TextBlock Text="目标版本" Classes="muted" Margin="2,0,0,6" />
+          <ComboBox ItemsSource="{Binding Targets}"
+                    SelectedItem="{Binding SelectedTarget, Mode=TwoWay}"
+                    Margin="0,0,0,12">
+            <ComboBox.ItemTemplate>
+              <DataTemplate>
+                <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+
+          <Button Content="刷新结果" Tag="&#xE72C;" Theme="{StaticResource IconButton}"
+                  Command="{Binding RefreshCommand}" />
+          <Button Content="打开结果目录" Tag="&#xE8B7;" Theme="{StaticResource IconButton}"
+                  Command="{Binding OpenFolderCommand}" Margin="0,8,0,0"
+                  ToolTip.Tip="版本目录下的 data\story-sim" />
+          <Button Content="导出 JSON" Tag="&#xE896;" Theme="{StaticResource IconButton}"
+                  Command="{Binding ExportJsonCommand}" Margin="0,8,0,0" />
+
+          <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="0,14,0,14" />
+          <TextBlock Text="{Binding StatusText}" Classes="muted" TextWrapping="Wrap" />
+
+          <Border Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                  BorderThickness="1" CornerRadius="9" Padding="12" Margin="0,14,0,0"
+                  IsVisible="{Binding IsModMissing}">
+            <StackPanel>
+              <TextBlock Text="需要「剧情分支模拟」模组" FontWeight="SemiBold" TextWrapping="Wrap" />
+              <TextBlock Classes="muted" TextWrapping="Wrap" Margin="0,6,0,10"
+                         Text="在游戏内安装并启用 StoryBranchSim 模组后，导出模拟结果，这里就能显示分支树。" />
+              <Button Content="前往模组主页" Tag="&#xE774;" Theme="{StaticResource IconButton}"
+                      HorizontalAlignment="Left" Command="{Binding OpenRepoCommand}" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+
+        <TextBlock DockPanel.Dock="Bottom" Classes="muted" FontSize="10"
+                   TextWrapping="Wrap" Margin="2,12,2,0"
+                   Text="结果只读展示，不会改动存档或游戏文件；镜像导出图片与图形导图会在视觉阶段补齐。" />
+        <Border Background="Transparent" />
+      </DockPanel>
+    </Border>
+
+    <Border Grid.Column="1" Background="Transparent" />
+
+    <Border Grid.Column="2" Background="{DynamicResource PanelBrush}" CornerRadius="12" Padding="18">
+      <Grid RowDefinitions="Auto,Auto,*,10,240">
+
+        <TextBlock Grid.Row="0" Text="{Binding SummaryText}" Classes="muted"
+                   TextWrapping="Wrap" Margin="0,0,0,6" />
+
+        <TextBlock Grid.Row="1" Text="{Binding WarningText}" TextWrapping="Wrap"
+                   Foreground="{DynamicResource DangerBrush}" Margin="0,0,0,8"
+                   IsVisible="{Binding HasWarning}" />
+
+        <ListBox Grid.Row="2" ItemsSource="{Binding Nodes}"
+                 SelectedItem="{Binding SelectedNode, Mode=TwoWay}"
+                 Background="Transparent" BorderThickness="0"
+                 ItemContainerTheme="{StaticResource ModItem}"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+          <ListBox.ItemTemplate>
+            <DataTemplate>
+              <StackPanel Margin="{Binding Indent}">
+                <DockPanel>
+                  <TextBlock Text="{Binding Marker}" DockPanel.Dock="Left"
+                             Width="20" FontWeight="SemiBold"
+                             Foreground="{DynamicResource AccentBrush}" />
+                  <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13"
+                             Foreground="{DynamicResource TextBrush}"
+                             TextTrimming="CharacterEllipsis" />
+                </DockPanel>
+                <TextBlock Text="{Binding TargetText}" Classes="muted" FontSize="11"
+                           Margin="20,2,0,0" TextTrimming="CharacterEllipsis" />
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+
+        <Border Grid.Row="3" Background="Transparent" />
+
+        <TextBox Grid.Row="4" Text="{Binding DetailText}"
+                 IsReadOnly="True" FontFamily="Consolas" FontSize="12"
+                 Foreground="{DynamicResource MutedBrush}"
+                 TextWrapping="Wrap"
+                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" />
+      </Grid>
+    </Border>
+  </Grid>
+</UserControl>
