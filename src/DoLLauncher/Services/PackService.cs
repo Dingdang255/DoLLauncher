@@ -55,12 +55,16 @@ public static class PackService
                     var skip = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                     {
                         "modList.json", "mods-state.json", "manifest.json",
+                        "data/idb-mirror.json", "data/idb-mirror.legacy.json",
+                        "data/idb-mirror.pending", "data/idb-mirror.json.tmp",
+                        "data/saves/.read-cache.json", "data/cache-clear.pending",
                     };
                     foreach (var file in Directory.GetFiles(version.FullPath, "*", SearchOption.AllDirectories))
                     {
                         var rel = Path.GetRelativePath(version.FullPath, file).Replace('\\', '/');
                         if (rel.StartsWith("mods/", StringComparison.OrdinalIgnoreCase)) continue;
                         if (skip.Contains(rel)) continue;
+                        if (rel.StartsWith("data/idb-snapshots/", StringComparison.OrdinalIgnoreCase)) continue;
                         AddFile(zip, "game/" + rel, file);
                     }
                     log("已写入游戏本体与版本文件。");

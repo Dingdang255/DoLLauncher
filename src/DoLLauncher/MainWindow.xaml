@@ -302,7 +302,7 @@
                                                 <Separator />
                                                 <MenuItem Header="提前加载" Click="ModMenuUp_Click" />
                                                 <MenuItem Header="延后加载" Click="ModMenuDown_Click" />
-                                                <MenuItem Header="打开模组文件夹" Click="ModMenuOpenFolder_Click" />
+                                                <MenuItem Header="打开模组所在位置" Click="ModMenuOpenFolder_Click" />
                                                 <Separator />
                                                 <MenuItem Header="删除所选" Foreground="{DynamicResource DangerBrush}"
                                                           Click="DeleteMod_Click" />
@@ -474,6 +474,11 @@
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>
+                            <!-- 没有下载任务时的空状态提示 -->
+                            <TextBlock x:Name="DownloadEmptyHint" Grid.Row="1" Style="{StaticResource MutedText}"
+                                       FontSize="10" VerticalAlignment="Top" HorizontalAlignment="Left"
+                                       Margin="6,2,0,0" TextWrapping="Wrap"
+                                       Text="当前还没有正在进行的下载任务" />
                             <Button x:Name="CancelDownloadBtn" Grid.Row="2" Tag="&#xE711;" Content="取消下载"
                                     Style="{StaticResource IconButton}" Margin="4,10,4,0"
                                     Visibility="Collapsed" Click="CancelDownload_Click" />
@@ -1314,6 +1319,35 @@
 
             <!-- ===== 诊断页 ===== -->
             <Grid x:Name="DiagnosticPage" Visibility="Collapsed" Margin="14">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- 日志分析模式栏 -->
+                <Border Grid.Row="0" Background="{DynamicResource PanelBrush}"
+                        CornerRadius="12" Padding="16,12" Margin="0,0,0,10">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="日志分析" Style="{StaticResource SectionTitle}" VerticalAlignment="Center" />
+                        <ComboBox x:Name="DiagModeBox" Style="{StaticResource FlatCombo}"
+                                  ItemContainerStyle="{StaticResource FlatComboItem}"
+                                  Width="130" Margin="14,0,0,0" VerticalAlignment="Center"
+                                  ToolTip="手动诊断：分析指定的历史日志文件；实时诊断：统计当前游戏实例并自动给出诊断"
+                                  SelectionChanged="DiagMode_Changed">
+                            <ComboBoxItem Content="手动诊断" IsSelected="True" />
+                            <ComboBoxItem Content="实时诊断" />
+                        </ComboBox>
+                        <ComboBox x:Name="DiagLogFileBox" Style="{StaticResource FlatCombo}"
+                                  ItemContainerStyle="{StaticResource FlatComboItem}"
+                                  Width="280" Margin="10,0,0,0" VerticalAlignment="Center"
+                                  ToolTip="选择该版本 logs 目录下的日志文件，然后点左侧「分析」"
+                                  DropDownOpened="DiagLogFile_DropDownOpened" />
+                        <TextBlock x:Name="DiagLiveHint" Style="{StaticResource MutedText}" FontSize="10"
+                                   VerticalAlignment="Center" Margin="12,0,0,0" Visibility="Collapsed" />
+                    </StackPanel>
+                </Border>
+
+                <Grid Grid.Row="1">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="340" />
                     <ColumnDefinition Width="14" />
@@ -1334,7 +1368,7 @@
                             <TextBlock Text="目标版本" Style="{StaticResource MutedText}" Margin="2,0,0,6" />
                             <ComboBox x:Name="DiagTargetBox" Style="{StaticResource FlatCombo}"
                                       ItemContainerStyle="{StaticResource FlatComboItem}"
-                                      Margin="0,0,0,12">
+                                      Margin="0,0,0,12" SelectionChanged="DiagTarget_Changed">
                                 <ComboBox.ItemTemplate>
                                     <DataTemplate>
                                         <TextBlock Text="{Binding ComboName}" TextTrimming="CharacterEllipsis"
@@ -1354,9 +1388,18 @@
                             <Button x:Name="OpenGameLogBtn" Content="打开游戏日志" Tag="&#xE8A5;"
                                     Style="{StaticResource IconButton}" Click="OpenGameLog_Click" Margin="0,8,0,0"
                                     ToolTip="打开该版本目录 logs\game-yyyyMMdd-HHmmss.log（启动游戏后自动生成）" />
-                            <Button x:Name="AnalyzeLogBtn" Content="分析报错" Tag="&#xE9D9;"
+                            <Button x:Name="AnalyzeLogBtn" Content="分析" Tag="&#xE9D9;"
                                     Style="{StaticResource IconButton}" Click="AnalyzeLog_Click" Margin="0,8,0,0"
-                                    ToolTip="汇总游戏日志里的警告/错误，列出次数、时间、完整内容与可能原因" />
+                                    ToolTip="手动诊断：分析已选日志文件；实时诊断：立即刷新当前游戏实例的统计与诊断" />
+
+                            <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="0,14,0,14" />
+
+                            <TextBlock Text="存储维护" Style="{StaticResource SectionTitle}" Margin="2,0,0,10" />
+                            <Button x:Name="ClearIdbCachesBtn" Content="清空 Mod 缓存（保留存档）" Tag="&#xE74D;"
+                                    Style="{StaticResource IconButton}" Click="ClearIdbCaches_Click"
+                                    ToolTip="删除该版本除存档库外的所有 IndexedDB（Mod 图片/翻译/包缓存与 Mod 设置），下次启动生效" />
+                            <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="2,8,0,0"
+                                       Text="将清除 Mod 缓存与 Mod 本地设置，保留 saves/details 存档；下次启动自动执行并重新加载页面。建议先关闭正在运行的游戏页面。" />
 
                             <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="0,14,0,14" />
 
@@ -1396,6 +1439,18 @@
                                           SelectionChanged="GameLogOverflow_Changed">
                                     <ComboBoxItem Content="写新文件（-2、-3…）" IsSelected="True" />
                                     <ComboBoxItem Content="停止写入" />
+                                </ComboBox>
+                            </DockPanel>
+                            <DockPanel Margin="0,10,0,0">
+                                <TextBlock Text="日志详细度" Style="{StaticResource MutedText}"
+                                           VerticalAlignment="Center" />
+                                <ComboBox x:Name="LogVerbosityBox" Style="{StaticResource FlatCombo}"
+                                          ItemContainerStyle="{StaticResource FlatComboItem}"
+                                          Width="150" Margin="10,0,0,0"
+                                          ToolTip="标准：错误只记录消息；详细：错误额外记录完整堆栈、内部异常与调用位置（日志体积更大）"
+                                          SelectionChanged="LogVerbosity_Changed">
+                                    <ComboBoxItem Content="标准" IsSelected="True" />
+                                    <ComboBoxItem Content="详细（含堆栈）" />
                                 </ComboBox>
                             </DockPanel>
 
@@ -1450,9 +1505,10 @@
                                  TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                                  HorizontalScrollBarVisibility="Disabled"
                                  IsUndoEnabled="False" TextOptions.TextFormattingMode="Display"
-                                 Text="点「兼容性检查」查看依赖与版本结果；点「分析报错」汇总游戏日志中的警告与错误。" />
+                                 Text="点「兼容性检查」查看依赖与版本结果；手动诊断选择日志文件后点「分析」，实时诊断会自动统计当前游戏实例。" />
                     </Grid>
                 </Border>
+                </Grid>
             </Grid>
 
             <!-- ===== 设置页 ===== -->
@@ -2010,7 +2066,7 @@
                                             <TextBlock Text="UI 美化包" FontWeight="SemiBold" />
                                             <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
                                                        Margin="0,4,0,9"
-                                                       Text="支持本地 zip 美化包（skin.json + 图片），可覆盖窗口背景、弹窗背景、主题色与背景图片。优先级：美化包 &gt; 自定义主题色 &gt; 默认主题。" />
+                                                       Text="支持本地 zip 美化包（skin.json + 可选 skin.css + 图片）：可覆盖窗口/弹窗背景、主题色与所有控件的 CSS 样式（按钮圆角、字号、描边、阴影、背景图等）。优先级：美化包 &gt; 自定义主题色 &gt; 默认主题。" />
                                             <StackPanel Orientation="Horizontal">
                                                 <Button Content="加载美化包" Tag="&#xE8E5;"
                                                         Style="{StaticResource IconButton}" Click="SkinLoad_Click" />
@@ -2074,6 +2130,16 @@
 
                                     <Border Style="{StaticResource SettingsItemCard}">
                                         <StackPanel>
+                                            <CheckBox x:Name="AutoUpdateCheck" Style="{StaticResource TextCheck}"
+                                                      Content="启动时自动检测更新" Click="AutoUpdateCheck_Checked" />
+                                            <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
+                                                       Margin="0,8,0,0"
+                                                       Text="启动器启动后在后台检查 GitHub 最新 Release，有更新时弹窗展示更新日志；网络异常时不弹窗，只写入日志。" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Style="{StaticResource SettingsItemCard}">
+                                        <StackPanel>
                                             <DockPanel>
                                                 <Button x:Name="ProjectHomeBtn" Content="项目主页" Tag="&#xE774;"
                                                         Style="{StaticResource IconButton}" DockPanel.Dock="Right"
@@ -2102,7 +2168,7 @@
                                             <TextBlock Text="检查更新" FontWeight="SemiBold" />
                                             <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
                                                        Margin="0,4,0,9"
-                                                       Text="从 GitHub Release 获取最新版本并与当前版本比较；只读取信息，不会自动下载。" />
+                                                       Text="从 GitHub Release 获取最新版本并与当前版本比较；发现新版本时可展示更新日志并直接下载替换启动器本体。" />
                                             <Button x:Name="CheckUpdateBtn" Content="检查更新" Tag="&#xE895;"
                                                     Style="{StaticResource IconButton}" HorizontalAlignment="Left"
                                                     Click="CheckUpdate_Click" />

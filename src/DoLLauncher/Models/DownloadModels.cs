@@ -67,6 +67,10 @@ public sealed class GameRelease
 {
     public string Tag { get; set; } = "";
     public string Name { get; set; } = "";
+
+    /// <summary>Release 正文（更新日志 Markdown）。</summary>
+    public string Body { get; set; } = "";
+
     public DateTime? PublishedAt { get; set; }
     public bool Prerelease { get; set; }
     public List<GameAsset> Assets { get; set; } = new();
@@ -237,7 +241,9 @@ public sealed class MarketMod : INotifyPropertyChanged
 
     public string BadgeText => !Installed ? "" : UpdateAvailable ? "可更新 → " + Version : "已安装 " + InstalledVersion;
 
-    public string SearchText =>
+    private string? _searchText;
+
+    public string SearchText => _searchText ??=
         (Name + " " + Id + " " + Category + " " + Tags + " " + Author + " " + Description +
          " " + string.Join(" ", BootNames)).ToLowerInvariant();
 }

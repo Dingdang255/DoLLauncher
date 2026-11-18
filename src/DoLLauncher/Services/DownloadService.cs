@@ -117,7 +117,7 @@ public static class DownloadService
             catch (Exception ex)
             {
                 last = ex;
-                LogService.Append($"[网络] GitHub 接口失败：{urls[i]}（{ex.Message}）");
+                LogService.Error($"[网络] GitHub 接口失败：{urls[i]}", ex);
                 if (i == urls.Count - 1) break;
             }
         }
@@ -174,6 +174,7 @@ public static class DownloadService
             {
                 Tag = PropString(item, "tag_name"),
                 Name = PropString(item, "name"),
+                Body = PropString(item, "body"),
                 Prerelease = item.TryGetProperty("prerelease", out var pre) && pre.ValueKind == JsonValueKind.True,
                 PublishedAt = DateTime.TryParse(published, out var dt) ? dt : null,
                 Assets = assets,
@@ -374,8 +375,10 @@ public static class DownloadService
 
     // ---------- 模组市场 ----------
 
-    public static async Task<MarketCatalog> FetchMarketAsync(Action<string>? log = null)
+    public static async Task<MarketCatalog> FetchMarketAsync(Action<string>? log = null, bool forceRefresh = false)
     {
+        // 自有列表与主索引并行拉取，避免串行等待
+        var overlayTask = ExtraMarketService.FetchOverlayAsync(forceRefresh, log);
         string text;
         var source = AppConfig.Load().General.MarketSource;
         if (source == "backup")
@@ -407,6 +410,19 @@ public static class DownloadService
         }
         var catalog = ParseMarket(text);
         Report(log, "[网络] 模组索引获取成功");
+        // 自有市场列表与 ModHub 索引字段级合并（失败时自动回落到缓存或忽略）
+        var overlay = await overlayTask;
+        if (!string.IsNullOrEmpty(overlay))
+        {
+            try
+            {
+                ExtraMarketService.Apply(catalog, overlay, log);
+            }
+            catch (Exception ex)
+            {
+                Report(log, "[网络] 自有市场列表合并失败（忽略）：" + ex.Message);
+            }
+        }
         return catalog;
     }
 
@@ -1147,6 +1163,11 @@ public static class DownloadService
         var index = clean.LastIndexOf('/');
         return index >= 0 ? Uri.UnescapeDataString(clean[(index + 1)..]) : "";
     }
+
+    /// <summary>下载启动器更新包（zip），进度 0-1；不进入下载中心的任务列表。</summary>
+    public static Task DownloadLauncherPackageAsync(string url, string destPath, Action<double> progress,
+        Action<string>? log = null) =>
+        DownloadFileAsync(url, destPath, progress, log, "启动器更新包", track: false, requireZip: true);
 
     /// <summary>下载一个市场模组到指定版本的 mods 目录，返回写入的文件名。</summary>
     public static async Task<string> InstallModAsync(MarketMod mod, string versionDir, Action<string> log,

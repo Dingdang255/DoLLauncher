@@ -79,6 +79,9 @@ public sealed class GeneralSettings
     /// <summary>单份日志达到上限后的处理：newfile（写 -2、-3… 新文件）/ stop（停止写入）。</summary>
     [JsonPropertyName("gameLogOverflow")] public string GameLogOverflow { get; set; } = "newfile";
 
+    /// <summary>日志详细度：standard（标准，错误只记消息）/ detailed（详细，错误附完整堆栈与调用链）。</summary>
+    [JsonPropertyName("logVerbosity")] public string LogVerbosity { get; set; } = "standard";
+
     /// <summary>页面日志上报队列上限（KB），超出后丢弃普通级别日志。</summary>
     [JsonPropertyName("logQueueKb")] public int LogQueueKb { get; set; } = 4;
 
@@ -126,6 +129,12 @@ public sealed class GeneralSettings
 
     /// <summary>模组市场排序是否倒序；默认正序（配合默认排序保持 mods.json 原始顺序）。</summary>
     [JsonPropertyName("marketSortDesc")] public bool MarketSortDesc { get; set; } = false;
+
+    /// <summary>启动器启动时自动检测 GitHub 最新 Release 并在有更新时弹窗提醒。</summary>
+    [JsonPropertyName("autoCheckUpdate")] public bool AutoCheckUpdate { get; set; } = true;
+
+    /// <summary>用户在更新弹窗里勾选「今日内不再提醒」后记录的日期（yyyy-MM-dd）。</summary>
+    [JsonPropertyName("updateSkipDate")] public string UpdateSkipDate { get; set; } = string.Empty;
 }
 
 /// <summary>界面上可拖动分栏的尺寸，键是各分割条的 SettingKey。</summary>

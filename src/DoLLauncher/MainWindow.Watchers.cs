@@ -44,7 +44,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("监听 mods 目录失败：" + ex.Message);
+            LogError("监听 mods 目录失败", ex);
         }
     }
 

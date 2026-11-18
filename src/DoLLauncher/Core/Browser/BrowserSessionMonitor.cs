@@ -135,7 +135,7 @@ public sealed class BrowserSessionMonitor
             }
             catch (Exception ex)
             {
-                Log($"会话丢失事件处理失败（{folder}）：{ex.Message}");
+                LogError($"会话丢失事件处理失败（{folder}）", ex);
             }
         }
     }
@@ -143,6 +143,11 @@ public sealed class BrowserSessionMonitor
     private static void Log(string message)
     {
         try { DoLLauncher.Platform.PlatformServices.Log.Write("[浏览器] " + message); } catch { }
+    }
+
+    private static void LogError(string context, Exception ex)
+    {
+        try { DoLLauncher.Platform.PlatformServices.Log.WriteError("[浏览器] " + context, ex); } catch { }
     }
 
     private sealed record WatchedSession(DateTime OpenedAtUtc, Func<ServerPageState?> State);

@@ -187,6 +187,19 @@ public partial class MainWindow
 
         // 头部信息
         ComboBox? editionBox = null;
+        // 右上角：切换查看仓库 README 或所选 Release 的更新日志
+        var sourceBox = new ComboBox
+        {
+            Style = TryFindResource("FlatCombo") as Style,
+            ItemContainerStyle = TryFindResource("FlatComboItem") as Style,
+            Width = 160,
+            Margin = new Thickness(12, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Top,
+            ToolTip = "切换查看仓库 README 或当前所选 Release 的更新日志",
+        };
+        sourceBox.Items.Add("仓库 README");
+        sourceBox.Items.Add("Release 更新日志");
+        sourceBox.SelectedIndex = 0;
         var header = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
         header.Children.Add(new TextBlock { Text = mod.Name, FontSize = 20, FontWeight = FontWeights.SemiBold });
         var metaText = new TextBlock
@@ -271,7 +284,15 @@ public partial class MainWindow
                 Foreground = TryFindResource("AccentBrush") as System.Windows.Media.Brush,
             });
         }
-        DockPanel.SetDock(header, Dock.Top);
+
+        // 头部左侧信息 + 右上角 README / 更新日志切换
+        var headerPanel = new Grid();
+        headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerPanel.Children.Add(header);
+        Grid.SetColumn(sourceBox, 1);
+        headerPanel.Children.Add(sourceBox);
+        DockPanel.SetDock(headerPanel, Dock.Top);
 
         var readme = new RichTextBox
         {
@@ -279,9 +300,47 @@ public partial class MainWindow
             IsDocumentEnabled = true,
             Background = System.Windows.Media.Brushes.Transparent,
             BorderThickness = new Thickness(0),
-            Padding = new Thickness(0, 6, 6, 0),
+            Padding = new Thickness(0),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             Document = MarkdownService.Render("（正在读取 README……）"),
+        };
+        // 阅读控件外观与更新提示弹窗保持一致
+        var readmeBorder = new Border
+        {
+            Background = TryFindResource("PanelBrush") as System.Windows.Media.Brush,
+            BorderBrush = TryFindResource("BorderBrush") as System.Windows.Media.Brush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(12),
+            Child = readme,
+        };
+
+        void ShowChangelog()
+        {
+            var release = versionBox.SelectedItem as GameRelease;
+            readme.Document = MarkdownService.Render(release == null
+                ? "（正在读取 Release 信息……）"
+                : release.Body.Trim().Length > 0
+                    ? release.Body
+                    : "（该版本没有提供更新日志）");
+        }
+
+        sourceBox.SelectionChanged += (_, _) =>
+        {
+            if (sourceBox.SelectedIndex == 1)
+            {
+                ShowChangelog();
+                return;
+            }
+            readme.Document = MarkdownService.Render("（正在读取 README……）");
+            _ = LoadMarketReadmeAsync(mod, readme);
+        };
+
+        // 处于更新日志模式时，切换 Release 同步刷新内容
+        versionBox.SelectionChanged += (_, _) =>
+        {
+            if (sourceBox.SelectedIndex == 1) ShowChangelog();
         };
 
         install.Click += async (_, _) =>
@@ -309,8 +368,8 @@ public partial class MainWindow
         };
 
         root.Children.Add(footer);
-        root.Children.Add(header);
-        root.Children.Add(readme);
+        root.Children.Add(headerPanel);
+        root.Children.Add(readmeBorder);
         win.Content = root;
         // 去掉「关闭」按钮后，Esc 直接关窗
         win.PreviewKeyDown += (_, ke) =>
@@ -436,6 +495,11 @@ public partial class MainWindow
             SyncDiagTarget();
             LoadBackupSettings();
             RefreshGameLogStatus();
+            UpdateDiagModeUi();
+        }
+        else
+        {
+            StopDiagLiveTimer();
         }
     }
 
@@ -463,7 +527,8 @@ public partial class MainWindow
     private void RefreshMarket_Click(object sender, RoutedEventArgs e)
     {
         if (_downloadBusy) return;
-        if (ModPane.Visibility == Visibility.Visible) _ = RefreshMarketAsync();
+        // 手动刷新绕过 CDN / 本地缓存，确保拿到最新的自有市场列表
+        if (ModPane.Visibility == Visibility.Visible) _ = RefreshMarketAsync(forceRefresh: true);
         else _ = RefreshGameReleasesAsync();
     }
 
@@ -508,7 +573,7 @@ public partial class MainWindow
         {
             _gameLoaded = false;
             GameStatusText.Text = "获取失败：" + ex.Message;
-            Log("获取本体列表失败：" + ex.Message);
+            LogError("获取本体列表失败", ex);
         }
         finally
         {
@@ -547,14 +612,14 @@ public partial class MainWindow
         ImagePackCheck.ToolTip = extraTip;
     }
 
-    private async Task RefreshMarketAsync()
+    private async Task RefreshMarketAsync(bool forceRefresh = false)
     {
         if (_marketLoading) return;
         _marketLoading = true;
         MarketStatusText.Text = "正在获取市场索引…";
         try
         {
-            var catalog = await DownloadService.FetchMarketAsync(Log);
+            var catalog = await DownloadService.FetchMarketAsync(Log, forceRefresh);
             _marketCatalog = catalog;
             _marketAll.Clear();
             foreach (var mod in catalog.Mods.OrderBy(m => m.Name, StringComparer.CurrentCultureIgnoreCase))
@@ -579,7 +644,7 @@ public partial class MainWindow
         {
             _marketLoaded = false;
             MarketStatusText.Text = "获取失败：" + ex.Message;
-            Log("获取市场索引失败：" + ex.Message);
+            LogError("获取市场索引失败", ex);
         }
         finally
         {
@@ -587,29 +652,45 @@ public partial class MainWindow
         }
     }
 
-    private void ApplyMarketFilter()
+    /// <summary>搜索框输入防抖：停止输入一小段时间后才真正筛选，避免每个字符都重算。</summary>
+    private DispatcherTimer? _marketSearchDebounce;
+
+    /// <summary>筛选序号：异步算完后若已有更新的一次请求，就丢弃旧结果。</summary>
+    private int _marketFilterSeq;
+
+    private async void ApplyMarketFilter()
     {
         if (MarketCountText == null) return;
+        var seq = ++_marketFilterSeq;
+        // 参数与数据快照都在 UI 线程取，后台只做纯计算
         var category = MarketCategoryBox.SelectedItem as string;
         var filter = MarketFilterBox.SelectedIndex;
         var match = ParseMatchMode(TagOf(MarketMatchBox));
         var scope = ParseSearchScope(TagOf(MarketScopeBox));
         var sort = ParseSortMode(TagOf(MarketSortBox));
         var descending = MarketSortDescCheck?.IsChecked == true;
+        var keyword = MarketSearchBox.Text;
+        var snapshot = _marketAll.ToList();
 
-        var kept = new List<MarketMod>();
-        foreach (var mod in MarketSearch.Filter(_marketAll, MarketSearchBox.Text, match, scope))
+        var result = await Task.Run(() =>
         {
-            if (category != null && category != "全部分类" &&
-                !mod.Category.Equals(category, StringComparison.OrdinalIgnoreCase)) continue;
-            if (filter == 1 && mod.Installed) continue;
-            if (filter == 2 && !mod.UpdateAvailable) continue;
-            kept.Add(mod);
-        }
+            var kept = new List<MarketMod>();
+            foreach (var mod in MarketSearch.Filter(snapshot, keyword, match, scope))
+            {
+                if (category != null && category != "全部分类" &&
+                    !mod.Category.Equals(category, StringComparison.OrdinalIgnoreCase)) continue;
+                if (filter == 1 && mod.Installed) continue;
+                if (filter == 2 && !mod.UpdateAvailable) continue;
+                kept.Add(mod);
+            }
+            return MarketSearch.Sort(kept, sort, descending);
+        });
+
+        // 期间又有新的筛选请求，放弃这次结果
+        if (seq != _marketFilterSeq) return;
 
         _marketView.Clear();
-        foreach (var mod in MarketSearch.Sort(kept, sort, descending))
-            _marketView.Add(mod);
+        foreach (var mod in result) _marketView.Add(mod);
 
         MarketCountText.Text = $"{_marketView.Count} / {_marketAll.Count} 个";
         if (_marketView.Count > 0 && MarketList.SelectedItem == null) MarketList.SelectedIndex = 0;
@@ -645,7 +726,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("保存搜索设置失败：" + ex.Message);
+            LogError("保存搜索设置失败", ex);
         }
     }
 
@@ -870,7 +951,21 @@ public partial class MainWindow
         _ => MarketSortMode.Default,
     };
 
-    private void MarketSearch_TextChanged(object sender, TextChangedEventArgs e) => ApplyMarketFilter();
+    /// <summary>搜索框防抖：连续输入时只在停顿后触发一次筛选。</summary>
+    private void MarketSearch_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_marketSearchDebounce == null)
+        {
+            _marketSearchDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+            _marketSearchDebounce.Tick += (_, _) =>
+            {
+                _marketSearchDebounce!.Stop();
+                ApplyMarketFilter();
+            };
+        }
+        _marketSearchDebounce.Stop();
+        _marketSearchDebounce.Start();
+    }
 
     private void MarketCategory_Changed(object sender, SelectionChangedEventArgs e) => ApplyMarketFilter();
 
@@ -989,7 +1084,7 @@ public partial class MainWindow
         catch (Exception ex)
         {
             MarketStatusText.Text = "获取版本失败：" + ex.Message;
-            Log("获取模组版本失败：" + ex.Message);
+            LogError("获取模组版本失败", ex);
         }
         finally
         {
@@ -1052,7 +1147,7 @@ public partial class MainWindow
         catch (Exception ex)
         {
             GameStatusText.Text = "安装失败";
-            Log("本体下载/安装失败：" + ex.Message);
+            LogError("本体下载/安装失败", ex);
             AppDialog.Error(ex.Message, "下载失败");
         }
         finally
@@ -1109,7 +1204,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("获取包版本失败：" + ex.Message);
+            LogError("获取包版本失败", ex);
         }
     }
 
@@ -1132,7 +1227,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("安装前检查失败：" + ex.Message);
+            LogError("安装前检查失败", ex);
             check = new InstallCheckResult();
         }
 
@@ -1185,7 +1280,7 @@ public partial class MainWindow
         catch (Exception ex)
         {
             SetStatus("安装失败");
-            Log("模组下载/安装失败：" + ex.Message);
+            LogError("模组下载/安装失败", ex);
             AppDialog.Error(ex.Message, "下载失败");
         }
         finally
@@ -1199,6 +1294,7 @@ public partial class MainWindow
 
     private void OnDownloadTasksChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
+        UpdateDownloadEmptyHint();
         if (e.OldItems != null)
         {
             foreach (var old in e.OldItems.OfType<DownloadTaskVm>()) old.Finished -= OnDownloadTaskFinished;
@@ -1208,6 +1304,19 @@ public partial class MainWindow
         task.Finished += OnDownloadTaskFinished;
         DownloadTaskList.SelectedItem = task;
         DownloadTaskList.ScrollIntoView(task);
+    }
+
+    /// <summary>下载列表为空时显示灰色空状态提示。</summary>
+    private void UpdateDownloadEmptyHint()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(new Action(UpdateDownloadEmptyHint));
+            return;
+        }
+        DownloadEmptyHint.Visibility = DownloadService.DownloadTasks.Count == 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private void DownloadTaskList_SelectionChanged(object sender, SelectionChangedEventArgs e)

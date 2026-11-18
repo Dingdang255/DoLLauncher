@@ -36,7 +36,7 @@ public sealed class WindowsBrowserHost : IBrowserHost
         }
         catch (Exception ex)
         {
-            Log($"打开页面失败（{request.VersionFolder}）：{ex.Message}");
+            LogError($"打开页面失败（{request.VersionFolder}）", ex);
             return Task.FromResult<BrowserSession?>(null);
         }
     }
@@ -80,7 +80,7 @@ public sealed class WindowsBrowserHost : IBrowserHost
         }
         catch (Exception ex)
         {
-            Log($"创建 Profile 目录失败：{ex.Message}");
+            LogError("创建 Profile 目录失败", ex);
             return null;
         }
 
@@ -120,7 +120,7 @@ public sealed class WindowsBrowserHost : IBrowserHost
             }
             catch (Exception ex)
             {
-                Log($"创建 Profile 目录失败：{ex.Message}");
+                LogError("创建 Profile 目录失败", ex);
                 profileDir = null;
             }
         }
@@ -164,7 +164,7 @@ public sealed class WindowsBrowserHost : IBrowserHost
         }
         catch (Exception ex)
         {
-            Log($"启动浏览器失败（{executable}）：{ex.Message}");
+            LogError($"启动浏览器失败（{executable}）", ex);
             return null;
         }
 
@@ -184,7 +184,7 @@ public sealed class WindowsBrowserHost : IBrowserHost
         }
         catch (Exception ex)
         {
-            Log($"跟踪浏览器进程失败（{versionFolder}）：{ex.Message}");
+            LogError($"跟踪浏览器进程失败（{versionFolder}）", ex);
         }
 
         return new BrowserSession(process.Id, profileDir, capabilities);
@@ -212,7 +212,7 @@ public sealed class WindowsBrowserHost : IBrowserHost
             }
             catch (Exception ex)
             {
-                Log($"关闭浏览器失败（{versionFolder}）：{ex.Message}");
+                LogError($"关闭浏览器失败（{versionFolder}）", ex);
             }
             finally
             {
@@ -238,7 +238,7 @@ public sealed class WindowsBrowserHost : IBrowserHost
 
         try { process.Dispose(); } catch { }
         try { SessionClosed?.Invoke(versionFolder); }
-        catch (Exception ex) { Log($"SessionClosed 处理失败（{versionFolder}）：{ex.Message}"); }
+        catch (Exception ex) { LogError($"SessionClosed 处理失败（{versionFolder}）", ex); }
     }
 
     private string ResolveProfileDir(BrowserLaunchRequest request)
@@ -298,7 +298,7 @@ public sealed class WindowsBrowserHost : IBrowserHost
         }
         catch (Exception ex)
         {
-            Log($"转发打开请求失败：{ex.Message}");
+            LogError("转发打开请求失败", ex);
         }
     }
 
@@ -310,6 +310,11 @@ public sealed class WindowsBrowserHost : IBrowserHost
     private static void Log(string message)
     {
         try { PlatformServices.Log.Write("[浏览器] " + message); } catch { }
+    }
+
+    private static void LogError(string context, Exception ex)
+    {
+        try { PlatformServices.Log.WriteError("[浏览器] " + context, ex); } catch { }
     }
 
     private sealed record TrackedSession(Process Process, string? ProfileDir, BrowserCapabilities Capabilities);

@@ -95,7 +95,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("保存玩家头像失败：" + ex.Message);
+            LogError("保存玩家头像失败", ex);
             AppDialog.Error("保存头像失败：" + ex.Message, "玩家头像");
         }
     }
@@ -113,7 +113,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("恢复默认头像失败：" + ex.Message);
+            LogError("恢复默认头像失败", ex);
         }
     }
 

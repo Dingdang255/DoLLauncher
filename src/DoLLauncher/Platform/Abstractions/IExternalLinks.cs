@@ -8,4 +8,7 @@ public interface IExternalLinks
 
     /// <summary>用系统关联程序打开本地文件或目录。</summary>
     void OpenPath(string path);
+
+    /// <summary>在文件资源管理器中打开所在文件夹，并选中传入的文件。</summary>
+    void RevealInExplorer(IReadOnlyList<string> paths);
 }

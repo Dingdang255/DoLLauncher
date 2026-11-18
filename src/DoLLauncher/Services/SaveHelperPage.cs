@@ -108,7 +108,7 @@ public static class SaveHelperPage
   <div class="card">
     <h2>1. 检测到的存档库</h2>
     <div id="dbs">检测中…</div>
-    <div class="hint">DoL 的存档存放在 IndexedDB：库名 <code>idb</code>，表 <code>saves</code> / <code>details</code>。换版本或换浏览器 origin 后，旧存档不会自动带过来。</div>
+    <div class="hint">DoL 的存档存放在 IndexedDB 的存档库（<code>degrees-of-lewdity</code>，旧版为 <code>idb</code>），只涉及 <code>saves</code> / <code>details</code> 两个表；Mod 图片、翻译等缓存库不计入存档。换版本或换浏览器 origin 后，旧存档不会自动带过来。</div>
   </div>
 
   <div class="card">
@@ -159,13 +159,13 @@ public static class SaveHelperPage
   </div>
 
   <div class="card">
-    <h2>5. 整库导入 / 导出</h2>
+    <h2>5. 存档库导入 / 导出</h2>
     <div class="row">
       <input type="file" id="fileInput" accept=".json,application/json">
-      <button id="btnImport">导入整库到当前版本</button>
-      <button class="primary" id="btnExport">导出整库到文件</button>
+      <button id="btnImport">导入存档库到当前版本</button>
+      <button class="primary" id="btnExport">导出存档库到文件</button>
     </div>
-    <div class="hint">整库文件 <code>dol-saves/1</code> 包含当前版本的全部存档槽与存档详情；导入时先清空对应表再整体写入，等于把存档库还原成文件里的状态。与上面按槽操作的区别：第 3、4 节只搬选中的槽，并能选择覆盖 / 仅空槽 / 自动换槽；这里是一次性备份或还原整个存档库。导入前请关闭其它游戏标签页，导入完成后刷新游戏页面。</div>
+    <div class="hint">这里的「整库」只指游戏存档库：只包含当前版本的 <code>saves</code> / <code>details</code> 两个表，不包含 Mod 图片、翻译等缓存，所以文件通常只有几 MB。文件格式仍是 <code>dol-saves/1</code>；旧版导出的多库文件也能导入，但非存档库（BeautySelector、i18n-cache、ModLoader 等）会被跳过，Mod 缓存会自行重建。导入时先清空对应表再整体写入，等于把存档库还原成文件里的状态。与第 3、4 节按槽操作的区别：那里只搬选中的槽，这里一次性还原整个存档库。导入前请关闭其它游戏标签页，导入完成后刷新游戏页面。</div>
   </div>
 
   <div class="card" id="varCard" style="display:none">
@@ -353,21 +353,44 @@ function download(text, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
-async function collectPayload() {
-  const dbs = await listDbs();
-  if (dbs.length === 0) return null;
-  const out = [];
-  for (const d of dbs) {
-    let db;
-    try {
-      db = await openDb(d.name, d.version);
-    } catch (e) {
-      log('跳过 ' + d.name + '：' + e.message);
-      continue;
+// 存档库名：优先游戏运行时的 window.idb.dbName，其次启动器清单，最后回退默认库名。
+async function resolveSaveDb() {
+  try {
+    if (window.idb && typeof window.idb.dbName === 'string' && window.idb.dbName) return window.idb.dbName;
+  } catch (e) { }
+  try {
+    const res = await fetch('/__launcher/api/saves/manifest', { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && typeof data.saveDb === 'string' && data.saveDb) return data.saveDb;
     }
-    const names = [...db.objectStoreNames];
-    if (names.length === 0) { db.close(); continue; }
-    const stores = [];
+  } catch (e) { }
+  return 'degrees-of-lewdity';
+}
+
+async function collectPayload() {
+  const target = await resolveSaveDb();
+  const dbs = await listDbs();
+  const d = dbs.find(x => x.name === target) ||
+    dbs.find(x => x.name === 'degrees-of-lewdity') ||
+    dbs.find(x => x.name === 'idb');
+  if (!d) { log('没有找到存档库 ' + target + '。'); return null; }
+  let db;
+  try {
+    db = await openDb(d.name, d.version);
+  } catch (e) {
+    log('跳过 ' + d.name + '：' + e.message);
+    return null;
+  }
+  const names = [...db.objectStoreNames].filter(n => n === 'saves' || n === 'details');
+  if (names.length === 0) {
+    db.close();
+    log('存档库 ' + d.name + ' 里没有 saves / details 表。');
+    return null;
+  }
+  const dbVersion = db.version;
+  const stores = [];
+  try {
     for (const sn of names) {
       const os = db.transaction(sn, 'readonly').objectStore(sn);
       const keyPath = os.keyPath;
@@ -380,22 +403,25 @@ async function collectPayload() {
         records: pairs.map(p => keyPath == null ? { key: p.key, value: p.value } : { value: p.value })
       });
     }
-    out.push({ name: db.name, version: db.version, stores });
+  } catch (e) {
+    log('读取 ' + d.name + ' 失败：' + e.message);
+    return null;
+  } finally {
     db.close();
   }
-  return { format: 'dol-saves/1', exportedAt: new Date().toISOString(), version: VERSION, dbs: out };
+  return { format: 'dol-saves/1', exportedAt: new Date().toISOString(), version: VERSION, dbs: [{ name: d.name, version: dbVersion, stores: stores }] };
 }
 
 async function exportAll() {
   const payload = await collectPayload();
-  if (!payload || payload.dbs.length === 0) { log('没有可导出的数据库。'); return; }
+  if (!payload || payload.dbs.length === 0) { log('没有可导出的存档库。'); return; }
   download(JSON.stringify(payload, replacer, 1), 'dol-saves-' + (VERSION || 'unknown') + '-' + stamp() + '.json');
-  log('导出完成，共 ' + payload.dbs.length + ' 个数据库。');
+  log('导出完成：' + payload.dbs.map(d => d.name).join('、') + '（仅存档库）。');
 }
 
 async function backupToLauncher(auto) {
   const payload = await collectPayload();
-  if (!payload || payload.dbs.length === 0) { log('没有可备份的数据库。'); return null; }
+  if (!payload || payload.dbs.length === 0) { log('没有可备份的存档库。'); return null; }
   const text = JSON.stringify(payload, replacer, 1);
   const name = (auto ? 'auto-saves-' : 'saves-') + stamp() + '.json';
   const url = '/__launcher/api/backup?file=' + encodeURIComponent(name) + '&auto=' + (auto ? '1' : '0');
@@ -411,48 +437,71 @@ async function importPayload(payload, sourceName) {
     log('这不是存档助手导出的文件。');
     return;
   }
+  window.__dolIdbImporting = true;
+  const targetDb = await resolveSaveDb();
+  const isSaveDb = name => name === targetDb || name === 'degrees-of-lewdity' || name === 'idb';
   log('开始导入 ' + sourceName + '（来源版本 ' + (payload.version || '未知') + '）');
-  for (const d of payload.dbs) {
-    try {
-      const stores = d.stores.map(s => ({ name: s.name, keyPath: s.keyPath === undefined ? 'slot' : s.keyPath }));
-      const db = await openDb(d.name, d.version, stores);
-      const names = [...db.objectStoreNames];
-      if (names.length === 0) { log('跳过空的数据库 ' + d.name); db.close(); continue; }
-      const tx = db.transaction(names, 'readwrite');
-      let count = 0;
-      let staleExport = false;
-      for (const s of d.stores) {
-        if (!names.includes(s.name)) { log('跳过不存在的表 ' + s.name); continue; }
-        const os = tx.objectStore(s.name);
-        const recs = Array.isArray(s.records) ? s.records : [];
-        const needKey = os.keyPath == null && !os.autoIncrement;
-        if (needKey && recs.some(r => r.key === undefined || r.key === null)) {
-          staleExport = true;
-          log('跳过 ' + s.name + '：导出文件缺少主键（旧版导出未记录），已保留原数据');
-          continue;
-        }
-        os.clear();
-        let failed = 0;
-        for (const r of recs) {
-          try {
-            if (os.keyPath != null) os.put(r.value);
-            else if (os.autoIncrement && (r.key === undefined || r.key === null)) os.put(r.value);
-            else os.put(r.value, r.key);
-            count++;
-          } catch (e) {
-            failed++;
-            if (failed <= 3) log('写入 ' + s.name + ' 失败：' + e.message);
-          }
-        }
-        if (failed > 3) log('写入 ' + s.name + ' 另有 ' + (failed - 3) + ' 条失败，共失败 ' + failed + ' 条');
+  let importedDbs = 0;
+  try {
+    for (const d of payload.dbs) {
+      const dbName = d && typeof d.name === 'string' ? d.name : '';
+      if (!dbName || !isSaveDb(dbName)) {
+        log('已跳过非存档库 ' + (dbName || '(未命名)') + '（Mod 缓存会自行重建）');
+        continue;
       }
-      await txDone(tx);
-      db.close();
-      if (staleExport) log('提示：部分表因文件缺少主键未能写入，请用当前版本的存档助手重新导出后再导入。');
-      log('已写入 ' + d.name + '：' + count + ' 条');
-    } catch (e) {
-      log('导入 ' + d.name + ' 失败：' + e.message);
+      // 旧版本的存档库名可能是 idb，当前版本是 degrees-of-lewdity：统一还原到当前目标库
+      const writeDb = (dbName === 'degrees-of-lewdity' || dbName === 'idb') ? targetDb : dbName;
+      try {
+        // 只保留存档域的两个表：库不存在时由 openDb 的 upgrade 建表，不会建出 Mod 缓存表
+        const sourceStores = (Array.isArray(d.stores) ? d.stores : [])
+          .filter(s => s && (s.name === 'saves' || s.name === 'details'));
+        const stores = sourceStores.map(s => ({ name: s.name, keyPath: s.keyPath === undefined ? 'slot' : s.keyPath }));
+        const db = await openDb(writeDb, d.version, stores.length > 0 ? stores : DEFAULT_STORES);
+        const names = [...db.objectStoreNames].filter(n => n === 'saves' || n === 'details');
+        if (names.length === 0) { log('跳过不含存档表的数据库 ' + writeDb); db.close(); continue; }
+        const tx = db.transaction(names, 'readwrite');
+        let count = 0;
+        let staleExport = false;
+        for (const s of sourceStores) {
+          if (!names.includes(s.name)) { log('跳过不存在的表 ' + s.name); continue; }
+          const os = tx.objectStore(s.name);
+          const recs = Array.isArray(s.records) ? s.records : [];
+          const needKey = os.keyPath == null && !os.autoIncrement;
+          if (needKey && recs.some(r => r.key === undefined || r.key === null)) {
+            staleExport = true;
+            log('跳过 ' + s.name + '：导出文件缺少主键（旧版导出未记录），已保留原数据');
+            continue;
+          }
+          os.clear();
+          let failed = 0;
+          for (const r of recs) {
+            try {
+              if (os.keyPath != null) os.put(r.value);
+              else if (os.autoIncrement && (r.key === undefined || r.key === null)) os.put(r.value);
+              else os.put(r.value, r.key);
+              count++;
+            } catch (e) {
+              failed++;
+              if (failed <= 3) log('写入 ' + s.name + ' 失败：' + e.message);
+            }
+          }
+          if (failed > 3) log('写入 ' + s.name + ' 另有 ' + (failed - 3) + ' 条失败，共失败 ' + failed + ' 条');
+        }
+        await txDone(tx);
+        db.close();
+        if (staleExport) log('提示：部分表因文件缺少主键未能写入，请用当前版本的存档助手重新导出后再导入。');
+        log('已写入 ' + writeDb + '（由 ' + dbName + ' 还原到 ' + writeDb + '）：' + count + ' 条');
+        importedDbs++;
+      } catch (e) {
+        log('导入 ' + dbName + ' 失败：' + e.message);
+      }
     }
+    if (importedDbs === 0) log('文件里没有可写入的存档库。');
+  } finally {
+    window.__dolIdbImporting = false;
+  }
+  if (typeof window.__dolIdbResync === 'function') {
+    try { await window.__dolIdbResync(); } catch (e) { log('同步磁盘槽位失败：' + e.message); }
   }
   log('导入完成。请刷新游戏页面，再到游戏里「载入存档」查看。');
   refreshDbs();
@@ -1056,7 +1105,7 @@ async function readImportFile() {
   btnImportSlots.disabled = true;
   importModes.style.display = 'none';
   if (payload && payload.format === 'dol-saves/1') {
-    importPreview.innerHTML = '<div class="warn">这是整库备份文件，请用第 5 节的「导入整库到当前版本」。</div>';
+    importPreview.innerHTML = '<div class="warn">这是存档库备份文件，请用第 5 节的「导入存档库到当前版本」。</div>';
     return;
   }
   const parsed = readSlotEntries(payload);

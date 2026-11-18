@@ -103,6 +103,7 @@ public partial class MainWindow : Window
         DownloadTaskList.ItemsSource = DownloadService.DownloadTasks;
         // 新任务入列时自动选中并滚到可见位置，方便直接用底部按钮取消
         DownloadService.DownloadTasks.CollectionChanged += OnDownloadTasksChanged;
+        UpdateDownloadEmptyHint();
         // 选中项左侧的小三角：随选中项滑动，滚动/尺寸变化时跟随，不做动画
         VersionList.AddHandler(ScrollViewer.ScrollChangedEvent,
             new ScrollChangedEventHandler((_, _) => UpdateVersionIndicator(false)));
@@ -120,6 +121,8 @@ public partial class MainWindow : Window
             NavigateSettings();
             // 启动时按设置里的时序在后台预取索引，不阻塞界面
             _ = PrefetchIndexesAsync();
+            // 后台检测启动器自身更新；网络异常时只写日志
+            _ = AutoCheckUpdateAsync();
         };
     }
 
@@ -154,7 +157,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Log("扫描版本失败：" + ex.Message);
+            LogError("扫描版本失败", ex);
         }
     }
 
@@ -244,7 +247,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Log("保存旧版 file:// 目标失败：" + ex.Message);
+            LogError("保存旧版 file:// 目标失败", ex);
         }
     }
 
@@ -312,7 +315,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Log("读取模组失败：" + ex.Message);
+            LogError("读取模组失败", ex);
         }
         finally
         {
@@ -472,7 +475,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Log("检查模组冲突失败：" + ex.Message);
+            LogError("检查模组冲突失败", ex);
             found = new List<ModConflict>();
         }
 
@@ -776,7 +779,7 @@ public partial class MainWindow : Window
                     }
                     catch (Exception ex)
                     {
-                        Log("自动备份失败：" + ex.Message);
+                        LogError("自动备份失败", ex);
                     }
                 });
             }
@@ -788,7 +791,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Log("启动失败：" + ex.Message);
+            LogError("启动失败", ex);
             AppDialog.Error("启动失败：" + ex.Message);
         }
     }
@@ -907,7 +910,17 @@ public partial class MainWindow : Window
     private void ModMenuOpenFolder_Click(object sender, RoutedEventArgs e)
     {
         if (_selected == null || _selected.Info.IsFileMode) return;
-        ServerManager.OpenFolder(ModService.ModsDir(_selected.Info.FullPath));
+        var dir = ModService.ModsDir(_selected.Info.FullPath);
+        var selected = ModList.SelectedItems.OfType<ModVm>().ToList();
+        if (selected.Count == 0 && ModList.SelectedItem is ModVm current) selected.Add(current);
+        if (selected.Count == 0)
+        {
+            ServerManager.OpenFolder(dir);
+            return;
+        }
+        PlatformServices.Links.RevealInExplorer(selected
+            .Select(m => Path.Combine(dir, m.Info.FileName))
+            .ToList());
     }
 
     private void ModUp_Click(object sender, RoutedEventArgs e) => MoveMod(sender, -1);
@@ -948,7 +961,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Log("保存模组状态失败：" + ex.Message);
+            LogError("保存模组状态失败", ex);
         }
     }
 
@@ -1242,7 +1255,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Log("检查失败：" + ex.Message);
+            LogError("检查失败", ex);
         }
     }
 
@@ -1289,7 +1302,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Log("导出失败：" + ex.Message);
+            LogError("导出失败", ex);
             AppDialog.Error("导出失败：" + ex.Message);
         }
         finally
@@ -1342,7 +1355,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Log("导入失败：" + ex.Message);
+            LogError("导入失败", ex);
             AppDialog.Error("导入失败：" + ex.Message);
         }
         finally
@@ -1397,7 +1410,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Log("复制失败：" + ex.Message);
+            LogError("复制失败", ex);
             AppDialog.Error("复制失败：" + ex.Message);
             try { if (Directory.Exists(dest)) Directory.Delete(dest, true); } catch { }
         }
@@ -1431,7 +1444,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Log("删除失败：" + ex.Message);
+            LogError("删除失败", ex);
             AppDialog.Error("删除失败：" + ex.Message);
         }
     }
@@ -1479,11 +1492,25 @@ public partial class MainWindow : Window
 
     // ---------- 日志 / 关闭 ----------
 
-    private void Log(string message)
+    private void Log(string message) => WriteLog(message, true);
+
+    /// <summary>记录一次失败：界面显示一行摘要，落盘按「日志详细度」决定是否附完整堆栈。</summary>
+    private void LogError(string context, Exception ex)
     {
         if (!Dispatcher.CheckAccess())
         {
-            Dispatcher.BeginInvoke(new Action<string>(Log), message);
+            Dispatcher.BeginInvoke(new Action(() => LogError(context, ex)));
+            return;
+        }
+        WriteLog(context + "：" + ex.Message, false);
+        LogService.Error(context, ex);
+    }
+
+    private void WriteLog(string message, bool persist)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(new Action(() => WriteLog(message, persist)));
             return;
         }
         var line = $"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}";
@@ -1491,7 +1518,7 @@ public partial class MainWindow : Window
         LogBox.ScrollToEnd();
         DownloadLogBox.AppendText(line);
         DownloadLogBox.ScrollToEnd();
-        LogService.Append(message);
+        if (persist) LogService.Append(message);
     }
 
     private void Window_Closing(object sender, CancelEventArgs e)

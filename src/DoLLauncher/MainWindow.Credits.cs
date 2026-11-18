@@ -41,7 +41,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("加载致谢名单失败：" + ex.Message);
+            LogError("加载致谢名单失败", ex);
         }
     }
 
@@ -369,7 +369,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("打开链接失败：" + ex.Message);
+            LogError("打开链接失败", ex);
             AppDialog.Error("无法打开链接：" + ex.Message, "打开链接");
         }
     }

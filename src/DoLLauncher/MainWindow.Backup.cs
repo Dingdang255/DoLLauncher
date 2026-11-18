@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -111,6 +112,7 @@ public partial class MainWindow
             GameLogMaxBox.SelectedIndex = maxMb <= 0 ? 0 : maxMb <= 10 ? 1 : maxMb <= 30 ? 2 : 3;
             GameLogOverflowBox.SelectedIndex =
                 string.Equals(cfg.General.GameLogOverflow, "stop", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+            LogVerbosityBox.SelectedIndex = LogService.IsDetailed(cfg.General.LogVerbosity) ? 1 : 0;
 
             LogQueueSlider.Value = Math.Clamp(cfg.General.LogQueueKb, 1, 64);
             LogFlushSlider.Value = Math.Clamp(cfg.General.LogFlushMs, 200, 5000);
@@ -149,7 +151,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("保存备份设置失败：" + ex.Message);
+            LogError("保存备份设置失败", ex);
         }
     }
 
@@ -203,7 +205,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("保存日志上报设置失败：" + ex.Message);
+            LogError("保存日志上报设置失败", ex);
         }
     }
 
@@ -211,28 +213,66 @@ public partial class MainWindow
 
     private void GameLogOverflow_Changed(object sender, SelectionChangedEventArgs e) => SaveBackupSettings();
 
+    private void LogVerbosity_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        // XAML 初始化时的默认选中也会触发该事件，此时不能拿它覆盖已保存的设置
+        if (_loadingBackupSettings || !LogVerbosityBox.IsLoaded) return;
+        try
+        {
+            var cfg = AppConfig.Load();
+            var detailed = LogVerbosityBox.SelectedIndex == 1;
+            var value = detailed ? "detailed" : "standard";
+            if (string.Equals(cfg.General.LogVerbosity, value, StringComparison.OrdinalIgnoreCase)) return;
+            cfg.General.LogVerbosity = value;
+            AppConfig.Save(cfg);
+            LogService.Configure(value);
+            Log(detailed
+                ? "设置：日志详细度改为详细（错误附完整堆栈，日志体积会变大）"
+                : "设置：日志详细度改为标准（错误只记消息）");
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("保存日志详细度失败", ex);
+        }
+    }
+
     private async void AnalyzeLog_Click(object sender, RoutedEventArgs e)
     {
         if (_analyzingLogs) return;
         var version = DiagVersion();
         if (version == null) return;
-        RefreshGameLogStatus();
 
+        // 实时诊断下，「分析」等同于立即刷新一次统计与诊断
+        if (DiagLiveMode)
+        {
+            RefreshLiveDiagnostics();
+            return;
+        }
+
+        var path = (DiagLogFileBox.SelectedItem as ComboBoxItem)?.Tag as string;
+        if (string.IsNullOrEmpty(path) || !File.Exists(path))
+        {
+            AppDialog.Warn("请先在顶部选择一个日志文件。", "分析日志");
+            return;
+        }
+
+        RefreshGameLogStatus();
         _analyzingLogs = true;
         DiagBox.Clear();
         try
         {
             // 流式追加：先出头部，再一组一组补上，避免一次性塞入超长文本卡住界面
-            await GameLogAnalysis.AnalyzeStreamAsync(version, block =>
+            await GameLogAnalysis.AnalyzeFileStreamAsync(version, path, block =>
             {
                 DiagBox.AppendText(block + Environment.NewLine);
                 DiagBox.ScrollToEnd();
             });
-            Log("游戏日志分析完成。");
+            Log("游戏日志分析完成：" + Path.GetFileName(path));
         }
         catch (Exception ex)
         {
             DiagBox.AppendText("分析失败：" + ex.Message);
+            LogService.Error("分析游戏日志失败", ex);
         }
         finally
         {
@@ -241,6 +281,240 @@ public partial class MainWindow
     }
 
     private bool _analyzingLogs;
+
+    // ---------- 日志分析模式（手动 / 实时） ----------
+
+    private DispatcherTimer? _diagLiveTimer;
+    private bool _loadingDiagFiles;
+
+    private bool DiagLiveMode => DiagModeBox != null && DiagModeBox.SelectedIndex == 1;
+
+    private void DiagMode_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (DiagModeBox == null || DiagLogFileBox == null) return;
+        UpdateDiagModeUi();
+    }
+
+    /// <summary>切换模式时同步控件可见性与刷新逻辑。</summary>
+    private void UpdateDiagModeUi()
+    {
+        if (DiagModeBox == null || DiagLogFileBox == null) return;
+        var live = DiagLiveMode;
+
+        DiagLogFileBox.Visibility = live ? Visibility.Collapsed : Visibility.Visible;
+        DiagLiveHint.Visibility = live ? Visibility.Visible : Visibility.Collapsed;
+
+        if (live)
+        {
+            if (DiagnosticPage.Visibility == Visibility.Visible) StartDiagLiveTimer();
+            RefreshLiveDiagnostics();
+        }
+        else
+        {
+            StopDiagLiveTimer();
+            DiagLiveHint.Text = string.Empty;
+            RefreshDiagLogFiles();
+        }
+    }
+
+    private void StartDiagLiveTimer()
+    {
+        var timer = _diagLiveTimer;
+        if (timer == null)
+        {
+            timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            timer.Tick += (_, _) => RefreshLiveDiagnostics();
+            _diagLiveTimer = timer;
+        }
+        timer.Start();
+    }
+
+    private void StopDiagLiveTimer() => _diagLiveTimer?.Stop();
+
+    private void DiagLogFile_DropDownOpened(object sender, EventArgs e) => RefreshDiagLogFiles();
+
+    private void DiagTarget_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || DiagnosticPage == null || DiagnosticPage.Visibility != Visibility.Visible) return;
+        RefreshGameLogStatus();
+        if (DiagLiveMode) RefreshLiveDiagnostics();
+        else RefreshDiagLogFiles();
+    }
+
+    /// <summary>加载当前版本 logs 目录下的日志文件；文件集合没变时不重建，避免下拉框被关闭。</summary>
+    private void RefreshDiagLogFiles()
+    {
+        if (DiagLogFileBox == null || _loadingDiagFiles) return;
+
+        var version = DiagVersion();
+        var previous = (DiagLogFileBox.SelectedItem as ComboBoxItem)?.Tag as string;
+
+        List<FileInfo> files = new();
+        if (version != null)
+        {
+            var dir = GameLogService.Dir(version.FullPath);
+            try
+            {
+                if (Directory.Exists(dir))
+                {
+                    files = new DirectoryInfo(dir).GetFiles()
+                        .OrderByDescending(f => f.LastWriteTime)
+                        .ToList();
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Error("读取日志目录失败", ex);
+            }
+        }
+
+        var current = DiagLogFileBox.Items.OfType<ComboBoxItem>()
+            .Select(i => i.Content?.ToString() ?? string.Empty)
+            .ToList();
+        if (current.SequenceEqual(files.Select(f => f.Name), StringComparer.OrdinalIgnoreCase)) return;
+
+        _loadingDiagFiles = true;
+        try
+        {
+            DiagLogFileBox.Items.Clear();
+            foreach (var file in files)
+            {
+                DiagLogFileBox.Items.Add(new ComboBoxItem
+                {
+                    Content = file.Name,
+                    Tag = file.FullName,
+                    ToolTip = $"{file.LastWriteTime:yyyy-MM-dd HH:mm} · {file.Length / 1024.0:0.#} KB",
+                });
+            }
+
+            DiagLogFileBox.IsEnabled = files.Count > 0;
+            var restore = DiagLogFileBox.Items.OfType<ComboBoxItem>()
+                .FirstOrDefault(i => string.Equals(i.Tag as string, previous, StringComparison.OrdinalIgnoreCase));
+            DiagLogFileBox.SelectedItem = restore ?? DiagLogFileBox.Items.Cast<object>().FirstOrDefault();
+        }
+        finally
+        {
+            _loadingDiagFiles = false;
+        }
+    }
+
+    /// <summary>实时诊断：只在游戏运行期间展示当前浏览器实例的统计与原因分析，不输出原始日志。</summary>
+    private void RefreshLiveDiagnostics()
+    {
+        if (!DiagLiveMode || DiagnosticPage == null || DiagnosticPage.Visibility != Visibility.Visible) return;
+        if (_analyzingLogs) return;
+
+        var version = DiagVersion();
+        if (version == null)
+        {
+            DiagLiveHint.Text = "未选择 http 版本";
+            SetDiagText("实时诊断需要先选择一个非 file 模式的版本。");
+            return;
+        }
+
+        var sb = new StringBuilder();
+        sb.AppendLine("== 实时诊断 ==");
+        sb.AppendLine($"版本：{version.DisplayName}（{version.Folder}）");
+
+        if (!ServerManager.IsRunning(version.Folder))
+        {
+            DiagLiveHint.Text = "游戏未运行";
+            sb.AppendLine("状态：游戏未运行");
+            sb.AppendLine();
+            sb.AppendLine("启动该版本后，这里会自动统计当前浏览器实例的日志（每 2 秒刷新），");
+            sb.AppendLine("并针对 warning / error / fatal 级别的条目生成诊断分析。");
+            SetDiagText(sb.ToString());
+            return;
+        }
+
+        var live = GameLogService.GetLive(version.FullPath);
+        DiagLiveHint.Text = live == null ? "游戏运行中 · 等待日志上报" : "游戏运行中 · 每 2 秒刷新";
+        sb.AppendLine("状态：游戏运行中（只统计当前浏览器实例，不展示原始日志）");
+        sb.AppendLine();
+
+        if (live == null)
+        {
+            sb.AppendLine("当前浏览器实例还没有日志上报：游戏页刚打开或控制台暂无输出。");
+        }
+        else
+        {
+            sb.AppendLine($"日志文件：{live.File}");
+            sb.AppendLine($"最近写入：{live.LastWriteAt?.ToString("HH:mm:ss") ?? "—"}");
+            if (live.Stopped) sb.AppendLine("注意：浏览器端已停止日志上报，统计可能不再增长。");
+            sb.AppendLine();
+            sb.AppendLine("== 统计 ==");
+            sb.AppendLine($"Information：{live.Information} 条");
+            sb.AppendLine($"Warning：{live.Warning} 条");
+            sb.AppendLine($"Error：{live.Error} 条");
+            sb.AppendLine($"Fatal：{live.Fatal} 条");
+            sb.AppendLine();
+            sb.AppendLine("== 诊断分析 ==");
+            if (live.Findings.Count == 0)
+            {
+                sb.AppendLine("当前实例没有 warning / error / fatal 级别的异常条目。");
+            }
+            else
+            {
+                var index = 0;
+                foreach (var finding in live.Findings)
+                {
+                    index++;
+                    var span = finding.First == finding.Last
+                        ? finding.First.ToString("HH:mm:ss")
+                        : $"{finding.First:HH:mm:ss} ~ {finding.Last:HH:mm:ss}";
+                    sb.AppendLine($"--- 问题 {index}（{finding.Level}，{finding.Count} 次，{span}）---");
+                    if (finding.Hints.Count == 0)
+                    {
+                        sb.AppendLine("可能原因：没有匹配到已知模式，请结合日志上下文判断。");
+                    }
+                    else
+                    {
+                        foreach (var hint in finding.Hints) sb.AppendLine("可能原因：" + hint);
+                    }
+                    sb.AppendLine();
+                }
+            }
+        }
+
+        SetDiagText(sb.ToString());
+    }
+
+    /// <summary>内容没变时不重设文本，避免每 2 秒刷新导致滚动位置与选区被打断。</summary>
+    private void SetDiagText(string text)
+    {
+        if (DiagBox.Text != text) DiagBox.Text = text;
+    }
+
+    private void ClearIdbCaches_Click(object sender, RoutedEventArgs e)
+    {
+        var version = DiagVersion();
+        if (version == null)
+        {
+            AppDialog.Warn("请选择一个 http 版本；file 版本不支持此操作。", "清空 Mod 缓存");
+            return;
+        }
+
+        if (!AppDialog.Confirm(
+                "将删除该版本除存档库（saves/details）以外的所有 IndexedDB：\n\n- Mod 图片缓存、翻译缓存、模组包缓存\n- Mod 的本地设置与缓存\n\n存档不会被删除，但此操作不可撤销。\n\n继续？",
+                "清空 Mod 缓存（第 1 次确认）", "继续", true)) return;
+        if (!AppDialog.Confirm(
+                "再次确认：确定清空 Mod 缓存吗？\n\n建议先关闭正在运行的游戏页面；清空会在下次启动该版本时自动执行，并自动重新加载一次页面。",
+                "清空 Mod 缓存（第 2 次确认）", "确认清空", true)) return;
+
+        try
+        {
+            DoLLauncher.Core.Data.SlotSaveStore.RequestCacheClear(version.FullPath);
+            Log("已登记清空 Mod 缓存（保留存档库）：" + version.Folder);
+            AppDialog.Info(
+                "已登记。\n\n下次启动该版本时会先清空除存档库以外的 IndexedDB，然后自动重新加载页面。\n如果游戏正在运行，请先关闭再重新启动。",
+                "清空 Mod 缓存");
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("登记清空 Mod 缓存失败", ex);
+            AppDialog.Error("登记失败：" + ex.Message, "清空 Mod 缓存");
+        }
+    }
 
     private void RefreshBackups()
     {
@@ -289,7 +563,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("静默备份存档失败：" + ex.Message);
+            LogError("静默备份存档失败", ex);
             AppDialog.Error("备份失败：" + ex.Message, "立即备份存档");
         }
     }
@@ -375,7 +649,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("创建快照失败：" + ex.Message);
+            LogError("创建快照失败", ex);
             AppDialog.Error("创建快照失败：" + ex.Message, "快照");
         }
         finally
@@ -406,7 +680,7 @@ public partial class MainWindow
             }
             catch (Exception ex)
             {
-                Log("还原存档失败：" + ex.Message);
+                LogError("还原存档失败", ex);
                 AppDialog.Error("还原失败：" + ex.Message, "还原存档");
             }
             return;
@@ -457,7 +731,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("还原快照失败：" + ex.Message);
+            LogError("还原快照失败", ex);
             AppDialog.Error("还原失败：" + ex.Message, "还原快照");
         }
     }
@@ -526,7 +800,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("导出诊断包失败：" + ex.Message);
+            LogService.Error("导出诊断包失败", ex);
             AppDialog.Error("导出失败：" + ex.Message, "导出诊断包");
         }
         finally

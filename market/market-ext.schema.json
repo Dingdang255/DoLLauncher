@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/market-ext.schema.json",
+  "title": "DoL 启动器自有模组市场列表（覆盖层）",
+  "type": "object",
+  "required": ["schemaVersion", "mods"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "updatedAt": { "type": "string" },
+    "withdrawnIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "mods": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/mod" }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "stringList": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "assetRef": {
+      "type": "object",
+      "properties": {
+        "fileName": { "type": "string" },
+        "sourceUrl": { "type": "string" },
+        "version": { "type": "string" }
+      }
+    },
+    "edition": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "bootName": { "type": "string" },
+        "assetSeries": { "type": "string" },
+        "verifiedAssets": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assetRef" }
+        }
+      },
+      "anyOf": [
+        { "required": ["id"] },
+        { "required": ["label"] },
+        { "required": ["assetSeries"] },
+        { "required": ["bootName"] }
+      ]
+    },
+    "dependency": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "version": { "type": "string" }
+      }
+    },
+    "mod": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "repo": {
+          "type": "string",
+          "pattern": "^[\\w.-]+/[\\w.-]+$",
+          "description": "GitHub 仓库 owner/repo；新增条目必填"
+        },
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "author": { "type": "string" },
+        "updateDate": { "type": "string" },
+        "releaseUrl": { "type": "string" },
+        "tags": { "$ref": "#/$defs/stringList" },
+        "bootNames": { "$ref": "#/$defs/stringList" },
+        "aliases": { "$ref": "#/$defs/stringList" },
+        "prerelease": { "type": "boolean" },
+        "hidden": { "type": "boolean", "description": "true 表示下架该条目" },
+        "verifiedReleaseAsset": {
+          "type": "object",
+          "properties": {
+            "fileName": { "type": "string" },
+            "sourceUrl": { "type": "string" }
+          }
+        },
+        "dependencies": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/dependency" }
+        },
+        "editions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/edition" }
+        }
+      },
+      "anyOf": [
+        { "required": ["id"] },
+        { "required": ["repo"] }
+      ]
+    }
+  }
+}

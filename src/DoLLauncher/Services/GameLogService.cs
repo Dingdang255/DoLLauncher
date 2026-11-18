@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
+using DoLLauncher.Core.Diagnostics;
 
 namespace DoLLauncher.Services;
 
@@ -16,6 +17,26 @@ public sealed record GameLogStatus(
     string? LastFailure,
     bool Stopped,
     string? StopReason);
+
+/// <summary>实时诊断里的一条问题归纳；只含级别、次数、时间与原因分析，不含原始日志内容。</summary>
+public sealed record GameLogLiveFinding(
+    string Level,
+    int Count,
+    DateTime First,
+    DateTime Last,
+    IReadOnlyList<string> Hints);
+
+/// <summary>当前浏览器实例的实时统计（由写入时增量累计，不重复读文件）。</summary>
+public sealed record GameLogLiveStats(
+    string SessionId,
+    string File,
+    long Information,
+    long Warning,
+    long Error,
+    long Fatal,
+    DateTime? LastWriteAt,
+    bool Stopped,
+    IReadOnlyList<GameLogLiveFinding> Findings);
 
 /// <summary>
 /// 游戏页面的控制台日志落盘。由内置服务器在游戏 HTML 里注入的脚本把 console / 报错
@@ -39,6 +60,22 @@ public static class GameLogService
         public bool Stopped;
         public string? StopReason;
         public DateTime UpdatedAt = DateTime.Now;
+
+        // 实时诊断用的增量统计
+        public long Information;
+        public long Warning;
+        public long Error;
+        public long Fatal;
+        public readonly Dictionary<string, FindingState> Findings = new(StringComparer.Ordinal);
+    }
+
+    private sealed class FindingState
+    {
+        public GameLogLevel Level;
+        public int Count;
+        public DateTime First;
+        public DateTime Last;
+        public IReadOnlyList<string> Hints = Array.Empty<string>();
     }
 
     private const int MaxStatusSessions = 64;
@@ -219,6 +256,49 @@ public static class GameLogService
         }
     }
 
+    /// <summary>读取当前浏览器实例的实时统计与问题归纳（内存快照，不读日志文件）。</summary>
+    public static GameLogLiveStats? GetLive(string versionDir, string? sessionId = null)
+    {
+        try
+        {
+            var vkey = VersionKey(versionDir);
+            var sid = CleanSession(sessionId);
+            lock (Sync)
+            {
+                SessionState? latest = null;
+                foreach (var state in Status.Values)
+                {
+                    if (!string.Equals(state.VersionKey, vkey, StringComparison.Ordinal)) continue;
+                    if (sid != null)
+                    {
+                        if (string.Equals(state.SessionId, sid, StringComparison.Ordinal))
+                        {
+                            latest = state;
+                            break;
+                        }
+                        continue;
+                    }
+                    if (latest == null || state.UpdatedAt > latest.UpdatedAt) latest = state;
+                }
+                if (latest == null) return null;
+
+                var findings = latest.Findings.Values
+                    .OrderByDescending(f => (int)f.Level)
+                    .ThenByDescending(f => f.Count)
+                    .Select(f => new GameLogLiveFinding(
+                        GameLogRules.LevelText(f.Level), f.Count, f.First, f.Last, f.Hints))
+                    .ToList();
+
+                return new GameLogLiveStats(latest.SessionId, latest.FileName, latest.Information,
+                    latest.Warning, latest.Error, latest.Fatal, latest.LastWriteAt, latest.Stopped, findings);
+            }
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>本次会话当前应该写入的文件：已有分份则取最后一份。</summary>
     private static string CurrentFile(string dir, string sid)
     {
@@ -351,6 +431,7 @@ public static class GameLogService
             var state = GetOrCreate(versionDir, sid);
             state.FileName = Path.GetFileName(file);
             state.Lines += CountLines(text);
+            CountLevels(state, text);
             state.Bytes += Utf8.GetByteCount(text);
             state.LastWriteAt = DateTime.Now;
             state.UpdatedAt = DateTime.Now;
@@ -395,7 +476,7 @@ public static class GameLogService
             // 只记录关键路径，避免高频日志写爆 launcher.log
             if (count == 1 || count % 50 == 0)
             {
-                LogService.Append($"游戏日志写入失败（{versionDir}，第 {count} 次）：{ex.Message}");
+                LogService.Error($"游戏日志写入失败（{versionDir}，第 {count} 次）", ex);
             }
         }
         catch
@@ -426,6 +507,65 @@ public static class GameLogService
         }
         if (text[^1] != '\n') lines++;
         return lines;
+    }
+
+    private const int MaxLiveFindings = 60;
+
+    /// <summary>
+    /// 写入时顺带累计实时统计：按最终等级（含规则提升）分到 Information / Warning / Error / Fatal，
+    /// 并对 warning 及以上的条目按内容前缀归组，附上规则给出的原因分析。
+    /// </summary>
+    private static void CountLevels(SessionState state, string text)
+    {
+        var now = DateTime.Now;
+        foreach (var raw in text.Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            var idx = line.IndexOf(" [", StringComparison.Ordinal);
+            if (idx < 0) continue;
+            var end = line.IndexOf(']', idx + 2);
+            if (end < 0) continue;
+
+            var tag = line[(idx + 2)..end].Trim();
+            if (tag is not ("log" or "info" or "warn" or "error" or "debug" or "reject")) continue;
+            var start = end + 1;
+            if (start < line.Length && line[start] == ' ') start++;
+            var message = start < line.Length ? line[start..] : string.Empty;
+
+            // 超长内容（常见于整份模组源码）只取前段做规则判定，避免拖慢写入
+            var probe = message.Length > 2000 ? message[..2000] : message;
+            var (level, hints) = GameLogRules.Classify(probe, GameLogRules.LevelOfTag(tag));
+
+            if (level >= GameLogLevel.Fatal) state.Fatal++;
+            else if (level >= GameLogLevel.Error) state.Error++;
+            else if (level >= GameLogLevel.Warning) state.Warning++;
+            else state.Information++;
+
+            if (level < GameLogLevel.Warning) continue;
+
+            var key = message.Length > 160 ? message[..160] : message;
+            if (!state.Findings.TryGetValue(key, out var finding))
+            {
+                if (state.Findings.Count >= MaxLiveFindings) continue;
+                state.Findings[key] = new FindingState
+                {
+                    Level = level,
+                    Count = 1,
+                    First = now,
+                    Last = now,
+                    Hints = hints,
+                };
+                continue;
+            }
+
+            finding.Count++;
+            finding.Last = now;
+            if (level > finding.Level)
+            {
+                finding.Level = level;
+                if (hints.Count > 0) finding.Hints = hints;
+            }
+        }
     }
 
     private static string Trim(string value, int max) =>

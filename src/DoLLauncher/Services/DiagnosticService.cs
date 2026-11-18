@@ -2,6 +2,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
+using DoLLauncher.Core.Data;
 using DoLLauncher.Models;
 
 namespace DoLLauncher.Services;
@@ -92,7 +93,11 @@ public static class DiagnosticService
                 AddFileIfExists(zip, "launcher-versions.json", Paths.ConfigFile);
                 AddFileIfExists(zip, "mods-state.json", Path.Combine(version.FullPath, "mods-state.json"));
                 AddFileIfExists(zip, "modList.json", Path.Combine(version.FullPath, "modList.json"));
+                AddSlotSaves(zip, version.FullPath);
+                AddFileIfExists(zip, "saves/idb-mirror.json", Path.Combine(version.FullPath, "data", "idb-mirror.json"));
+                AddFileIfExists(zip, "saves/idb-mirror.legacy.json", Path.Combine(version.FullPath, "data", "idb-mirror.legacy.json"));
                 AddFileIfExists(zip, "logs/launcher.log", LogService.FilePath);
+                AddFileIfExists(zip, "logs/launcher-error.log", LogService.ErrorFilePath);
 
                 foreach (var logFile in RecentGameLogs(version.FullPath, 10))
                 {
@@ -166,6 +171,7 @@ public static class DiagnosticService
             sb.AppendLine();
             sb.AppendLine("== 日志设置 ==");
             sb.AppendLine($"保留份数={cfg.General.GameLogKeep}，单份上限={cfg.General.GameLogMaxMb} MB（0=无限制），超限处理={cfg.General.GameLogOverflow}");
+            sb.AppendLine($"启动器日志详细度={cfg.General.LogVerbosity}（detailed 时错误附完整堆栈与调用链）");
         }
         catch (Exception ex)
         {
@@ -192,12 +198,15 @@ public static class DiagnosticService
         sb.AppendLine("2. report.txt   —— 游戏本体、版本号、模组依赖与完整性的检查结果。");
         sb.AppendLine("3. logs/game-*.log —— 游戏页面控制台原始日志（warning/error 为完整内容，其它级别超长会标注省略字数）。");
         sb.AppendLine("4. logs/launcher.log —— 启动器自身的运行记录。");
-        sb.AppendLine("5. system.txt   —— 系统、运行时、端口、版本列表与日志设置。");
-        sb.AppendLine("6. mods/*.boot.json —— 每个模组的元数据与依赖声明，可用来核对缺失/版本不符的前置。");
-        sb.AppendLine("7. modList.json / mods-state.json —— 模组加载顺序与启用状态。");
+        sb.AppendLine("5. logs/launcher-error.log —— 启动器未处理异常的完整堆栈与内部异常链（含 async 任务异常）。");
+        sb.AppendLine("6. system.txt   —— 系统、运行时、端口、版本列表与日志设置。");
+        sb.AppendLine("7. mods/*.boot.json —— 每个模组的元数据与依赖声明，可用来核对缺失/版本不符的前置。");
+        sb.AppendLine("8. modList.json / mods-state.json —— 模组加载顺序与启用状态。");
+        sb.AppendLine("9. saves/ —— 槽位存档（manifest.json 与各 slot-*.json、slot-*.details.json；不含可重建的 .read-cache.json）。");
         sb.AppendLine();
         sb.AppendLine("说明：");
         sb.AppendLine("· 游戏日志来自内置服务器注入的采集脚本，只记录浏览器控制台与未捕获异常，不包含存档内容。");
+        sb.AppendLine("· 设置页把「日志详细度」调成「详细」后，错误会附带堆栈与调用位置，日志体积也会相应变大。");
         sb.AppendLine("· 排查模组问题时，可先停用可疑模组再启动一次，对比 analysis.txt 的变化。");
         return sb.ToString();
     }
@@ -231,5 +240,27 @@ public static class DiagnosticService
     private static void AddFileIfExists(ZipArchive zip, string entryName, string path)
     {
         if (File.Exists(path)) zip.CreateEntryFromFile(path, entryName, CompressionLevel.Optimal);
+    }
+
+    /// <summary>归档槽位存档的清单与各槽位文件；汇总缓存 <c>.read-cache.json</c> 可由槽位重新生成，不归档。</summary>
+    private static void AddSlotSaves(ZipArchive zip, string versionDir)
+    {
+        AddFileIfExists(zip, "saves/manifest.json", SlotSaveStore.ManifestFile(versionDir));
+        try
+        {
+            var root = SlotSaveStore.Root(versionDir);
+            if (!Directory.Exists(root)) return;
+
+            var cache = SlotSaveStore.AggregateCacheFile(versionDir);
+            foreach (var file in Directory.EnumerateFiles(root, "slot-*.json"))
+            {
+                if (string.Equals(file, cache, StringComparison.OrdinalIgnoreCase)) continue;
+                AddFileIfExists(zip, "saves/" + Path.GetFileName(file), file);
+            }
+        }
+        catch
+        {
+            // 槽位目录不可读时跳过，不影响诊断包其它内容。
+        }
     }
 }

@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using DoLLauncher.Core.Data;
 using DoLLauncher.Models;
 
 namespace DoLLauncher.Services;
@@ -26,6 +27,7 @@ public static class SelfTest
             var versions = TestScan();
             TestServer(versions);
             TestModsAndPack(temp);
+            TestSlotStore(temp);
             TestConflicts();
             TestProblems();
             TestDuplicates();
@@ -131,6 +133,106 @@ public static class SelfTest
         finally
         {
             server.Stop();
+        }
+    }
+
+    /// <summary>槽位存档：写入 / 读回 / 清单 / 摘要 / 删除 / 只保留存档库 / 旧镜像迁移 / 汇总缓存。</summary>
+    private static void TestSlotStore(string temp)
+    {
+        try
+        {
+            var dir = Path.Combine(temp, "slots");
+            var save = "{\"slot\":1,\"data\":{\"history\":[]}}";
+            var details = "{\"slot\":1,\"data\":{\"date\":123,\"title\":\"t\"}}";
+            SlotSaveStore.WriteSlot(dir, 1, save, details, "degrees-of-lewdity");
+
+            var read = SlotSaveStore.TryReadSlot(dir, 1, out var saveText, out var detailsText);
+            var manifest = SlotSaveStore.ReadManifest(dir);
+            var describe = SlotSaveStore.Describe(dir);
+            W($"槽位存储：写入后读取={read}，清单槽位={manifest.Slots.Count}，" +
+              $"存档长度={saveText?.Length ?? 0}，详情长度={detailsText?.Length ?? 0}，摘要={describe}");
+
+            var deleted = SlotSaveStore.DeleteSlot(dir, 1);
+            var afterDelete = SlotSaveStore.TryReadSlot(dir, 1, out _, out _);
+            W($"槽位存储：删除={deleted}，删除后仍可读={afterDelete}");
+
+            const string payload =
+                "{\"format\":\"dol-saves/1\",\"exportedAt\":\"2026-01-01T00:00:00Z\",\"dbs\":[" +
+                "{\"name\":\"degrees-of-lewdity\",\"version\":1,\"stores\":[" +
+                "{\"name\":\"saves\",\"records\":[{\"key\":1,\"value\":{\"slot\":1,\"data\":{\"history\":[]}}}]}," +
+                "{\"name\":\"details\",\"records\":[{\"key\":1,\"value\":{\"slot\":1,\"data\":{\"date\":123}}}]}]}," +
+                "{\"name\":\"i18n-cache\",\"version\":1,\"stores\":[{\"name\":\"entries\",\"records\":[]}]}]}";
+            var filtered = SlotSaveStore.FilterPayloadToSaveDomain(payload, out var db);
+            var onlySaveDb = filtered != null &&
+                             filtered.Contains("degrees-of-lewdity", StringComparison.Ordinal) &&
+                             !filtered.Contains("i18n-cache", StringComparison.Ordinal);
+            W($"槽位存储：裁剪后只含存档库={onlySaveDb}，库名={db}，长度={filtered?.Length ?? 0}");
+
+            if (!read || manifest.Slots.Count != 1 || string.IsNullOrWhiteSpace(describe) ||
+                !deleted || afterDelete || !onlySaveDb)
+                throw new InvalidOperationException("槽位存储自检结果不符合预期");
+        }
+        catch (Exception ex)
+        {
+            W("槽位存储自检失败：" + ex.Message);
+        }
+
+        // 旧镜像迁移：合成 dol-saves/1 应拆成槽位文件，旧镜像与 legacy 文件均被删除
+        try
+        {
+            var legacyDir = Path.Combine(temp, "legacy");
+            var dataDir = Path.Combine(legacyDir, "data");
+            Directory.CreateDirectory(dataDir);
+            const string legacyPayload =
+                "{\"format\":\"dol-saves/1\",\"exportedAt\":\"2026-01-01T00:00:00Z\",\"dbs\":[" +
+                "{\"name\":\"degrees-of-lewdity\",\"version\":1,\"stores\":[" +
+                "{\"name\":\"saves\",\"records\":[{\"key\":2,\"value\":{\"slot\":2,\"data\":{\"history\":[]}}}]}," +
+                "{\"name\":\"details\",\"records\":[{\"key\":2,\"value\":{\"slot\":2,\"data\":{\"date\":123,\"title\":\"t\"}}}]}]}," +
+                "{\"name\":\"i18n-cache\",\"version\":1,\"stores\":[{\"name\":\"entries\",\"records\":[]}]}]}";
+            File.WriteAllText(Path.Combine(dataDir, "idb-mirror.json"), legacyPayload, new UTF8Encoding(false));
+
+            var migrated = SlotSaveStore.MigrateLegacyMirror(legacyDir, out var migrateMsg);
+            var migratedSlots = SlotSaveStore.ReadManifest(legacyDir).Slots.Count;
+            var mirrorGone = !File.Exists(Path.Combine(dataDir, "idb-mirror.json"));
+            var legacyGone = !File.Exists(Path.Combine(dataDir, "idb-mirror.legacy.json"));
+            W($"旧镜像迁移：槽位={migrated}，清单槽位={migratedSlots}，" +
+              $"原镜像已删除={mirrorGone}，legacy已删除={legacyGone}，说明={migrateMsg}");
+
+            if (migrated != 1 || migratedSlots != 1 || !mirrorGone || !legacyGone ||
+                string.IsNullOrWhiteSpace(migrateMsg))
+                throw new InvalidOperationException("旧镜像迁移结果不符合预期");
+        }
+        catch (Exception ex)
+        {
+            W("旧镜像迁移自检失败：" + ex.Message);
+        }
+
+        // 汇总缓存：只含存档库的 dol-saves/1，体积与槽位文件同量级
+        try
+        {
+            var outDir = Path.Combine(temp, "aggregate");
+            const string slotSave = "{\"slot\":3,\"data\":{\"history\":[{\"title\":\"a\"}]}}";
+            const string slotDetails = "{\"slot\":3,\"data\":{\"date\":123,\"title\":\"t\"}}";
+            SlotSaveStore.WriteSlot(outDir, 3, slotSave, slotDetails, "degrees-of-lewdity");
+
+            var cache = SlotSaveStore.BuildAggregateCache(outDir, "degrees-of-lewdity");
+            var exists = !string.IsNullOrWhiteSpace(cache) && File.Exists(cache);
+            var text = exists ? File.ReadAllText(cache!) : "";
+            var cacheBytes = exists ? new FileInfo(cache!).Length : 0;
+            var slotBytes = new FileInfo(SlotSaveStore.SlotFile(outDir, 3)).Length +
+                            new FileInfo(SlotSaveStore.DetailsFile(outDir, 3)).Length;
+            var sameScale = exists && cacheBytes >= slotBytes && cacheBytes <= slotBytes * 10 + 4096;
+            var hasSaveDb = text.Contains("degrees-of-lewdity", StringComparison.Ordinal);
+            var noI18n = !text.Contains("i18n-cache", StringComparison.Ordinal);
+            W($"汇总缓存：路径存在={exists}，含存档库={hasSaveDb}，不含i18n={noI18n}，" +
+              $"大小={cacheBytes}，槽位文件={slotBytes}，同量级={sameScale}");
+
+            if (!exists || !hasSaveDb || !noI18n || !sameScale)
+                throw new InvalidOperationException("汇总缓存自检结果不符合预期");
+        }
+        catch (Exception ex)
+        {
+            W("汇总缓存自检失败：" + ex.Message);
         }
     }
 

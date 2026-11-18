@@ -60,6 +60,7 @@ public partial class MainWindow
 
             AnimationCheck.IsChecked = cfg.General.ShowAnimations;
             UiAnimations.Enabled = cfg.General.ShowAnimations;
+            AutoUpdateCheck.IsChecked = cfg.General.AutoCheckUpdate;
             UpdateAccentControls(cfg.General.ThemeAccentColor);
             LoadTimingControls(cfg.General);
 
@@ -110,13 +111,7 @@ public partial class MainWindow
                     ? $"当前为开发版构建，最新 Release 为 {release.Tag}。"
                     : $"发现新版本 {release.Tag}（当前 {BuildInfo.Tag}）。";
                 Log("检查更新：发现新版本 " + release.Tag);
-                if (release.Url.Length > 0 &&
-                    AppDialog.Confirm(
-                        $"发现新版本 {release.Tag}（当前 {BuildInfo.Tag}）。\n要打开下载页面吗？",
-                        "检查更新", "打开下载页"))
-                {
-                    PlatformServices.Links.OpenUrl(release.Url);
-                }
+                ShowUpdateDialog(release);
             }
             else
             {
@@ -129,7 +124,7 @@ public partial class MainWindow
             UpdateStatusText.Text = ex.Message.Contains("404")
                 ? "仓库还没有发布任何 Release。"
                 : "检查更新失败：" + ex.Message;
-            Log("检查更新失败：" + ex.Message);
+            LogError("检查更新失败", ex);
         }
         finally
         {
@@ -151,7 +146,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("保存设置失败：" + ex.Message);
+            LogError("保存设置失败", ex);
         }
     }
 
@@ -169,7 +164,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("保存设置失败：" + ex.Message);
+            LogError("保存设置失败", ex);
         }
     }
 
@@ -187,7 +182,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("保存设置失败：" + ex.Message);
+            LogError("保存设置失败", ex);
         }
     }
 
@@ -206,7 +201,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("保存设置失败：" + ex.Message);
+            LogError("保存设置失败", ex);
         }
     }
 
@@ -224,7 +219,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("保存设置失败：" + ex.Message);
+            LogError("保存设置失败", ex);
         }
     }
 
@@ -240,7 +235,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("保存设置失败：" + ex.Message);
+            LogError("保存设置失败", ex);
         }
     }
 
@@ -298,7 +293,7 @@ public partial class MainWindow
             "问题检查" => "「可能存在问题」里版本差异告警的敏感度。",
             "游戏浏览器" => "打开游戏页使用的浏览器与关页停服行为，修改后下次启动游戏生效。",
             "界面与外观" => "主题、主题色、玩家头像、UI 美化包、副标题与过渡动画，修改后立即生效。",
-            "版本信息" => "当前启动器的版本、提交与构建时间，并可检查更新。",
+            "版本信息" => "当前启动器的版本、提交与构建时间，以及启动时自动检测与手动检查更新。",
             _ => "",
         };
     }
@@ -375,7 +370,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("切换主题失败：" + ex.Message);
+            LogError("切换主题失败", ex);
         }
     }
 
@@ -393,7 +388,24 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("保存设置失败：" + ex.Message);
+            LogError("保存设置失败", ex);
+        }
+    }
+
+    private void AutoUpdateCheck_Checked(object sender, RoutedEventArgs e)
+    {
+        if (_loadingGeneralSettings) return;
+        var enabled = AutoUpdateCheck.IsChecked == true;
+        try
+        {
+            var cfg = AppConfig.Load();
+            cfg.General.AutoCheckUpdate = enabled;
+            AppConfig.Save(cfg);
+            Log("设置：启动时自动检测更新 = " + (enabled ? "开" : "关"));
+        }
+        catch (Exception ex)
+        {
+            LogError("保存设置失败", ex);
         }
     }
 
@@ -417,7 +429,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("保存设置失败：" + ex.Message);
+            LogError("保存设置失败", ex);
         }
     }
 
@@ -496,7 +508,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("保存主题主色失败：" + ex.Message);
+            LogError("保存主题主色失败", ex);
         }
     }
 
@@ -516,7 +528,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("恢复默认主题色失败：" + ex.Message);
+            LogError("恢复默认主题色失败", ex);
         }
     }
 
@@ -563,7 +575,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("保存主题主色失败：" + ex.Message);
+            LogError("保存主题主色失败", ex);
         }
     }
 
@@ -580,7 +592,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("保存主题主色饱和度失败：" + ex.Message);
+            LogError("保存主题主色饱和度失败", ex);
         }
     }
 
@@ -655,7 +667,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("保存关页检测设置失败：" + ex.Message);
+            LogError("保存关页检测设置失败", ex);
         }
     }
 
@@ -687,7 +699,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("保存设置失败：" + ex.Message);
+            LogError("保存设置失败", ex);
         }
     }
 
@@ -705,7 +717,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("保存设置失败：" + ex.Message);
+            LogError("保存设置失败", ex);
         }
     }
 
@@ -769,7 +781,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("保存设置失败：" + ex.Message);
+            LogError("保存设置失败", ex);
         }
     }
 
@@ -786,7 +798,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("保存设置失败：" + ex.Message);
+            LogError("保存设置失败", ex);
         }
     }
 
@@ -802,7 +814,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("保存设置失败：" + ex.Message);
+            LogError("保存设置失败", ex);
         }
     }
 

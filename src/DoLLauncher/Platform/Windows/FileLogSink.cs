@@ -7,4 +7,6 @@ namespace DoLLauncher.Platform.Windows;
 public sealed class FileLogSink : ILogSink
 {
     public void Write(string message) => LogService.Append(message);
+
+    public void WriteError(string context, Exception ex) => LogService.Error(context, ex);
 }

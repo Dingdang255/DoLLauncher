@@ -29,6 +29,12 @@ public static class SkinService
     /// <summary>当前生效的美化包清单；未启用时为 null。</summary>
     public static SkinManifest? Current { get; private set; }
 
+    /// <summary>当前生效的 CSS 样式表；未提供或为空时为 null。</summary>
+    public static SkinStyleSheet? StyleSheet { get; private set; }
+
+    /// <summary>当前生效的样式表相对路径，用于状态与日志。</summary>
+    public static string StyleSheetPath { get; private set; } = string.Empty;
+
     /// <summary>当前生效的美化包目录名。</summary>
     public static string CurrentFolder { get; private set; } = string.Empty;
 
@@ -53,7 +59,9 @@ public static class SkinService
     /// 只看显式给出的背景底色；只提供主色或背景图时不影响主题深浅。
     /// </summary>
     public static bool RequiresDarkPalette =>
-        IsDarkColor(Current?.WindowBackgroundColor) || IsDarkColor(Current?.DialogBackgroundColor);
+        IsDarkColor(Current?.WindowBackgroundColor)
+        || IsDarkColor(Current?.DialogBackgroundColor)
+        || IsPaletteBgDark();
 
     /// <summary>设置页展示的状态说明。</summary>
     public static string StatusText
@@ -64,13 +72,16 @@ public static class SkinService
             if (skin == null) return "当前未启用美化包。";
             var author = string.IsNullOrWhiteSpace(skin.Author) ? string.Empty : $" · {skin.Author}";
             var version = string.IsNullOrWhiteSpace(skin.Version) ? string.Empty : $" v{skin.Version}";
-            return $"已启用：{skin.Name}{version}{author}";
+            var style = StyleSheet is { Rules.Count: > 0 } ? $" · CSS {StyleSheet.Rules.Count} 条规则" : string.Empty;
+            return $"已启用：{skin.Name}{version}{author}{style}";
         }
     }
 
     /// <summary>启动时按配置恢复上次启用的美化包。</summary>
     public static void Initialize()
     {
+        // 全局 Loaded 钩子先装好，之后动态创建的控件也能套用样式
+        SkinStyleApplier.Initialize();
         try
         {
             var folder = (AppConfig.Load().General.SkinFolder ?? string.Empty).Trim();
@@ -86,7 +97,7 @@ public static class SkinService
         }
         catch (Exception ex)
         {
-            LogService.Append("初始化美化包失败：" + ex.Message);
+            LogService.Error("初始化美化包失败", ex);
             ClearCurrent();
         }
     }
@@ -202,12 +213,15 @@ public static class SkinService
             CurrentFolder = folder;
             WindowBackdropBrush = BuildBrush(dir, manifest!.WindowBackgroundImage, manifest.WindowBackgroundColor, 0.85);
             DialogBackgroundBrush = BuildBrush(dir, manifest.DialogBackgroundImage, manifest.DialogBackgroundColor, 0.55);
-            LogService.Append($"美化包「{manifest.Name}」已启用，主色：{AccentColor ?? "(未覆盖，沿用自定义主题色)"}");
+            LoadStyleSheet(dir, manifest);
+            SkinStyleApplier.Load(StyleSheet, dir);
+            LogService.Append($"美化包「{manifest.Name}」已启用，主色：{AccentColor ?? "(未覆盖，沿用自定义主题色)"}"
+                              + (StyleSheetPath.Length > 0 ? $"，样式表：{StyleSheetPath}" : string.Empty));
             return true;
         }
         catch (Exception ex)
         {
-            LogService.Append("读取美化包失败：" + ex.Message);
+            LogService.Error("读取美化包失败", ex);
             ClearCurrent();
             return false;
         }
@@ -216,6 +230,7 @@ public static class SkinService
     /// <summary>卸载美化包并清空配置。</summary>
     public static void Deactivate()
     {
+        SkinStyleApplier.Unload();
         try
         {
             var cfg = AppConfig.Load();
@@ -224,18 +239,21 @@ public static class SkinService
         }
         catch (Exception ex)
         {
-            LogService.Append("保存美化包设置失败：" + ex.Message);
+            LogService.Error("保存美化包设置失败", ex);
         }
 
         ClearCurrent();
     }
 
-    /// <summary>把当前美化包的背景应用到主窗口；没有配置时隐藏背景层。</summary>
+    /// <summary>把当前美化包的背景与 CSS 样式应用到主窗口；没有配置时隐藏背景层。</summary>
     public static void ApplyToWindow(Window window)
     {
-        if (window.FindName("SkinBackdrop") is not System.Windows.Controls.Border backdrop) return;
-        backdrop.Background = WindowBackdropBrush;
-        backdrop.Visibility = WindowBackdropBrush == null ? Visibility.Collapsed : Visibility.Visible;
+        if (window.FindName("SkinBackdrop") is System.Windows.Controls.Border backdrop)
+        {
+            backdrop.Background = WindowBackdropBrush;
+            backdrop.Visibility = WindowBackdropBrush == null ? Visibility.Collapsed : Visibility.Visible;
+        }
+        SkinStyleApplier.ApplyToWindow(window);
     }
 
     /// <summary>弹窗背景：有美化包弹窗背景时覆盖，否则沿用主题的 BgBrush。</summary>
@@ -249,16 +267,109 @@ public static class SkinService
     {
         Current = null;
         CurrentFolder = string.Empty;
+        StyleSheet = null;
+        StyleSheetPath = string.Empty;
         WindowBackdropBrush = null;
         DialogBackgroundBrush = null;
+    }
+
+    /// <summary>读取包内样式表与清单变量；没有任何样式内容时返回 null。</summary>
+    private static void LoadStyleSheet(string dir, SkinManifest manifest)
+    {
+        StyleSheet = null;
+        StyleSheetPath = string.Empty;
+
+        var relative = (manifest.StyleSheet ?? string.Empty).Trim();
+        if (relative.Length == 0)
+        {
+            foreach (var name in new[] { "skin.css", "style.css", "styles.css" })
+            {
+                if (!File.Exists(Path.Combine(dir, name))) continue;
+                relative = name;
+                break;
+            }
+        }
+
+        SkinStyleSheet? sheet = null;
+        if (relative.Length > 0)
+        {
+            if (!SkinRules.IsSafeRelativePath(relative))
+            {
+                LogService.Append("美化包样式表路径不安全，已忽略：" + relative);
+            }
+            else
+            {
+                var file = Path.Combine(dir, relative.Replace('/', Path.DirectorySeparatorChar));
+                if (!File.Exists(file))
+                {
+                    LogService.Append("美化包样式表不存在：" + relative);
+                }
+                else
+                {
+                    try
+                    {
+                        sheet = SkinStyleSheet.Parse(File.ReadAllText(file));
+                        StyleSheetPath = relative;
+                        if (sheet.Warnings.Count > 0)
+                            LogService.Append("美化包样式表告警：" + string.Join("；", sheet.Warnings.Take(6)));
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.Error("读取美化包样式表失败", ex);
+                    }
+                }
+            }
+        }
+
+        // skin.json 的 variables 与 CSS :root 变量等价，作为额外补充
+        if (manifest.Variables is { Count: > 0 })
+        {
+            sheet ??= new SkinStyleSheet();
+            foreach (var pair in manifest.Variables)
+            {
+                if (string.IsNullOrWhiteSpace(pair.Key)) continue;
+                sheet.Variables[pair.Key.Trim()] = pair.Value;
+            }
+        }
+
+        if (sheet == null) return;
+        StyleSheet = sheet;
+        if (StyleSheetPath.Length > 0)
+            LogService.Append($"美化包样式表已加载：{StyleSheetPath}（{sheet.Rules.Count} 条规则）");
+    }
+
+    /// <summary>把样式表变量里的调色板键写进当前调色板（优先级高于主色派生结果）。</summary>
+    public static void ApplyPaletteOverrides(IDictionary<string, string> palette, bool dark)
+    {
+        var variables = StyleSheet?.VariablesFor(dark);
+        if (variables == null || variables.Count == 0) return;
+
+        foreach (var pair in variables)
+        {
+            if (!SkinStyleApplier.TryMapPaletteKey(pair.Key, out var key)) continue;
+            if (!palette.ContainsKey(key)) continue;
+            if (SkinColors.TryParse(pair.Value, out var color)) palette[key] = SkinColors.ToArgbHex(color);
+        }
+    }
+
+    /// <summary>CSS 变量里覆盖了页面底色且偏暗时，同样要求切到深色配色。</summary>
+    private static bool IsPaletteBgDark()
+    {
+        var variables = StyleSheet?.Variables;
+        if (variables == null) return false;
+
+        foreach (var pair in variables)
+            if (SkinStyleApplier.TryMapPaletteKey(pair.Key, out var key) && key == "BgBrush")
+                return IsDarkColor(pair.Value);
+        return false;
     }
 
     /// <summary>按感知亮度判断底色是否偏暗（0.299R + 0.587G + 0.114B）。</summary>
     private static bool IsDarkColor(string? hex)
     {
-        var text = (hex ?? string.Empty).Trim();
-        if (!RgbColor.TryParse(text, out var rgb)) return false;
-        var luma = (0.299 * rgb.R + 0.587 * rgb.G + 0.114 * rgb.B) / 255.0;
+        if (!SkinColors.TryParse(hex, out var color)) return false;
+        if (color.A == 0) return false;
+        var luma = (0.299 * color.R + 0.587 * color.G + 0.114 * color.B) / 255.0;
         return luma < 0.5;
     }
 
@@ -306,7 +417,7 @@ public static class SkinService
         }
         catch (Exception ex)
         {
-            LogService.Append("读取美化包图片失败：" + ex.Message);
+            LogService.Error("读取美化包图片失败", ex);
             return null;
         }
     }

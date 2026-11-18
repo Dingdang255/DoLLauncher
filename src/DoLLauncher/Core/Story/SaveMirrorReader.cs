@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using DoLLauncher.Core.Data;
 
 namespace DoLLauncher.Core.Story;
 
@@ -59,6 +60,34 @@ public static class SaveMirrorReader
         }
 
         if (!Directory.Exists(full)) return null;
+
+        // 槽位存档优先：把所有槽位汇总成 dol-saves/1 缓存，供解析器复用。
+        if (SlotSaveStore.HasStore(full))
+        {
+            try
+            {
+                var m = SlotSaveStore.ReadManifest(full);
+                var db = string.IsNullOrWhiteSpace(m.SaveDb) ? "degrees-of-lewdity" : m.SaveDb;
+                var cache = SlotSaveStore.BuildAggregateCache(full, db);
+                if (!string.IsNullOrWhiteSpace(cache) && File.Exists(cache))
+                {
+                    var info = new FileInfo(cache);
+                    return new StorySourceInfo
+                    {
+                        FilePath = info.FullName,
+                        Kind = StorySourceKind.Mirror,
+                        VersionFolder = full,
+                        Length = info.Length,
+                        ModifiedAt = info.LastWriteTime,
+                        DisplayNote = "磁盘槽位",
+                    };
+                }
+            }
+            catch
+            {
+                // 槽位汇总失败时继续尝试旧镜像与备份。
+            }
+        }
 
         var mirror = Path.Combine(full, "data", "idb-mirror.json");
         if (File.Exists(mirror))

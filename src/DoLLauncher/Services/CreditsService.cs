@@ -43,7 +43,7 @@ public static class CreditsService
         }
         catch (Exception ex)
         {
-            LogService.Append("读取内置 credits.json 失败：" + ex.Message);
+            LogService.Error("读取内置 credits.json 失败", ex);
         }
 
         try
@@ -56,7 +56,7 @@ public static class CreditsService
         }
         catch (Exception ex)
         {
-            LogService.Append("读取 credits.json 失败：" + ex.Message);
+            LogService.Error("读取 credits.json 失败", ex);
         }
         return Default;
     }

@@ -45,6 +45,8 @@ public static class GameLogRules
         new("decompress", GameLogLevel.WarningSevere, "存档解压失败：存档来自更高版本的游戏，或文件损坏。"),
 
         // ---- 错误 ----
+        new("tryreplacestringfuzzywithhint", GameLogLevel.Error,
+            "模组补丁目标未命中（TweeReplacer 找不到要替换的原文）：该模组可能是为其它游戏版本构建的（例如把 0.5.12.13 的汉化/图片包装到 Neo 上），补丁偏移已失效，相关文本或改动不会生效。请改用与当前游戏版本匹配的模组。"),
         new("do_patch", GameLogLevel.Error,
             "TweeReplacer 打补丁失败：模组要替换的原文在当前游戏版本里找不到（或被其它模组改写），相关替换不会生效。更新该模组或先停用它。"),
         new("match failed", GameLogLevel.Warning,

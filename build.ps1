@@ -23,6 +23,10 @@ $runtime = Join-Path (Split-Path $root -Parent) 'DoLLauncher'
 $tag = ''
 try { $tag = ((& git -C $root describe --tags --exact-match 2>$null) | Out-String).Trim() } catch { }
 if ($tag -eq '') { $tag = 'dev' }
+# 有未提交改动时按开发版处理，避免本地测试包顶着正式版本号
+$dirty = ''
+try { $dirty = ((& git -C $root status --porcelain 2>$null) | Out-String).Trim() } catch { }
+if ($dirty -ne '') { $tag = 'dev' }
 $commit = ''
 try { $commit = ((& git -C $root rev-parse --short HEAD 2>$null) | Out-String).Trim() } catch { }
 if ($commit -eq '') { $commit = 'local' }

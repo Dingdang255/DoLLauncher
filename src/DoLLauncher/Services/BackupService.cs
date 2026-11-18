@@ -237,25 +237,50 @@ public static class BackupService
         return true;
     }
 
-    /// <summary>当前版本的磁盘镜像摘要，供备份页提示。</summary>
-    public static string DescribeMirror(string folder) =>
-        IdbMirrorStore.Describe(VersionDirOf(folder));
+    /// <summary>当前版本的磁盘存档摘要，供备份页提示。</summary>
+    public static string DescribeMirror(string folder)
+    {
+        var versionDir = VersionDirOf(folder);
+        return SlotSaveStore.HasStore(versionDir)
+            ? SlotSaveStore.Describe(versionDir)
+            : IdbMirrorStore.Describe(versionDir);
+    }
 
     /// <summary>
-    /// 静默备份存档：不打开浏览器，直接把上次页面写回的磁盘镜像另存到 backups\版本\saves。
-    /// 返回 null 时 <paramref name="reason"/> 说明原因。
+    /// 静默备份存档：不打开浏览器，优先把槽位存档汇总为存档域备份，
+    /// 没有槽位时回退旧的整库镜像。返回 null 时 <paramref name="reason"/> 说明原因。
     /// </summary>
     public static string? BackupSavesFromMirror(string folder, out string reason)
     {
-        var text = IdbMirrorStore.ReadMirrorText(VersionDirOf(folder));
-        if (text == null)
+        var versionDir = VersionDirOf(folder);
+        if (SlotSaveStore.HasStore(versionDir))
+        {
+            var saveDb = SlotSaveStore.ReadManifest(versionDir).SaveDb;
+            if (string.IsNullOrWhiteSpace(saveDb)) saveDb = "degrees-of-lewdity";
+            var aggregate = SlotSaveStore.BuildAggregateCache(versionDir, saveDb);
+            if (aggregate != null)
+            {
+                string? text = null;
+                try { text = File.ReadAllText(aggregate, Encoding.UTF8); }
+                catch { text = null; }
+                if (!string.IsNullOrEmpty(text))
+                {
+                    var path = SaveBrowserBackup(folder, "saves-" + Stamp() + ".json", text, auto: false);
+                    reason = string.Empty;
+                    return path;
+                }
+            }
+        }
+
+        var legacy = IdbMirrorStore.ReadMirrorText(versionDir);
+        if (legacy == null)
         {
             reason = "这个版本还没有磁盘镜像：先启动一次游戏，等页面把存档同步到磁盘后再试。";
             return null;
         }
-        var path = SaveBrowserBackup(folder, "saves-" + Stamp() + ".json", text, auto: false);
+        var legacyPath = SaveBrowserBackup(folder, "saves-" + Stamp() + ".json", legacy, auto: false);
         reason = string.Empty;
-        return path;
+        return legacyPath;
     }
 
     /// <summary>静默还原存档：把备份排队为「下次打开游戏页时导入」，不打开浏览器。</summary>

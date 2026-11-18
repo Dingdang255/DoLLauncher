@@ -1,0 +1,62 @@
+/* 示例美化包样式：配合 UI美化包格式.md 阅读 */
+
+:root {
+  --accent: #ff6c8cff;
+  --accent-hover: #ff8aa5ff;
+  --bg: #ff1e2a44;
+  --panel: #ff1a2438;
+  --card: #ff223354;
+  --text: #fff2f4ff;
+  --muted: #ffb8c4e8;
+  --border: #ff3a4c70;
+  --radius: 10px;
+}
+
+Window {
+  font-family: "Microsoft YaHei UI";
+}
+
+Button {
+  corner-radius: 9px;
+}
+
+.PrimaryButton {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 3px 10px rgba(108, 140, 255, 0.35);
+}
+
+.IconButton {
+  corner-radius: 9px;
+}
+
+.SettingsItemCard {
+  background: #cc223354;
+  border-color: var(--border);
+  corner-radius: var(--radius);
+}
+
+.SectionTitle {
+  color: var(--accent);
+}
+
+.MutedText {
+  color: var(--muted);
+}
+
+.DarkTextBox {
+  background: #cc1a2438;
+  border-color: var(--border);
+  corner-radius: 8px;
+}
+
+/* 浅色模式下换一套底色，避免深底浅字 */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #fff3f5fb;
+    --card: #ffffffff;
+    --text: #ff202433;
+    --muted: #ff65708c;
+    --border: #ffd4dbea;
+  }
+}

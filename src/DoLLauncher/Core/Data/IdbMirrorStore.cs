@@ -131,7 +131,7 @@ public static class IdbMirrorStore
         }
         catch (Exception ex)
         {
-            Log("镜像回滚失败：" + ex.Message);
+            LogError("镜像回滚失败", ex);
         }
     }
 
@@ -157,7 +157,7 @@ public static class IdbMirrorStore
         }
         catch (Exception ex)
         {
-            Log($"写入端口清理标记失败（{port}）：{ex.Message}");
+            LogError($"写入端口清理标记失败（{port}）", ex);
         }
     }
 
@@ -176,7 +176,7 @@ public static class IdbMirrorStore
         }
         catch (Exception ex)
         {
-            Log("删除镜像目录失败：" + ex.Message);
+            LogError("删除镜像目录失败", ex);
         }
     }
 
@@ -260,7 +260,7 @@ public static class IdbMirrorStore
         }
         catch (Exception ex)
         {
-            Log($"记录端口归属失败（{port}）：{ex.Message}");
+            LogError($"记录端口归属失败（{port}）", ex);
             return PortClaim.FirstUse;
         }
     }
@@ -301,5 +301,10 @@ public static class IdbMirrorStore
     private static void Log(string message)
     {
         try { PlatformServices.Log.Write("[存档库] " + message); } catch { }
+    }
+
+    private static void LogError(string context, Exception ex)
+    {
+        try { PlatformServices.Log.WriteError("[存档库] " + context, ex); } catch { }
     }
 }

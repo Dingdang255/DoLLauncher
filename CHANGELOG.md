@@ -1,5 +1,12 @@
 # 更新日志
 
+## 未发布
+
+### 新增
+
+- **美化包 CSS 样式**：美化包可附带 `skin.css`，用类似 CSS 的选择器（元素、`.样式键`、`#x:Name`、后代组合、逗号分组）给启动器所有窗口与控件改背景、文字色、圆角、字号、边框、阴影、背景图等；支持 `:root` 变量映射主题调色板、`var(--accent)` 跟随主题过渡，以及 `@media (prefers-color-scheme: dark/light)` 深浅两套样式。卸载时逐项还原原始外观。
+- **布局与文本兼容**：新增 `flex-direction`、`gap`/`row-gap`/`column-gap`、`align-items`（StackPanel / WrapPanel 近似 flex）、`white-space`、`overflow-wrap`/`word-break`、`text-overflow`、`overflow`、`z-index` 与单边 `border-left/right/top/bottom`，并补齐动态列表项的间距处理。
+
 ## v1.2.0 — 2026-11-15
 
 ### 新增

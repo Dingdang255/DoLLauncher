@@ -1,0 +1,63 @@
+name: market-ext
+
+on:
+  pull_request:
+    paths: ["market/**"]
+  push:
+    branches: [main]
+    paths: ["market/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Suggest data: prefix
+        shell: bash
+        run: |
+          msg="$(git log -1 --pretty=%s)"
+          if [[ "$msg" != data:* ]]; then
+            echo "::warning::仅改动 market/ 时建议使用 data: 前缀提交（例如 data: 新增 xxx 条目），以便与代码提交区分。"
+          fi
+
+      - name: Validate schema
+        run: npx --yes ajv-cli@5 validate -s market/market-ext.schema.json -d market/market-ext.json --spec=draft2020
+
+      - name: Check duplicate entries
+        shell: bash
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          const data = JSON.parse(fs.readFileSync('market/market-ext.json', 'utf8'));
+          const seen = new Map();
+          let failed = false;
+          for (const mod of data.mods ?? []) {
+            const key = (mod.id || '').toLowerCase() || (mod.repo || '').toLowerCase();
+            if (!key) {
+              console.error('条目缺少 id 与 repo');
+              failed = true;
+              continue;
+            }
+            if (seen.has(key)) {
+              console.error(`重复条目: ${key}`);
+              failed = true;
+            }
+            seen.set(key, true);
+          }
+          if (failed) process.exit(1);
+          EOF
+
+      - name: Purge jsDelivr cache
+        if: github.event_name == 'push'
+        run: curl -fsS "https://purge.jsdelivr.net/gh/${GITHUB_REPOSITORY}@main/market/market-ext.json" > /dev/null

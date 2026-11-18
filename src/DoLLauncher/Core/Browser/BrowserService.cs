@@ -53,7 +53,7 @@ public static class BrowserService
         }
         catch (Exception ex)
         {
-            Log($"关闭浏览器失败（{folder}）：{ex.Message}");
+            LogError($"关闭浏览器失败（{folder}）", ex);
         }
     }
 
@@ -114,7 +114,7 @@ public static class BrowserService
         }
         catch (Exception ex)
         {
-            Log($"浏览器打开异常：{ex.Message}");
+            LogError("浏览器打开异常", ex);
             return null;
         }
     }
@@ -150,5 +150,10 @@ public static class BrowserService
     private static void Log(string message)
     {
         try { PlatformServices.Log.Write("[浏览器] " + message); } catch { }
+    }
+
+    private static void LogError(string context, Exception ex)
+    {
+        try { PlatformServices.Log.WriteError("[浏览器] " + context, ex); } catch { }
     }
 }

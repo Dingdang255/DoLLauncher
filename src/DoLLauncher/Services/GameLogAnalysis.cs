@@ -72,6 +72,19 @@ public static class GameLogAnalysis
         int maxFiles = 5, CancellationToken ct = default)
     {
         var report = await Task.Run(() => BuildReport(version, maxFiles), ct);
+        await StreamAsync(report, append, ct);
+    }
+
+    /// <summary>流式分析指定的单个日志文件（手动诊断用）。</summary>
+    public static async Task AnalyzeFileStreamAsync(VersionInfo version, string filePath,
+        Action<string> append, CancellationToken ct = default)
+    {
+        var report = await Task.Run(() => BuildReport(version, 1, filePath), ct);
+        await StreamAsync(report, append, ct);
+    }
+
+    private static async Task StreamAsync(LogReport report, Action<string> append, CancellationToken ct)
+    {
         foreach (var block in report.Blocks())
         {
             ct.ThrowIfCancellationRequested();
@@ -80,7 +93,7 @@ public static class GameLogAnalysis
         }
     }
 
-    private static LogReport BuildReport(VersionInfo version, int maxFiles)
+    private static LogReport BuildReport(VersionInfo version, int maxFiles, string? onlyFile = null)
     {
         var report = new LogReport();
         report.Header.Add("== 游戏日志报错分析 ==");
@@ -89,20 +102,34 @@ public static class GameLogAnalysis
         report.Header.Add("");
 
         var dir = GameLogService.Dir(version.FullPath);
-        if (!Directory.Exists(dir))
+        List<FileInfo> files;
+        if (onlyFile != null)
         {
-            report.Header.Add("还没有游戏日志目录：请先在启动器里启动一次游戏。");
-            return report;
+            var single = new FileInfo(onlyFile);
+            if (!single.Exists)
+            {
+                report.Header.Add("日志文件不存在：" + Path.GetFileName(onlyFile));
+                return report;
+            }
+            files = new List<FileInfo> { single };
         }
-
-        var files = new DirectoryInfo(dir).GetFiles("game-*.log")
-            .OrderByDescending(f => f.LastWriteTime)
-            .Take(Math.Max(1, maxFiles))
-            .ToList();
-        if (files.Count == 0)
+        else
         {
-            report.Header.Add("日志目录里还没有 game-*.log 文件。");
-            return report;
+            if (!Directory.Exists(dir))
+            {
+                report.Header.Add("还没有游戏日志目录：请先在启动器里启动一次游戏。");
+                return report;
+            }
+
+            files = new DirectoryInfo(dir).GetFiles("game-*.log")
+                .OrderByDescending(f => f.LastWriteTime)
+                .Take(Math.Max(1, maxFiles))
+                .ToList();
+            if (files.Count == 0)
+            {
+                report.Header.Add("日志目录里还没有 game-*.log 文件。");
+                return report;
+            }
         }
 
         report.Header.Add("分析文件：" + string.Join("、", files.Select(f => f.Name)));
@@ -110,18 +137,29 @@ public static class GameLogAnalysis
 
         var findings = new Dictionary<string, Finding>(StringComparer.Ordinal);
         int warnings = 0, errors = 0, rejects = 0, total = 0;
+        Finding? pending = null;
 
         foreach (var file in files)
         {
             try
             {
+                pending = null;
                 foreach (var raw in File.ReadLines(file.FullName, Encoding.UTF8))
                 {
                     total++;
                     var m = LinePattern.Match(raw);
-                    if (!m.Success) continue;
+                    if (!m.Success)
+                    {
+                        // 堆栈续行没有时间戳前缀：并入上一条记录，避免调用链在分析里被丢掉
+                        if (pending != null) AppendSample(pending, raw);
+                        continue;
+                    }
                     var level = m.Groups[2].Value.ToLowerInvariant();
-                    if (level != "warn" && level != "error" && level != "reject") continue;
+                    if (level != "warn" && level != "error" && level != "reject")
+                    {
+                        pending = null;
+                        continue;
+                    }
                     if (level == "warn") warnings++;
                     else if (level == "error") errors++;
                     else rejects++;
@@ -136,6 +174,7 @@ public static class GameLogAnalysis
                     finding.Count++;
                     finding.Last = m.Groups[1].Value;
                     if (message.Length > finding.Sample.Length) finding.Sample = Clip(message);
+                    pending = finding;
                 }
             }
             catch (Exception ex)
@@ -197,6 +236,18 @@ public static class GameLogAnalysis
         text.Length <= SampleLimit
             ? text
             : text[..SampleLimit] + $"…（已省略 {text.Length - SampleLimit} 字符，完整内容见 logs）";
+
+    /// <summary>把堆栈续行并入上一条错误样例；只接受形如 "at …" 的帧，避免误吞普通输出。</summary>
+    private static void AppendSample(Finding finding, string raw)
+    {
+        var line = raw.TrimEnd();
+        if (line.Length == 0 || finding.Sample.Length >= SampleLimit) return;
+        var trimmed = line.TrimStart();
+        if (!trimmed.StartsWith("at ", StringComparison.Ordinal) &&
+            !trimmed.StartsWith("[call site]", StringComparison.Ordinal))
+            return;
+        finding.Sample = Clip(finding.Sample + Environment.NewLine + line);
+    }
 
     private static IEnumerable<string> Explain(string message)
     {

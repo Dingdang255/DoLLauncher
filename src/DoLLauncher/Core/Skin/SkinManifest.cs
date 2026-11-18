@@ -5,11 +5,14 @@ namespace DoLLauncher.Core.Skin;
 
 /// <summary>
 /// 本地 UI 美化包（zip）内的 skin.json。
-/// 只能覆盖窗口背景、弹窗背景、主题色与背景图片，不执行任何脚本。
+/// 可覆盖窗口背景、弹窗背景、主题色、CSS 样式表与图片，不执行任何脚本。
 /// </summary>
 public sealed class SkinManifest
 {
     public const string CurrentFormat = "dolskin/1";
+
+    /// <summary>兼容的历史格式；新增字段均为可选，旧包可以继续使用。</summary>
+    public static readonly string[] SupportedFormats = { "dolskin/1", "dolskin/2" };
 
     [JsonPropertyName("format")] public string Format { get; set; } = CurrentFormat;
     [JsonPropertyName("id")] public string Id { get; set; } = string.Empty;
@@ -32,6 +35,12 @@ public sealed class SkinManifest
 
     /// <summary>弹窗背景底色（没有背景图时使用）。</summary>
     [JsonPropertyName("dialogBackgroundColor")] public string DialogBackgroundColor { get; set; } = string.Empty;
+
+    /// <summary>CSS 样式表路径；留空时自动查找包根目录的 skin.css / style.css。</summary>
+    [JsonPropertyName("styleSheet")] public string StyleSheet { get; set; } = string.Empty;
+
+    /// <summary>额外变量（等价于 CSS 里 :root 的 --变量），可覆盖调色板或供样式表引用。</summary>
+    [JsonPropertyName("variables")] public Dictionary<string, string> Variables { get; set; } = new();
 }
 
 /// <summary>美化包格式校验规则（平台无关）。</summary>
@@ -43,9 +52,9 @@ public static class SkinRules
         if (manifest == null) return (false, "美化包里没有可读取的 skin.json。");
 
         var format = (manifest.Format ?? string.Empty).Trim();
-        if (!format.Equals(SkinManifest.CurrentFormat, StringComparison.OrdinalIgnoreCase))
+        if (!SkinManifest.SupportedFormats.Any(item => item.Equals(format, StringComparison.OrdinalIgnoreCase)))
         {
-            return (false, $"不支持的美化包格式：{format}。当前仅支持 {SkinManifest.CurrentFormat}。");
+            return (false, $"不支持的美化包格式：{format}。当前支持 {string.Join(" / ", SkinManifest.SupportedFormats)}。");
         }
 
         if (string.IsNullOrWhiteSpace(manifest.Name)) return (false, "skin.json 缺少 name 字段。");
@@ -58,6 +67,7 @@ public static class SkinRules
                  {
                      (manifest.WindowBackgroundImage, "windowBackgroundImage"),
                      (manifest.DialogBackgroundImage, "dialogBackgroundImage"),
+                     (manifest.StyleSheet, "styleSheet"),
                  })
         {
             if (string.IsNullOrWhiteSpace(path)) continue;

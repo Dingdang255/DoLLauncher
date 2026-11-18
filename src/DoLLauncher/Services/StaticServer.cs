@@ -39,6 +39,7 @@ public sealed class StaticServer : IDisposable
     private static int _gameLogScriptSeconds = -1;
     private static int _gameLogScriptQueue = -1;
     private static int _gameLogScriptFlush = -1;
+    private static int _gameLogScriptDetail = -1;
     private static readonly object ScriptSync = new();
 
     /// <summary>
@@ -52,19 +53,23 @@ public sealed class StaticServer : IDisposable
         var seconds = Math.Clamp(g.HeartbeatSeconds, 1, 60);
         var queue = Math.Clamp(g.LogQueueKb, 1, 128) * 1024;
         var flushMs = Math.Clamp(g.LogFlushMs, 200, 10000);
+        var detail = LogService.IsDetailed(g.LogVerbosity) ? 1 : 0;
         lock (ScriptSync)
         {
             if (_pageScriptText != null && _gameLogScriptSeconds == seconds &&
-                _gameLogScriptQueue == queue && _gameLogScriptFlush == flushMs)
+                _gameLogScriptQueue == queue && _gameLogScriptFlush == flushMs &&
+                _gameLogScriptDetail == detail)
                 return _pageScriptText;
 
             _gameLogScriptSeconds = seconds;
             _gameLogScriptQueue = queue;
             _gameLogScriptFlush = flushMs;
+            _gameLogScriptDetail = detail;
             var log = GameLogScript
                 .Replace("__HEARTBEAT_MS__", (seconds * 1000).ToString())
                 .Replace("__MAX_QUEUE__", queue.ToString())
                 .Replace("__FLUSH_MS__", flushMs.ToString())
+                .Replace("__DETAIL__", detail == 1 ? "true" : "false")
                 .Replace("__RULES__", GameLogRules.RulesJson());
             _pageScriptText = AsciiEscape(IdbBridgeScript + log);
             _pageScriptBytes = Encoding.UTF8.GetBytes(_pageScriptText);
@@ -107,6 +112,9 @@ public sealed class StaticServer : IDisposable
     private readonly object _storySimLock = new();
     private string? _storySimCommand;
     private string _storySimStatus = "{\"state\":\"idle\",\"message\":\"尚未开始\"}";
+
+    /// <summary>后台执行旧镜像回滚/迁移的任务；存档接口在读写前等待它完成。</summary>
+    private Task _dataPrepareTask = Task.CompletedTask;
 
     public StaticServer(string root, int port, string htmlName, string versionName, string versionFolder)
     {
@@ -154,8 +162,6 @@ public sealed class StaticServer : IDisposable
 
     public void Start()
     {
-        // 上次异常退出可能留下未完成的镜像写入：启动时先回滚到最近快照
-        IdbMirrorStore.RecoverPending(_root);
         // 同一端口被另一个版本接管：标记为待清理，避免看到上一个版本的存档与配置
         if (IdbMirrorStore.ClaimPort(_root, Port) == PortClaim.ChangedVersion)
         {
@@ -172,7 +178,34 @@ public sealed class StaticServer : IDisposable
             // 心跳从 0 开始：页面还没真正跑起来之前不算“已连接”，避免误判为关闭
             Interlocked.Exchange(ref _lastHeartbeatUtcTicks, 0);
         }
+        // 旧镜像回滚/迁移会读写数百 MB，放到后台做，避免启动器界面在拉起浏览器时卡住。
+        // 存档接口会等这个任务完成后再读写槽位。
+        _dataPrepareTask = Task.Run(PrepareDataStore);
         _ = Task.Run(() => AcceptLoop(_cts!.Token));
+    }
+
+    /// <summary>旧版整库镜像的回滚与迁移；失败只记录，不影响服务器继续工作。</summary>
+    private void PrepareDataStore()
+    {
+        try
+        {
+            IdbMirrorStore.RecoverPending(_root);
+            if (!SlotSaveStore.HasLegacyMirror(_root)) return;
+            SlotSaveStore.MigrateLegacyMirror(_root, out var migrateMessage);
+            if (!string.IsNullOrWhiteSpace(migrateMessage))
+                LogThrottled($"旧镜像迁移（{_versionName}）：{migrateMessage}");
+        }
+        catch (Exception ex)
+        {
+            LogThrottled($"旧镜像迁移失败（{_versionName}）：{ex.Message}");
+        }
+    }
+
+    private async Task WaitForDataStoreAsync(CancellationToken ct)
+    {
+        var task = _dataPrepareTask;
+        if (task.IsCompleted) return;
+        await task.WaitAsync(ct).ConfigureAwait(false);
     }
 
     public void Stop()
@@ -530,44 +563,287 @@ public sealed class StaticServer : IDisposable
             return;
         }
 
+        if (path.Equals("/__launcher/api/saves/manifest", StringComparison.OrdinalIgnoreCase))
+        {
+            if (method != "GET" && method != "HEAD")
+            {
+                await WriteTextAsync(stream, 405, "Method Not Allowed", "text/plain; charset=utf-8",
+                    "405 Method Not Allowed", method, ct);
+                return;
+            }
+
+            await WaitForDataStoreAsync(ct);
+            var manifest = SlotSaveStore.ReadManifest(_root);
+            var saveDb = string.IsNullOrWhiteSpace(manifest.SaveDb) ? "degrees-of-lewdity" : manifest.SaveDb;
+            var payload = new StringBuilder();
+            payload.Append("{\"ok\":true,\"format\":\"").Append(SlotSaveStore.Format).Append("\",\"saveDb\":")
+                .Append(JsonSerializer.Serialize(saveDb)).Append(",\"slots\":[");
+            for (var i = 0; i < manifest.Slots.Count; i++)
+            {
+                if (i > 0) payload.Append(',');
+                var entry = manifest.Slots[i];
+                payload.Append("{\"slot\":").Append(entry.Slot)
+                    .Append(",\"saveBytes\":").Append(entry.SaveBytes)
+                    .Append(",\"detailsBytes\":").Append(entry.DetailsBytes)
+                    .Append(",\"updatedAt\":").Append(JsonSerializer.Serialize(entry.UpdatedAt ?? ""))
+                    .Append(",\"sha256\":").Append(JsonSerializer.Serialize(entry.Sha256 ?? ""))
+                    .Append('}');
+            }
+            payload.Append("]}");
+            await WriteBytesAsync(stream, 200, "OK", "application/json; charset=utf-8",
+                Encoding.UTF8.GetBytes(payload.ToString()), method, ct);
+            return;
+        }
+
+        if (path.Equals("/__launcher/api/saves/slot", StringComparison.OrdinalIgnoreCase))
+        {
+            if (method == "GET" || method == "HEAD")
+            {
+                if (!int.TryParse(q.GetValueOrDefault("slot", ""), out var querySlot) || querySlot < 0)
+                {
+                    await WriteTextAsync(stream, 400, "Bad Request", "text/plain; charset=utf-8",
+                        "槽位号无效。", method, ct);
+                    return;
+                }
+
+                await WaitForDataStoreAsync(ct);
+                if (!SlotSaveStore.TryReadSlot(_root, querySlot, out var saveJson, out var detailsJson))
+                {
+                    var missing = "{\"ok\":false,\"slot\":" + querySlot + ",\"reason\":\"槽位不存在或读取失败\"}";
+                    await WriteBytesAsync(stream, 404, "Not Found", "application/json; charset=utf-8",
+                        Encoding.UTF8.GetBytes(missing), method, ct);
+                    return;
+                }
+
+                var payload = new StringBuilder();
+                payload.Append("{\"ok\":true,\"slot\":").Append(querySlot).Append(",\"save\":")
+                    .Append(string.IsNullOrWhiteSpace(saveJson) ? "null" : saveJson)
+                    .Append(",\"details\":")
+                    .Append(string.IsNullOrWhiteSpace(detailsJson) ? "null" : detailsJson)
+                    .Append('}');
+                await WriteBytesAsync(stream, 200, "OK", "application/json; charset=utf-8",
+                    Encoding.UTF8.GetBytes(payload.ToString()), method, ct);
+                return;
+            }
+
+            if (method != "POST")
+            {
+                await WriteTextAsync(stream, 405, "Method Not Allowed", "text/plain; charset=utf-8",
+                    "405 Method Not Allowed", method, ct);
+                return;
+            }
+
+            if (IsBodyTooLarge(lines))
+            {
+                await WriteTextAsync(stream, 400, "Bad Request", "text/plain; charset=utf-8",
+                    "请求体超过 32 MB，已拒绝。", method, ct);
+                return;
+            }
+
+            string body;
+            try
+            {
+                body = await ReadBodyAsync(stream, leftover, lines, ct);
+            }
+            catch (Exception ex)
+            {
+                LogThrottled($"槽位写入请求读取失败（{_versionName}）：{ex.Message}");
+                return;
+            }
+
+            await WaitForDataStoreAsync(ct);
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                var root = doc.RootElement;
+                if (root.ValueKind != JsonValueKind.Object)
+                {
+                    await WriteTextAsync(stream, 400, "Bad Request", "text/plain; charset=utf-8",
+                        "请求体不是 JSON 对象。", method, ct);
+                    return;
+                }
+
+                var op = root.TryGetProperty("op", out var opElement) && opElement.ValueKind == JsonValueKind.String
+                    ? opElement.GetString()
+                    : null;
+                if (!root.TryGetProperty("slot", out var slotElement) || !slotElement.TryGetInt32(out var slot) || slot < 0)
+                {
+                    await WriteTextAsync(stream, 400, "Bad Request", "text/plain; charset=utf-8",
+                        "槽位号无效。", method, ct);
+                    return;
+                }
+
+                var saveDb = root.TryGetProperty("saveDb", out var dbElement) && dbElement.ValueKind == JsonValueKind.String
+                    ? dbElement.GetString() ?? ""
+                    : "";
+
+                long bytes = 0;
+                if (string.Equals(op, "delete", StringComparison.OrdinalIgnoreCase))
+                {
+                    SlotSaveStore.DeleteSlot(_root, slot);
+                }
+                else if (string.Equals(op, "put", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!root.TryGetProperty("save", out var saveElement) || saveElement.ValueKind != JsonValueKind.Object)
+                    {
+                        await WriteTextAsync(stream, 400, "Bad Request", "text/plain; charset=utf-8",
+                            "缺少存档内容。", method, ct);
+                        return;
+                    }
+
+                    string? detailsJson = null;
+                    if (root.TryGetProperty("details", out var detailsElement) &&
+                        detailsElement.ValueKind != JsonValueKind.Null &&
+                        detailsElement.ValueKind != JsonValueKind.Undefined)
+                    {
+                        if (detailsElement.ValueKind != JsonValueKind.Object)
+                        {
+                            await WriteTextAsync(stream, 400, "Bad Request", "text/plain; charset=utf-8",
+                                "存档详情不是 JSON 对象。", method, ct);
+                            return;
+                        }
+                        detailsJson = detailsElement.GetRawText();
+                    }
+
+                    var saveText = saveElement.GetRawText();
+                    SlotSaveStore.WriteSlot(_root, slot, saveText, detailsJson, saveDb);
+                    bytes = Encoding.UTF8.GetByteCount(saveText);
+                }
+                else
+                {
+                    await WriteTextAsync(stream, 400, "Bad Request", "text/plain; charset=utf-8",
+                        "op 必须是 put 或 delete。", method, ct);
+                    return;
+                }
+
+                var json = JsonSerializer.Serialize(new { ok = true, slot, bytes });
+                await WriteBytesAsync(stream, 200, "OK", "application/json; charset=utf-8",
+                    Encoding.UTF8.GetBytes(json), method, ct);
+            }
+            catch (JsonException)
+            {
+                await WriteTextAsync(stream, 400, "Bad Request", "text/plain; charset=utf-8",
+                    "请求体不是有效的 JSON。", method, ct);
+            }
+            catch (InvalidOperationException ex)
+            {
+                await WriteTextAsync(stream, 400, "Bad Request", "text/plain; charset=utf-8",
+                    ex.Message, method, ct);
+            }
+            catch (Exception ex)
+            {
+                LogThrottled($"写入槽位失败（{_versionName}）：{ex.Message}");
+                var json = JsonSerializer.Serialize(new { ok = false, error = ex.Message });
+                await WriteBytesAsync(stream, 500, "Internal Server Error", "application/json; charset=utf-8",
+                    Encoding.UTF8.GetBytes(json), method, ct);
+            }
+            return;
+        }
+
+        if (path.Equals("/__launcher/api/saves/cache-clear-done", StringComparison.OrdinalIgnoreCase))
+        {
+            if (method != "POST")
+            {
+                await WriteTextAsync(stream, 405, "Method Not Allowed", "text/plain; charset=utf-8",
+                    "405 Method Not Allowed", method, ct);
+                return;
+            }
+
+            var count = int.TryParse(q.GetValueOrDefault("count", ""), out var parsedCount) && parsedCount >= 0
+                ? parsedCount
+                : 0;
+            var ok = true;
+            try
+            {
+                SlotSaveStore.CompleteCacheClear(_root);
+                LogThrottled($"已清空 {count} 个 Mod 缓存库（保留存档库）（{_versionName}）。");
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                LogThrottled($"完成 Mod 缓存清理失败（{_versionName}）：{ex.Message}");
+            }
+            await WriteBytesAsync(stream, 200, "OK", "application/json; charset=utf-8",
+                Encoding.UTF8.GetBytes(ok ? "{\"ok\":true}" : "{\"ok\":false}"), method, ct);
+            return;
+        }
+
+        if (path.Equals("/__launcher/api/saves/clear", StringComparison.OrdinalIgnoreCase))
+        {
+            if (method != "POST")
+            {
+                await WriteTextAsync(stream, 405, "Method Not Allowed", "text/plain; charset=utf-8",
+                    "405 Method Not Allowed", method, ct);
+                return;
+            }
+
+            if (IsBodyTooLarge(lines))
+            {
+                await WriteTextAsync(stream, 400, "Bad Request", "text/plain; charset=utf-8",
+                    "请求体超过 32 MB，已拒绝。", method, ct);
+                return;
+            }
+
+            string body;
+            try
+            {
+                body = await ReadBodyAsync(stream, leftover, lines, ct);
+            }
+            catch (Exception ex)
+            {
+                LogThrottled($"清空槽位请求读取失败（{_versionName}）：{ex.Message}");
+                return;
+            }
+
+            var saveDb = "";
+            if (!string.IsNullOrWhiteSpace(body))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(body);
+                    if (doc.RootElement.ValueKind == JsonValueKind.Object &&
+                        doc.RootElement.TryGetProperty("saveDb", out var dbElement) &&
+                        dbElement.ValueKind == JsonValueKind.String)
+                        saveDb = dbElement.GetString() ?? "";
+                }
+                catch (JsonException)
+                {
+                    // 忽略非法请求体，按空存档库名清空
+                }
+            }
+
+            await WaitForDataStoreAsync(ct);
+            SlotSaveStore.Clear(_root, saveDb);
+            await WriteBytesAsync(stream, 200, "OK", "application/json; charset=utf-8",
+                Encoding.UTF8.GetBytes("{\"ok\":true}"), method, ct);
+            return;
+        }
+
         if (path.Equals("/__launcher/api/idb-mirror", StringComparison.OrdinalIgnoreCase))
         {
             if (method == "POST")
             {
-                string body;
-                try
-                {
-                    body = await ReadBodyAsync(stream, leftover, lines, ct);
-                }
-                catch (Exception ex)
-                {
-                    LogThrottled($"存档库镜像上报读取失败（{_versionName}）：{ex.Message}");
-                    return;
-                }
-
-                try
-                {
-                    var bytes = IdbMirrorStore.SaveMirror(_root, body);
-                    var json = JsonSerializer.Serialize(new { ok = true, bytes });
-                    await WriteBytesAsync(stream, 200, "OK", "application/json; charset=utf-8",
-                        Encoding.UTF8.GetBytes(json), method, ct);
-                }
-                catch (Exception ex)
-                {
-                    LogThrottled($"保存存档库镜像失败（{_versionName}）：{ex.Message}");
-                    var json = JsonSerializer.Serialize(new { ok = false, error = ex.Message });
-                    await WriteBytesAsync(stream, 500, "Internal Server Error", "application/json; charset=utf-8",
-                        Encoding.UTF8.GetBytes(json), method, ct);
-                }
+                // 保留路径以兼容旧页面，但不再接收整库镜像
+                await WriteBytesAsync(stream, 200, "OK", "application/json; charset=utf-8",
+                    Encoding.UTF8.GetBytes("{\"ok\":false,\"reason\":\"legacy mirror disabled\"}"), method, ct);
                 return;
             }
 
-            // GET：页面启动时取磁盘镜像、待导入内容与「删除版本后待清理」标记
+            // GET：只下发待导入的存档库内容与「删除版本后待清理」标记，不再回推旧整库镜像
+            await WaitForDataStoreAsync(ct);
             var boot = IdbMirrorStore.LoadForBoot(_root, Port);
+            string? importText = boot.Import;
+            if (!string.IsNullOrWhiteSpace(importText))
+            {
+                importText = SlotSaveStore.FilterPayloadToSaveDomain(importText, out _);
+                if (importText == null)
+                    LogThrottled($"待导入镜像无法识别存档库，已忽略（{_versionName}）。");
+            }
+
             var payload = new StringBuilder();
             payload.Append("{\"ok\":true,\"clean\":").Append(boot.Clean ? "true" : "false");
-            payload.Append(",\"mirror\":").Append(boot.Mirror ?? "null");
-            payload.Append(",\"import\":").Append(boot.Import ?? "null");
+            payload.Append(",\"mirror\":null");
+            payload.Append(",\"import\":").Append(importText ?? "null");
             payload.Append('}');
             await WriteBytesAsync(stream, 200, "OK", "application/json; charset=utf-8",
                 Encoding.UTF8.GetBytes(payload.ToString()), method, ct);
@@ -694,6 +970,14 @@ public sealed class StaticServer : IDisposable
         return result;
     }
 
+    private const long MaxSaveApiBodyBytes = 32L * 1024 * 1024;
+
+    private static bool IsBodyTooLarge(string[] lines)
+    {
+        var header = GetHeader(lines, "content-length");
+        return header != null && long.TryParse(header, out var length) && length > MaxSaveApiBodyBytes;
+    }
+
     private static async Task<string> ReadBodyAsync(NetworkStream stream, byte[] leftover, string[] lines,
         CancellationToken ct)
     {
@@ -735,7 +1019,8 @@ public sealed class StaticServer : IDisposable
         try
         {
             // 一次性读入内存后注入：Content-Length 与最终字节数必然一致，不会被截断
-            body = BuildInjectedHtml(await File.ReadAllBytesAsync(full, ct));
+            var clearCaches = SlotSaveStore.HasCacheClearRequest(_root);
+            body = BuildInjectedHtml(await File.ReadAllBytesAsync(full, ct), clearCaches);
         }
         catch (Exception ex)
         {
@@ -777,34 +1062,46 @@ public sealed class StaticServer : IDisposable
     /// 2. UTF-8 BOM 之前绝不插入，避免 BOM 不在文件开头导致整页按错误编码解析；<br/>
     /// 3. UTF-16 页面先转成 UTF-8 再注入（响应头已声明 utf-8）。
     /// </summary>
-    private static byte[] BuildInjectedHtml(byte[] source)
+    private static byte[] BuildInjectedHtml(byte[] source, bool clearCaches)
     {
         if (source.Length >= 2 &&
             ((source[0] == 0xFF && source[1] == 0xFE) || (source[0] == 0xFE && source[1] == 0xFF)))
         {
             var encoding = source[0] == 0xFF ? Encoding.Unicode : Encoding.BigEndianUnicode;
             var text = encoding.GetString(source, 2, source.Length - 2);
-            return Utf8NoBom.GetBytes(InjectIntoText(text));
+            return Utf8NoBom.GetBytes(InjectIntoText(text, clearCaches));
         }
 
         var bom = source.Length >= 3 && source[0] == 0xEF && source[1] == 0xBB && source[2] == 0xBF ? 3 : 0;
         var offset = FindInsertOffset(source, bom);
         var script = PageScriptBytes();
+        // 清缓存标记是同步脚本：必须早于游戏脚本执行
+        var prefixText = clearCaches ? "<script>window.__DOL_CLEAR_CACHES__=true;</script>" : "";
+        var prefix = prefixText.Length == 0 ? Array.Empty<byte>() : Encoding.UTF8.GetBytes(prefixText);
 
-        var result = new byte[source.Length + script.Length];
-        Buffer.BlockCopy(source, 0, result, 0, offset);
-        Buffer.BlockCopy(script, 0, result, offset, script.Length);
-        Buffer.BlockCopy(source, offset, result, offset + script.Length, source.Length - offset);
+        var result = new byte[source.Length + prefix.Length + script.Length];
+        var pos = 0;
+        Buffer.BlockCopy(source, 0, result, pos, offset);
+        pos += offset;
+        if (prefix.Length > 0)
+        {
+            Buffer.BlockCopy(prefix, 0, result, pos, prefix.Length);
+            pos += prefix.Length;
+        }
+        Buffer.BlockCopy(script, 0, result, pos, script.Length);
+        pos += script.Length;
+        Buffer.BlockCopy(source, offset, result, pos, source.Length - offset);
         return result;
     }
 
-    private static string InjectIntoText(string text)
+    private static string InjectIntoText(string text, bool clearCaches)
     {
         var insert = IndexOfTagText(text, "head");
         if (insert < 0) insert = IndexOfTagText(text, "html");
         if (insert < 0) insert = IndexOfTagText(text, "!doctype");
         if (insert < 0) insert = 0;
-        return text.Insert(insert, PageScriptText());
+        var prefix = clearCaches ? "<script>window.__DOL_CLEAR_CACHES__=true;</script>" : "";
+        return text.Insert(insert, prefix + PageScriptText());
     }
 
     /// <summary>在 &lt;head&gt; 之后插入；找不到依次退回 &lt;html&gt;、&lt;!DOCTYPE&gt;、文件开头（始终在 BOM 之后）。</summary>
@@ -883,7 +1180,7 @@ public sealed class StaticServer : IDisposable
 
     /// <summary>
     /// 注入到游戏页 / 存档助手页的存档库桥接脚本：
-    /// 打开页面时从磁盘镜像导入，数据被写入后定时与关闭页面时写回；
+    /// 只处理存档库的 saves / details 表，按槽位从磁盘合并与写回；
     /// 删除版本后首次打开会先清空该 origin 的 IndexedDB / localStorage / 缓存。
     /// </summary>
     private const string IdbBridgeScript = """
@@ -894,8 +1191,15 @@ public sealed class StaticServer : IDisposable
     window.__dolIdbBridge = true;
 
     var API = '/__launcher/api/';
-    var DIRTY = false;
-    var EXPORTING = false;
+    var DEFAULT_SAVE_DB = 'degrees-of-lewdity';
+    var SAVE_DB = '';
+    var MANIFEST = null;
+    var DIRTY_SLOTS = new Set();
+    var DELETED_SLOTS = new Set();
+    var CLEAR_PENDING = false;
+    var FLUSH_TIMER = null;
+    var FLUSHING = false;
+    var IMPORTING = false;
     var MAX_BEACON = 60000;
 
     function note(text) {
@@ -965,6 +1269,79 @@ public sealed class StaticServer : IDisposable
       return Promise.resolve([]);
     }
 
+    async function pickExistingSaveDb() {
+      try {
+        if (!indexedDB.databases) return null;
+        var arr = await indexedDB.databases();
+        var names = (arr || []).map(function (d) { return d && d.name ? String(d.name) : ''; });
+        if (names.indexOf(DEFAULT_SAVE_DB) >= 0) return DEFAULT_SAVE_DB;
+        if (names.indexOf('idb') >= 0) return 'idb';
+        return null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function resolveSaveDb(fromManifest) {
+      if (fromManifest) return String(fromManifest);
+      if (MANIFEST && MANIFEST.saveDb) return String(MANIFEST.saveDb);
+      if (SAVE_DB) return SAVE_DB;
+      var fromGame = '';
+      try {
+        if (window.idb && window.idb.dbName) fromGame = String(window.idb.dbName);
+      } catch (e) { }
+      if (fromGame && fromGame !== 'idb') return fromGame;
+      if (fromGame === 'idb' && !MANIFEST) return fromGame;
+      return DEFAULT_SAVE_DB;
+    }
+
+    function openSaveDb() {
+      return openDb(SAVE_DB || DEFAULT_SAVE_DB, undefined, [
+        { name: 'saves', keyPath: 'slot' },
+        { name: 'details', keyPath: 'slot' }
+      ]);
+    }
+
+    function readStoreKeys(db, storeName) {
+      return new Promise(function (resolve) {
+        var out = [];
+        try {
+          var req = db.transaction(storeName, 'readonly').objectStore(storeName).openCursor();
+          req.onsuccess = function () {
+            var c = req.result;
+            if (!c) { resolve(out); return; }
+            var v = c.value;
+            var slot = v && v.slot !== undefined ? Number(v.slot) : Number(c.primaryKey);
+            if (isFinite(slot) && slot >= 0) out.push(slot);
+            c.continue();
+          };
+          req.onerror = function () { resolve(out); };
+        } catch (e) { resolve(out); }
+      });
+    }
+
+    function getRecord(db, storeName, slot) {
+      return new Promise(function (resolve) {
+        try {
+          var req = db.transaction(storeName, 'readonly').objectStore(storeName).get(slot);
+          req.onsuccess = function () {
+            resolve(req.result === undefined ? null : req.result);
+          };
+          req.onerror = function () { resolve(null); };
+        } catch (e) { resolve(null); }
+      });
+    }
+
+    function putRecord(db, storeName, value) {
+      return new Promise(function (resolve) {
+        try {
+          var tx = db.transaction(storeName, 'readwrite');
+          tx.objectStore(storeName).put(value);
+          txDone(tx).then(function () { resolve(true); }, function () { resolve(false); });
+        } catch (e) { resolve(false); }
+      });
+    }
+
     function replacer(key, value) {
       if (value instanceof ArrayBuffer) return { __t: 'ab', d: Array.from(new Uint8Array(value)) };
       if (value && ArrayBuffer.isView(value)) return { __t: 'ta', d: Array.from(new Uint8Array(value.buffer)) };
@@ -981,86 +1358,78 @@ public sealed class StaticServer : IDisposable
       return value;
     }
 
-    async function collectPayload() {
-      var dbs = await listDbs();
-      if (!dbs.length) return null;
-      var out = [];
-      for (var i = 0; i < dbs.length; i++) {
-        var d = dbs[i];
-        var db;
-        try { db = await openDb(d.name, d.version); }
-        catch (e) { note('skip ' + d.name + ': ' + (e && e.message)); continue; }
-        try {
-          var names = Array.prototype.slice.call(db.objectStoreNames);
-          if (!names.length) continue;
-          var stores = [];
-          for (var j = 0; j < names.length; j++) {
-            var os = db.transaction(names[j], 'readonly').objectStore(names[j]);
-            var keyPath = os.keyPath;
-            var autoIncrement = os.autoIncrement;
-            var pairs = await reqCursor(os);
-            stores.push({
-              name: names[j],
-              keyPath: keyPath,
-              autoIncrement: autoIncrement,
-              records: pairs.map(function (p) {
-                return keyPath == null ? { key: p.key, value: p.value } : { value: p.value };
-              })
-            });
-          }
-          out.push({ name: db.name, version: db.version, stores: stores });
-        } finally {
-          try { db.close(); } catch (e) { }
-        }
-      }
-      if (!out.length) return null;
-      return { format: 'dol-saves/1', exportedAt: new Date().toISOString(), version: '', dbs: out };
-    }
-
-    async function importPayload(payload) {
+    async function importSaveDomain(payload) {
       if (!payload || payload.format !== 'dol-saves/1' || !Array.isArray(payload.dbs)) return 0;
       var written = 0;
       for (var i = 0; i < payload.dbs.length; i++) {
         var d = payload.dbs[i];
+        if (!d || !Array.isArray(d.stores)) continue;
+        var db;
         try {
-          var stores = (d.stores || []).map(function (s) {
-            return { name: s.name, keyPath: s.keyPath === undefined ? null : s.keyPath };
-          });
-          var db = await openDb(d.name, d.version, stores);
-          try {
-            var names = Array.prototype.slice.call(db.objectStoreNames);
-            if (!names.length) continue;
-            var tx = db.transaction(names, 'readwrite');
-            for (var j = 0; j < (d.stores || []).length; j++) {
-              var s = d.stores[j];
-              if (names.indexOf(s.name) < 0) continue;
-              var os = tx.objectStore(s.name);
-              var recs = Array.isArray(s.records) ? s.records : [];
-              var needKey = os.keyPath == null && !os.autoIncrement;
-              if (needKey && recs.some(function (r) { return r.key === undefined || r.key === null; })) {
-                note('skip ' + s.name + ': out-of-line key missing');
-                continue;
-              }
-              os.clear();
-              for (var k = 0; k < recs.length; k++) {
-                var r = recs[k];
-                try {
-                  if (os.keyPath != null) os.put(r.value);
-                  else if (os.autoIncrement && (r.key === undefined || r.key === null)) os.put(r.value);
-                  else os.put(r.value, r.key);
-                  written++;
-                } catch (e) { }
-              }
-            }
-            await txDone(tx);
-          } finally {
-            try { db.close(); } catch (e) { }
-          }
+          db = await openSaveDb();
         } catch (e) {
-          note('import ' + d.name + ' failed: ' + (e && e.message));
+          note('open save db failed: ' + (e && e.message));
+          return written;
+        }
+        try {
+          for (var j = 0; j < d.stores.length; j++) {
+            var s = d.stores[j];
+            if (!s || (s.name !== 'saves' && s.name !== 'details')) continue;
+            var recs = Array.isArray(s.records) ? s.records : [];
+            for (var k = 0; k < recs.length; k++) {
+              var r = recs[k];
+              var value = r && r.value !== undefined ? r.value : null;
+              if (!value || value.slot === undefined || value.slot === null) continue;
+              if (await putRecord(db, s.name, value)) written++;
+            }
+          }
+        } finally {
+          try { db.close(); } catch (e) { }
         }
       }
       return written;
+    }
+
+    async function mergeFromDisk(db) {
+      if (!MANIFEST || !Array.isArray(MANIFEST.slots)) return;
+      var savesKeys = await readStoreKeys(db, 'saves');
+      var detailsKeys = await readStoreKeys(db, 'details');
+      var hasSave = {};
+      var hasDetails = {};
+      var i;
+      for (i = 0; i < savesKeys.length; i++) hasSave[savesKeys[i]] = true;
+      for (i = 0; i < detailsKeys.length; i++) hasDetails[detailsKeys[i]] = true;
+
+      var inManifest = {};
+      for (i = 0; i < MANIFEST.slots.length; i++) {
+        var entry = MANIFEST.slots[i] || {};
+        var slot = Number(entry.slot);
+        if (!isFinite(slot) || slot < 0) continue;
+        inManifest[slot] = true;
+        var needSave = !hasSave[slot];
+        var needDetails = !hasDetails[slot] && Number(entry.detailsBytes) > 0;
+        if (!needSave && !needDetails) continue;
+
+        try {
+          var res = await fetch(API + 'saves/slot?slot=' + slot, { cache: 'no-store' });
+          if (!res.ok) {
+            note('read slot ' + slot + ' failed: HTTP ' + res.status);
+            continue;
+          }
+          var data = JSON.parse(await res.text(), reviver);
+          if (!data || data.ok !== true) continue;
+          if (needSave && data.save) await putRecord(db, 'saves', data.save);
+          if (needDetails && data.details) await putRecord(db, 'details', data.details);
+        } catch (e) {
+          note('merge slot ' + slot + ' failed: ' + (e && e.message));
+        }
+      }
+
+      for (i = 0; i < savesKeys.length; i++) {
+        var key = savesKeys[i];
+        if (!inManifest[key]) DIRTY_SLOTS.add(key);
+      }
+      if (DIRTY_SLOTS.size) scheduleFlush();
     }
 
     async function clearAllOrigin() {
@@ -1085,80 +1454,395 @@ public sealed class StaticServer : IDisposable
       } catch (e) { }
     }
 
-    async function exportNow(urgent) {
-      if (EXPORTING || !DIRTY) return;
-      EXPORTING = true;
-      DIRTY = false;
+    async function postText(path, text, final) {
+      var url = API + path + (final ? '?final=1' : '');
+      if (final && text.length < MAX_BEACON && navigator && navigator.sendBeacon) {
+        try {
+          if (navigator.sendBeacon(url, new Blob([text], { type: 'application/json;charset=UTF-8' }))) return true;
+        } catch (e) { }
+      }
       try {
-        var payload = await collectPayload();
-        if (!payload) return;
-        var text = JSON.stringify(payload, replacer);
-        var url = API + 'idb-mirror?final=' + (urgent ? '1' : '0');
-        if (urgent && text.length < MAX_BEACON && navigator && navigator.sendBeacon) {
-          try {
-            if (navigator.sendBeacon(url, new Blob([text], { type: 'text/plain;charset=UTF-8' }))) return;
-          } catch (e) { }
-        }
         var res = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-          body: text
+          headers: { 'Content-Type': 'application/json;charset=UTF-8' },
+          body: text,
+          keepalive: !!final
         });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return !!res.ok;
       } catch (e) {
-        DIRTY = true;
-        note('export failed: ' + (e && e.message));
-      } finally {
-        EXPORTING = false;
+        note('writeback failed (' + path + '): ' + (e && e.message));
+        return false;
       }
     }
 
+    function scheduleFlush() {
+      if (FLUSH_TIMER) return;
+      FLUSH_TIMER = setTimeout(function () {
+        FLUSH_TIMER = null;
+        flush(false);
+      }, 1500);
+    }
+
+    async function flushOne(slot, final) {
+      var db;
+      try {
+        db = await openSaveDb();
+      } catch (e) {
+        note('open save db failed: ' + (e && e.message));
+        return false;
+      }
+      try {
+        var save = await getRecord(db, 'saves', slot);
+        var details = await getRecord(db, 'details', slot);
+        var payload = save
+          ? { saveDb: SAVE_DB, op: 'put', slot: slot, save: save, details: details }
+          : { saveDb: SAVE_DB, op: 'delete', slot: slot };
+        return await postText('saves/slot', JSON.stringify(payload, replacer), final);
+      } catch (e) {
+        note('read slot ' + slot + ' failed: ' + (e && e.message));
+        return false;
+      } finally {
+        try { db.close(); } catch (e) { }
+      }
+    }
+
+    async function flush(final) {
+      if (FLUSHING || IMPORTING) return;
+      SAVE_DB = resolveSaveDb(MANIFEST && MANIFEST.saveDb);
+      FLUSHING = true;
+      try {
+        if (CLEAR_PENDING) {
+          var cleared = await postText('saves/clear', JSON.stringify({ saveDb: SAVE_DB }), final);
+          if (!cleared) return;
+          CLEAR_PENDING = false;
+        }
+
+        var dels = Array.from(DELETED_SLOTS);
+        for (var i = 0; i < dels.length; i++) {
+          var slot = dels[i];
+          var okDelete = await postText('saves/slot',
+            JSON.stringify({ saveDb: SAVE_DB, op: 'delete', slot: slot }), final);
+          if (okDelete) DELETED_SLOTS.delete(slot);
+        }
+
+        var dirty = Array.from(DIRTY_SLOTS);
+        for (var j = 0; j < dirty.length; j++) {
+          var dirtySlot = dirty[j];
+          if (await flushOne(dirtySlot, final)) DIRTY_SLOTS.delete(dirtySlot);
+        }
+      } finally {
+        FLUSHING = false;
+        if (CLEAR_PENDING || DIRTY_SLOTS.size || DELETED_SLOTS.size) scheduleFlush();
+      }
+    }
+
+    async function readManifest() {
+      try {
+        var res = await fetch(API + 'saves/manifest', { cache: 'no-store' });
+        if (res.ok) {
+          var data = await res.json();
+          if (data && data.ok !== false) MANIFEST = data;
+        }
+      } catch (e) {
+        note('read manifest failed: ' + (e && e.message));
+      }
+      SAVE_DB = (MANIFEST && MANIFEST.saveDb) || await pickExistingSaveDb() ||
+        (window.idb && window.idb.dbName) || DEFAULT_SAVE_DB;
+    }
+
     async function boot() {
-      var data = null;
+      var bootData = null;
       try {
         var res = await fetch(API + 'idb-mirror?boot=1', { cache: 'no-store' });
-        data = await res.json();
+        bootData = JSON.parse(await res.text(), reviver);
       } catch (e) {
-        note('read mirror failed: ' + (e && e.message));
-        return;
+        note('read boot failed: ' + (e && e.message));
       }
-      if (!data || data.ok === false) return;
 
-      if (data.clean) {
-        await clearAllOrigin();
+      if (bootData && bootData.clean) {
+        try { await clearAllOrigin(); } catch (e) { }
         note('origin storage cleared after version deletion');
         try { await fetch(API + 'idb-clean-done', { method: 'POST' }); } catch (e) { }
       }
 
-      var payload = data.import || data.mirror;
-      if (payload && payload.dbs && payload.dbs.length) {
-        var count = await importPayload(payload);
-        note('imported ' + count + ' records from ' + (data.import ? 'pending import' : 'disk mirror'));
-        if (data.import) { try { await fetch(API + 'idb-import-done', { method: 'POST' }); } catch (e) { } }
+      await readManifest();
+
+      var db;
+      try {
+        db = await openSaveDb();
+      } catch (e) {
+        note('open save db failed: ' + (e && e.message));
+        return;
       }
-      DIRTY = false;
+
+      try {
+        if (bootData && bootData.import) {
+          IMPORTING = true;
+          try {
+            var count = await importSaveDomain(bootData.import);
+            note('imported ' + count + ' save records');
+            try { await fetch(API + 'idb-import-done', { method: 'POST' }); } catch (e) { }
+          } finally {
+            IMPORTING = false;
+          }
+
+          try {
+            var importedKeys = await readStoreKeys(db, 'saves');
+            for (var m = 0; m < importedKeys.length; m++) DIRTY_SLOTS.add(importedKeys[m]);
+            if (DIRTY_SLOTS.size) scheduleFlush();
+          } catch (e) {
+            note('mark imported slots failed: ' + (e && e.message));
+          }
+        }
+
+        IMPORTING = true;
+        try { await mergeFromDisk(db); }
+        finally { IMPORTING = false; }
+      } finally {
+        try { db.close(); } catch (e) { }
+      }
     }
 
-    try {
-      var proto = window.IDBObjectStore && IDBObjectStore.prototype;
-      if (proto) {
-        ['put', 'add', 'delete', 'clear'].forEach(function (m) {
+    async function initNoBoot() {
+      await readManifest();
+    }
+
+    var CLEAR_TRIED_KEY = 'dol-cache-clear-tried';
+
+    function inspectDb(name) {
+      return new Promise(function (resolve) {
+        var req;
+        try { req = indexedDB.open(name); } catch (e) { resolve(false); return; }
+        var done = false;
+        function finish(isSave) {
+          if (done) return;
+          done = true;
+          try { if (req.result) req.result.close(); } catch (e) { }
+          resolve(isSave);
+        }
+        req.onupgradeneeded = function () { finish(false); };
+        req.onsuccess = function () {
+          var isSave = false;
+          try {
+            var db = req.result;
+            isSave = db.objectStoreNames.contains('saves') && db.objectStoreNames.contains('details');
+          } catch (e) { }
+          finish(isSave);
+        };
+        req.onerror = function () { finish(false); };
+        req.onblocked = function () { finish(false); };
+      });
+    }
+
+    function deleteDb(name) {
+      return new Promise(function (resolve) {
+        var req;
+        try { req = indexedDB.deleteDatabase(name); } catch (e) { resolve(false); return; }
+        var done = false;
+        function finish(ok, why) {
+          if (done) return;
+          done = true;
+          if (why) note('delete ' + name + ': ' + why);
+          resolve(ok);
+        }
+        req.onsuccess = function () { finish(true, ''); };
+        req.onerror = function () { finish(false, 'error'); };
+        req.onblocked = function () { finish(false, 'blocked'); };
+      });
+    }
+
+    async function clearNonSaveCaches() {
+      var keep = new Set();
+      var names = [];
+      try {
+        if (indexedDB.databases) {
+          var arr = await indexedDB.databases();
+          var all = (arr || []).map(function (d) { return d && d.name ? String(d.name) : ''; });
+          for (var i = 0; i < all.length; i++) if (all[i]) names.push(all[i]);
+        }
+      } catch (e) { note('list databases failed: ' + (e && e.message)); }
+      if (!names.length) {
+        names = ['BeautySelectorAddon', 'i18n-cache', 'ModLoader_IndexDBLoader', 'maplebirch', 'bes'];
+      }
+
+      try {
+        var res = await fetch(API + 'saves/manifest', { cache: 'no-store' });
+        if (res.ok) {
+          var data = await res.json();
+          if (data && data.saveDb) keep.add(String(data.saveDb));
+        }
+      } catch (e) { note('read manifest failed: ' + (e && e.message)); }
+
+      var deleted = 0;
+      for (var n = 0; n < names.length; n++) {
+        var name = names[n];
+        if (!name || keep.has(name)) continue;
+        if (await inspectDb(name)) { keep.add(name); note('keep save db ' + name); continue; }
+        if (await deleteDb(name)) deleted++;
+      }
+      note('cleared ' + deleted + ' mod databases, kept ' + Array.from(keep).join(', '));
+      try {
+        await fetch(API + 'saves/cache-clear-done?count=' + deleted, { method: 'POST' });
+      } catch (e) { note('report clear done failed: ' + (e && e.message)); }
+    }
+
+    function runCacheClear() {
+      clearNonSaveCaches().then(function () {
+        try { location.reload(); } catch (e) { }
+      }, function (e) {
+        note('clear failed: ' + (e && e.message));
+        try { location.reload(); } catch (e2) { }
+      });
+    }
+
+    function installHooks() {
+      try {
+        var proto = window.IDBObjectStore && IDBObjectStore.prototype;
+        if (!proto) return;
+
+        function watch(store) {
+          try {
+            return !!store && !!store.transaction && !!store.transaction.db &&
+              store.transaction.db.name === SAVE_DB &&
+              (store.name === 'saves' || store.name === 'details');
+          } catch (e) { return false; }
+        }
+
+        function slotOf(value, key) {
+          var raw;
+          if (value && typeof value === 'object' && value.slot !== undefined) raw = value.slot;
+          else raw = key;
+          var slot = Number(raw);
+          return isFinite(slot) && slot >= 0 ? slot : null;
+        }
+
+        ['put', 'add'].forEach(function (m) {
           var orig = proto[m];
           if (typeof orig !== 'function') return;
-          proto[m] = function () { DIRTY = true; return orig.apply(this, arguments); };
+          proto[m] = function (value, key) {
+            var result = orig.apply(this, arguments);
+            try {
+              if (!IMPORTING && !window.__dolIdbImporting && watch(this)) {
+                var slot = slotOf(value, key);
+                if (slot !== null) {
+                  DIRTY_SLOTS.add(slot);
+                  DELETED_SLOTS.delete(slot);
+                  scheduleFlush();
+                }
+              }
+            } catch (e) { }
+            return result;
+          };
         });
+
+        var origDelete = proto['delete'];
+        if (typeof origDelete === 'function') {
+          proto['delete'] = function (key) {
+            var result = origDelete.apply(this, arguments);
+            try {
+              if (!IMPORTING && !window.__dolIdbImporting && watch(this)) {
+                var slot = Number(key);
+                if (isFinite(slot) && slot >= 0) {
+                  DELETED_SLOTS.add(slot);
+                  DIRTY_SLOTS.delete(slot);
+                  scheduleFlush();
+                }
+              }
+            } catch (e) { }
+            return result;
+          };
+        }
+
+        var origClear = proto['clear'];
+        if (typeof origClear === 'function') {
+          proto['clear'] = function () {
+            var result = origClear.apply(this, arguments);
+            try {
+              if (!IMPORTING && !window.__dolIdbImporting && watch(this)) {
+                CLEAR_PENDING = true;
+                DIRTY_SLOTS.clear();
+                DELETED_SLOTS.clear();
+              }
+            } catch (e) { }
+            return result;
+          };
+        }
+      } catch (e) { note('hook failed: ' + (e && e.message)); }
+    }
+
+    try { SAVE_DB = resolveSaveDb(null); } catch (e) { SAVE_DB = DEFAULT_SAVE_DB; }
+    installHooks();
+
+    window.__dolIdbResync = async function () {
+      var db;
+      try {
+        db = await openSaveDb();
+        var savesKeys = await readStoreKeys(db, 'saves');
+        var detailsKeys = await readStoreKeys(db, 'details');
+        var seen = new Set();
+        var keys = [];
+        var i;
+        for (i = 0; i < savesKeys.length; i++) {
+          if (!seen.has(savesKeys[i])) { seen.add(savesKeys[i]); keys.push(savesKeys[i]); }
+        }
+        for (i = 0; i < detailsKeys.length; i++) {
+          if (!seen.has(detailsKeys[i])) { seen.add(detailsKeys[i]); keys.push(detailsKeys[i]); }
+        }
+        DIRTY_SLOTS.clear();
+        DELETED_SLOTS.clear();
+        CLEAR_PENDING = true;
+        for (i = 0; i < keys.length; i++) DIRTY_SLOTS.add(keys[i]);
+        scheduleFlush();
+      } catch (e) {
+        note('resync failed: ' + (e && e.message));
+      } finally {
+        if (db) { try { db.close(); } catch (e) { } }
       }
+    };
+
+    try {
+      setInterval(function () {
+        try {
+          if (window.idb && window.idb.dbName && window.idb.dbName !== SAVE_DB) {
+            pickExistingSaveDb().then(function (name) {
+              if (name && name !== SAVE_DB) SAVE_DB = name;
+            }, function () { });
+          }
+        } catch (e) { }
+        if (CLEAR_PENDING || DIRTY_SLOTS.size || DELETED_SLOTS.size) flush(false);
+      }, 15000);
     } catch (e) { }
 
-    try { setInterval(function () { exportNow(false); }, 20000); } catch (e) { }
     try {
       document.addEventListener('visibilitychange', function () {
-        if (document.visibilityState === 'hidden') exportNow(true);
+        if (document.visibilityState === 'hidden') flush(true);
       });
-      window.addEventListener('pagehide', function () { exportNow(true); });
+      window.addEventListener('pagehide', function () { flush(true); });
     } catch (e) { }
 
-    if (!window.__dolIdbNoBoot) boot();
+    if (window.__DOL_CLEAR_CACHES__) {
+      // 同步停止解析：必须早于任何 await，防止游戏脚本继续执行
+      try { window.stop(); } catch (e) { }
+      try {
+        document.documentElement.innerHTML =
+          '<body style="background:#141414;color:#ddd;font:14px sans-serif;padding:24px">正在清理 Mod 缓存（保留存档），请稍候…</body>';
+      } catch (e) { }
+      var tried = false;
+      try { tried = sessionStorage.getItem(CLEAR_TRIED_KEY) === '1'; } catch (e) { }
+      if (tried) {
+        note('cache clear already tried once, skip');
+        fetch(API + 'saves/cache-clear-done?count=0', { method: 'POST' })
+          .catch(function (e) { note('report clear done failed: ' + (e && e.message)); })
+          .then(function () { try { location.reload(); } catch (e) { } });
+      } else {
+        try { sessionStorage.setItem(CLEAR_TRIED_KEY, '1'); } catch (e) { }
+        runCacheClear();
+      }
+    } else {
+      try { sessionStorage.removeItem(CLEAR_TRIED_KEY); } catch (e) { }
+      if (window.__dolIdbNoBoot) initNoBoot();
+      else boot();
+    }
   } catch (e) { }
 })();
 </script>
@@ -1186,6 +1870,9 @@ public sealed class StaticServer : IDisposable
     var MAX_QUEUE = __MAX_QUEUE__;
     var MAX_QUEUE_LINES = 2000;
     var MAX_FAILS = 3;
+    // 详细模式：为报错补采堆栈与调用位置
+    var DETAIL = __DETAIL__;
+    var MAX_STACK = 4000;
     var RETRY_DELAYS = [1000, 4000, 12000];
     var queue = [];
     var queued = 0;
@@ -1344,6 +2031,23 @@ public sealed class StaticServer : IDisposable
       } catch (e) {
         try { return String(value); } catch (x) { return '[unserializable]'; }
       }
+    }
+
+    function stackText(err) {
+      try {
+        var text = err && err.stack ? String(err.stack) : '';
+        if (!text) return '';
+        return text.length > MAX_STACK ? text.slice(0, MAX_STACK) + '...(truncated)' : text;
+      } catch (e) { return ''; }
+    }
+
+    function hasErrorArg(args) {
+      try {
+        for (var i = 0; i < args.length; i++) {
+          if (args[i] instanceof Error) return true;
+        }
+      } catch (e) { }
+      return false;
     }
 
     function push(level, args) {
@@ -1694,7 +2398,17 @@ public sealed class StaticServer : IDisposable
           var orig = console[k];
           if (typeof orig !== 'function') return;
           console[k] = function () {
-            try { push(k, arguments); } catch (e) { }
+            try {
+              if (DETAIL && (k === 'error' || k === 'warn') && !hasErrorArg(arguments)) {
+                // 字符串形式报错本身没有堆栈，补一份调用位置，便于回溯调用链
+                var extra = [];
+                for (var a = 0; a < arguments.length; a++) extra.push(arguments[a]);
+                extra.push('\n[call site]\n' + stackText(new Error()));
+                push(k, extra);
+              } else {
+                push(k, arguments);
+              }
+            } catch (e) { }
             return orig.apply(console, arguments);
           };
         } catch (e) { }
@@ -1703,14 +2417,18 @@ public sealed class StaticServer : IDisposable
 
     window.addEventListener('error', function (e) {
       try {
-        push('error', [(e && e.message ? e.message : 'error') + ' @ ' +
-                        ((e && e.filename) || '') + ':' + ((e && e.lineno) || 0)]);
+        var where = ((e && e.filename) || '') + ':' + ((e && e.lineno) || 0) +
+                    ':' + ((e && e.colno) || 0);
+        var head = (e && e.message ? e.message : 'error') + ' @ ' + where;
+        var stack = DETAIL ? stackText(e && e.error) : '';
+        push('error', [stack ? head + '\n' + stack : head]);
       } catch (x) { }
     });
     window.addEventListener('unhandledrejection', function (e) {
       try {
         var r = e ? e.reason : null;
-        push('reject', [String(r && (r.stack || r.message) || r)]);
+        var text = r && r.stack ? stackText(r) : String((r && r.message) || r);
+        push('reject', [text]);
       } catch (x) { }
     });
     window.addEventListener('pagehide', function () { try { flush(true, true); } catch (e) { } });

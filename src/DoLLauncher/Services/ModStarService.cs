@@ -74,7 +74,7 @@ public static class ModStarService
         }
         catch (Exception ex)
         {
-            LogService.Append($"获取 GitHub Star 失败（{key}）：{ex.Message}");
+            LogService.Error($"获取 GitHub Star 失败（{key}）", ex);
         }
 
         return null;

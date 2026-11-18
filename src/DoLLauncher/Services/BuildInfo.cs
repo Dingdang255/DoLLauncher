@@ -14,8 +14,10 @@ public static class BuildInfo
     public static string Commit { get; } = Part(1, "local");
     public static string BuildTime { get; } = Part(2, "未知");
 
-    /// <summary>形如「v1.2.0 · a1b2c3d · 2026-11-08 10:38」。</summary>
-    public static string Display => $"{Tag} · {Commit} · {BuildTime}";
+    /// <summary>开发版显示「开发版构建 · 构建时间」；正式版本显示 tag / 提交 / 构建时间。</summary>
+    public static string Display => Tag == "dev"
+        ? $"开发版构建 · {BuildTime}"
+        : $"{Tag} · {Commit} · {BuildTime}";
 
     private static string ReadRaw()
     {

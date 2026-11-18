@@ -18,6 +18,12 @@ public partial class App : Application
             var ex = args.ExceptionObject as Exception;
             TryWriteCrashLog(ex);
         };
+        // async / 后台任务的异常不会走上面两个事件，这里兜底，避免静默丢失
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            TryWriteCrashLog(args.Exception);
+            args.SetObserved();
+        };
 
         if (e.Args.Any(a => a.Equals("--selftest", StringComparison.OrdinalIgnoreCase)))
         {
@@ -33,7 +39,9 @@ public partial class App : Application
         }
 
         // 主题与过渡动画需要在主窗口创建前准备好
-        UiAnimations.Enabled = AppConfig.Load().General.ShowAnimations;
+        var general = AppConfig.Load().General;
+        UiAnimations.Enabled = general.ShowAnimations;
+        LogService.Configure(general.LogVerbosity);
         UiAnimations.Initialize();
         TextToolTip.Initialize();
         // 美化包需要先于主题初始化，才能让包内主色参与调色板计算
@@ -55,15 +63,8 @@ public partial class App : Application
     private static void TryWriteCrashLog(Exception? ex)
     {
         if (ex == null) return;
-        try
-        {
-            var text = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + Environment.NewLine +
-                       ex + Environment.NewLine + Environment.NewLine;
-            File.AppendAllText(Path.Combine(Paths.Root, "launcher-error.log"), text);
-        }
-        catch
-        {
-            // 日志写入失败不影响主流程
-        }
+        // launcher-error.log 始终保留完整堆栈；launcher.log 按详细度决定是否附上堆栈
+        LogService.Crash(ex);
+        LogService.Error("未处理异常", ex);
     }
 }

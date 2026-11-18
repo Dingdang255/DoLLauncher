@@ -68,7 +68,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("打开美化包目录失败：" + ex.Message);
+            LogError("打开美化包目录失败", ex);
             AppDialog.Error("无法打开美化包目录：" + ex.Message, "UI 美化包");
         }
     }

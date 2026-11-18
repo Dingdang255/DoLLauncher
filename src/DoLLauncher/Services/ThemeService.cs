@@ -103,6 +103,9 @@ public static class ThemeService
 
     public static string Mode => _mode;
 
+    /// <summary>调色板可覆盖的键名（美化包 CSS 变量按名称映射到这些键）。</summary>
+    public static IReadOnlyCollection<string> PaletteKeys => LightPalette.Keys;
+
     public static void Initialize()
     {
         _mode = Normalize(AppConfig.Load().General.ThemeMode);
@@ -177,6 +180,8 @@ public static class ThemeService
 
         // 标题栏与边框不参与颜色过渡，始终立即更新
         RefreshTitleBars();
+        // 带 @media 主题条件的美化包规则在深浅切换后需要重新匹配
+        SkinStyleApplier.NotifyThemeChanged();
     }
 
     /// <summary>刷新所有已打开窗口的标题栏与边框样式（过渡结束、窗口尺寸变化后调用）。</summary>
@@ -219,7 +224,10 @@ public static class ThemeService
             }
         }
 
-        return ThemePaletteBuilder.Build(dark ? DarkPalette : LightPalette, accent, saturation);
+        var palette = ThemePaletteBuilder.Build(dark ? DarkPalette : LightPalette, accent, saturation);
+        // 美化包 skin.css 的 :root 变量最后覆盖调色板，优先级最高
+        SkinService.ApplyPaletteOverrides(palette, dark);
+        return palette;
     }
 
     /// <summary>按指定主色与饱和度预览强调色（设置页实时预览用，不写配置）。</summary>

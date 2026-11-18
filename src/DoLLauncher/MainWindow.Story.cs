@@ -472,7 +472,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log("复制剧情节点 JSON 失败：" + ex.Message);
+            LogError("复制剧情节点 JSON 失败", ex);
             AppDialog.Warn("复制失败：" + ex.Message);
         }
     }
