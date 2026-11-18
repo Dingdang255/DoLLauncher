@@ -7,6 +7,7 @@ using System.Text.Json;
 using DoLLauncher.Core.Data;
 using DoLLauncher.Core.Diagnostics;
 using DoLLauncher.Core.Story;
+using DoLLauncher.Platform.Abstractions;
 
 namespace DoLLauncher.Services;
 
@@ -14,7 +15,7 @@ namespace DoLLauncher.Services;
 /// 内置的极简 HTTP 静态服务器（TcpListener 实现，不需要 IIS / HttpListener 的 URL ACL，
 /// 普通用户权限即可监听 127.0.0.1）。每个版本用固定端口，端口 = 独立浏览器 origin。
 /// </summary>
-public sealed class StaticServer : IDisposable
+public sealed class StaticServer : ILocalServer
 {
     private readonly string _root;
     private readonly string _rootFull;

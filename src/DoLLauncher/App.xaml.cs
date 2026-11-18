@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Threading;
 using DoLLauncher.Platform;
+using DoLLauncher.Platform.Windows;
 using DoLLauncher.Services;
 
 namespace DoLLauncher;
@@ -27,6 +28,7 @@ public partial class App : Application
 
         if (e.Args.Any(a => a.Equals("--selftest", StringComparison.OrdinalIgnoreCase)))
         {
+            PlatformServices.Initialize(new WindowsPlatformBundle());
             SelfTest.Run();
             Shutdown();
             return;
@@ -38,6 +40,9 @@ public partial class App : Application
             Directory.CreateDirectory(Paths.VersionsDir);
         }
 
+        // 平台能力最先装配，后续主题、美化包与各服务都通过接口访问；未装配时访问会抛明确异常
+        PlatformServices.Initialize(new WindowsPlatformBundle());
+
         // 主题与过渡动画需要在主窗口创建前准备好
         var general = AppConfig.Load().General;
         UiAnimations.Enabled = general.ShowAnimations;
@@ -47,8 +52,6 @@ public partial class App : Application
         // 美化包需要先于主题初始化，才能让包内主色参与调色板计算
         SkinService.Initialize();
         ThemeService.Initialize();
-        // 平台能力在主题初始化之后装配，供后续页面与服务通过接口访问
-        PlatformServices.Initialize();
     }
 
     private void OnUnhandled(object sender, DispatcherUnhandledExceptionEventArgs e)

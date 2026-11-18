@@ -22,10 +22,11 @@
     <Resource Include="Assets\dol.ico" />
     <Resource Include="Assets\dol-favicon.png" />
     <Resource Include="Assets\credits\*.png" />
-    <!-- 致谢名单以源码根目录的 credits.json 为准，构建时嵌入 exe -->
-    <EmbeddedResource Include="credits.json" LogicalName="DoLLauncher.credits.json" />
-    <!-- 补丁锚点兼容层：运行期写入版本的 mods 目录，跟随 modList 一起加载 -->
-    <EmbeddedResource Include="Assets\compat\patch-anchor.js" LogicalName="DoLLauncher.compat.patch-anchor.js" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 平台无关层（Core / Models / 无 UI 的 Services） -->
+    <ProjectReference Include="..\DoLLauncher.Core\DoLLauncher.Core.csproj" />
   </ItemGroup>
 
 </Project>

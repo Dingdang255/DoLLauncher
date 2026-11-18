@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>DoLLauncher.Core</AssemblyName>
+    <RootNamespace>DoLLauncher</RootNamespace>
+    <Product>DoL 版本启动器核心</Product>
+    <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
+    <!-- 平台无关层：禁止引用 WPF / Avalonia / Win32 -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 致谢名单以源码根目录的 credits.json 为准，构建时嵌入程序集 -->
+    <EmbeddedResource Include="credits.json" LogicalName="DoLLauncher.credits.json" />
+    <!-- 补丁锚点兼容层：运行期写入版本的 mods 目录，跟随 modList 一起加载 -->
+    <EmbeddedResource Include="Assets\compat\patch-anchor.js" LogicalName="DoLLauncher.compat.patch-anchor.js" />
+  </ItemGroup>
+
+</Project>

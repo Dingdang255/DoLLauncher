@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.IO;
 using DoLLauncher.Models;
 using DoLLauncher.Platform;
+using DoLLauncher.Platform.Abstractions;
 
 namespace DoLLauncher.Services;
 
@@ -12,8 +13,14 @@ public sealed record ServerPageState(DateTime? LastHeartbeatUtc, bool HasPages, 
 public static class ServerManager
 {
     // 心跳由服务器线程写入、界面定时器读取，使用并发字典避免跨线程读写冲突
-    private static readonly ConcurrentDictionary<string, StaticServer> Running = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, ILocalServer> Running = new(StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<string> HelperSessions = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 本地服务器工厂。桌面端默认使用 <see cref="StaticServer"/>；
+    /// Android 头工程可在启动时替换为应用内实现。
+    /// </summary>
+    public static Func<VersionInfo, int, ILocalServer>? ServerFactory { get; set; }
 
     public static bool IsRunning(string folder) =>
         Running.TryGetValue(folder, out var server) && server.IsListening;
@@ -34,9 +41,9 @@ public static class ServerManager
         return new ServerPageState(server.LastHeartbeatUtc, server.HasPages, server.PageClosedUtc);
     }
 
-    public static StaticServer EnsureStarted(VersionInfo version) => EnsureStarted(version, false);
+    public static ILocalServer EnsureStarted(VersionInfo version) => EnsureStarted(version, false);
 
-    public static StaticServer EnsureStarted(VersionInfo version, bool saveHelperOnly)
+    public static ILocalServer EnsureStarted(VersionInfo version, bool saveHelperOnly)
     {
         if (Running.TryGetValue(version.Folder, out var existing) && existing.IsListening)
         {
@@ -51,8 +58,9 @@ public static class ServerManager
         {
             try
             {
-                var server = new StaticServer(version.FullPath, candidate, version.HtmlFileName,
-                    version.DisplayName, version.Folder);
+                var server = ServerFactory?.Invoke(version, candidate)
+                             ?? new StaticServer(version.FullPath, candidate, version.HtmlFileName,
+                                 version.DisplayName, version.Folder);
                 server.Start();
                 Running[version.Folder] = server;
                 if (saveHelperOnly) HelperSessions.Add(version.Folder);

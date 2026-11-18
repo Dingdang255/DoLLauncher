@@ -9,10 +9,23 @@ public static class Paths
     public const string VersionsDirName = "versions";
     public const string GameDirName = "game";
 
-    public static string Root { get; } = ResolveRoot();
+    private static string? _root;
+
+    public static string Root => _root ??= ResolveRoot();
 
     public static string VersionsDir => Path.Combine(Root, VersionsDirName);
     public static string ConfigFile => Path.Combine(Root, "launcher-versions.json");
+
+    /// <summary>
+    /// 指定根目录（Android 等无法从程序目录向上查找的平台使用）。
+    /// 必须在任何服务读取 <see cref="Root"/> 之前调用。
+    /// </summary>
+    public static void OverrideRoot(string root)
+    {
+        if (string.IsNullOrWhiteSpace(root)) return;
+        _root = Path.GetFullPath(root);
+        Directory.CreateDirectory(Path.Combine(_root, VersionsDirName));
+    }
 
     private static string ResolveRoot()
     {
