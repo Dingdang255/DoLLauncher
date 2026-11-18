@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="DoLLauncher.Maui.DiagnosticsPage"
+             Title="诊断">
+
+    <ContentPage.ToolbarItems>
+        <ToolbarItem x:Name="ExportItem" Text="导出诊断包" Clicked="OnExportClicked" />
+    </ContentPage.ToolbarItems>
+
+    <Grid>
+
+        <ScrollView>
+            <VerticalStackLayout Padding="16,12,16,24" Spacing="12">
+
+                <Label x:Name="HeaderLabel" FontSize="22" FontAttributes="Bold" />
+
+                <!-- 运行环境 -->
+                <Border Padding="14" StrokeThickness="0" StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="8">
+                        <Label Text="运行环境" FontSize="15" FontAttributes="Bold" />
+                        <VerticalStackLayout x:Name="EnvList" Spacing="4" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- 兼容性检查 -->
+                <Border Padding="14" StrokeThickness="0" StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="8">
+                        <Label Text="兼容性检查" FontSize="15" FontAttributes="Bold" />
+                        <VerticalStackLayout x:Name="CompatList" Spacing="2" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- 最近游戏日志 -->
+                <Border Padding="14" StrokeThickness="0" StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="8">
+                        <Label Text="最近游戏日志" FontSize="15" FontAttributes="Bold" />
+                        <VerticalStackLayout x:Name="GameLogList" Spacing="6" />
+
+                        <Label x:Name="GameLogTitle" FontSize="12" IsVisible="False"
+                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                        <Editor x:Name="GameLogContent" IsVisible="False" IsReadOnly="True"
+                                AutoSize="Disabled" HeightRequest="220" FontSize="11"
+                                FontFamily="monospace" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- 启动器日志 -->
+                <Border Padding="14" StrokeThickness="0" StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="8">
+                        <Label Text="启动器日志" FontSize="15" FontAttributes="Bold" />
+                        <Label x:Name="LauncherLogHint" FontSize="11"
+                               LineBreakMode="MiddleTruncation"
+                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                        <Editor x:Name="LauncherLogView" IsReadOnly="True"
+                                AutoSize="Disabled" HeightRequest="240" FontSize="11"
+                                FontFamily="monospace" />
+                        <Button Text="分享日志" FontSize="13" HeightRequest="36" CornerRadius="8"
+                                HorizontalOptions="Start" Padding="18,0"
+                                Clicked="OnShareLogClicked"
+                                BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                                TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <Label FontSize="11" HorizontalTextAlignment="Center"
+                       Text="日志只显示末尾内容，长行与超长日志会被截断。"
+                       TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+
+            </VerticalStackLayout>
+        </ScrollView>
+
+        <Grid x:Name="BusyOverlay" IsVisible="False" BackgroundColor="#80000000">
+            <ActivityIndicator IsRunning="True" Color="White"
+                               VerticalOptions="Center" HorizontalOptions="Center" />
+        </Grid>
+
+    </Grid>
+
+</ContentPage>

@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="DoLLauncher.Maui.DownloadPage"
+             Title="下载游戏">
+
+    <ContentPage.ToolbarItems>
+        <ToolbarItem x:Name="RefreshItem" Text="刷新" Clicked="OnRefreshClicked" />
+    </ContentPage.ToolbarItems>
+
+    <Grid RowDefinitions="Auto,*" Padding="16,12,16,0" RowSpacing="10">
+
+        <VerticalStackLayout Grid.Row="0" Spacing="2">
+            <Label Text="下载游戏" FontSize="26" FontAttributes="Bold" />
+            <Label x:Name="SourceLabel" FontSize="12" LineBreakMode="TailTruncation"
+                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+        </VerticalStackLayout>
+
+        <Grid Grid.Row="1">
+
+            <RefreshView x:Name="Refresher" Refreshing="OnRefreshing">
+                <CollectionView x:Name="ReleaseList" SelectionMode="None">
+                    <CollectionView.EmptyView>
+                        <VerticalStackLayout Padding="24" Spacing="8" VerticalOptions="Center">
+                            <Label Text="没有可安装的版本" FontAttributes="Bold" HorizontalOptions="Center" />
+                            <Label Text="检查网络后下拉刷新，或到设置里切换游戏本体下载源。"
+                                   HorizontalTextAlignment="Center" FontSize="13"
+                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                        </VerticalStackLayout>
+                    </CollectionView.EmptyView>
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate>
+                            <Border Padding="14" Margin="0,0,0,10"
+                                    StrokeThickness="0"
+                                    StrokeShape="RoundRectangle 12"
+                                    BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                    <VerticalStackLayout Grid.Column="0" Spacing="4">
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                            <Label Grid.Column="0" Text="{Binding Title}" FontSize="17"
+                                                   FontAttributes="Bold" LineBreakMode="TailTruncation" />
+                                            <Border Grid.Column="1" IsVisible="{Binding Prerelease}"
+                                                    Padding="6,1" StrokeThickness="0"
+                                                    StrokeShape="RoundRectangle 4" VerticalOptions="Center"
+                                                    BackgroundColor="{AppThemeBinding Light=#FFE0B2, Dark=#5A3E1A}">
+                                                <Label Text="预览版" FontSize="10"
+                                                       TextColor="{AppThemeBinding Light=#B25B00, Dark=#FFCC80}" />
+                                            </Border>
+                                        </Grid>
+                                        <Label Text="{Binding MetaText}" FontSize="12"
+                                               LineBreakMode="MiddleTruncation"
+                                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                        <Label Text="{Binding AssetSummary}" FontSize="11"
+                                               LineBreakMode="MiddleTruncation"
+                                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                    </VerticalStackLayout>
+                                    <Button Grid.Column="1" Text="安装" FontSize="13" Padding="14,0"
+                                            HeightRequest="32" WidthRequest="62" CornerRadius="8"
+                                            VerticalOptions="Center"
+                                            IsEnabled="{Binding CanInstall}"
+                                            Clicked="OnInstallClicked"
+                                            BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                                            TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+            </RefreshView>
+
+            <!-- 加载中 -->
+            <VerticalStackLayout x:Name="LoadingPanel" IsVisible="False" Spacing="10"
+                                 VerticalOptions="Center" HorizontalOptions="Center">
+                <ActivityIndicator x:Name="LoadingIndicator" IsRunning="False" />
+                <Label Text="正在获取版本列表…" FontSize="13"
+                       TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+            </VerticalStackLayout>
+
+            <!-- 加载失败 -->
+            <VerticalStackLayout x:Name="ErrorPanel" IsVisible="False" Padding="24" Spacing="12"
+                                 VerticalOptions="Center">
+                <Label x:Name="ErrorLabel" FontSize="13" HorizontalTextAlignment="Center" />
+                <Button Text="重试" HorizontalOptions="Center" Padding="18,0" HeightRequest="34"
+                        CornerRadius="8" Clicked="OnRetryClicked" />
+            </VerticalStackLayout>
+
+            <!-- 安装遮罩 -->
+            <Grid x:Name="BusyOverlay" IsVisible="False" BackgroundColor="#80000000">
+                <Border Padding="18" Margin="24" StrokeThickness="0" StrokeShape="RoundRectangle 14"
+                        VerticalOptions="Center"
+                        BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="10">
+                        <Label Text="正在下载并安装…" FontSize="15" FontAttributes="Bold" />
+                        <ProgressBar x:Name="InstallProgress" Progress="0" />
+                        <Label x:Name="PercentLabel" Text="0%" FontSize="13" HorizontalOptions="End"
+                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                        <Label x:Name="LogLabel" Text="" FontSize="11" MaxLines="2"
+                               LineBreakMode="TailTruncation"
+                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                    </VerticalStackLayout>
+                </Border>
+            </Grid>
+
+        </Grid>
+
+    </Grid>
+
+</ContentPage>

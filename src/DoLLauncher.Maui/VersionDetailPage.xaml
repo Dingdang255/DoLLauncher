@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="DoLLauncher.Maui.VersionDetailPage"
+             Title="版本详情">
+
+    <Grid>
+
+        <ScrollView>
+            <VerticalStackLayout Padding="16,12,16,24" Spacing="12">
+
+                <VerticalStackLayout Spacing="2">
+                    <Label x:Name="NameLabel" FontSize="24" FontAttributes="Bold"
+                           LineBreakMode="TailTruncation" />
+                    <Label x:Name="SubLabel" FontSize="12"
+                           LineBreakMode="MiddleTruncation"
+                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                </VerticalStackLayout>
+
+                <!-- 版本信息 -->
+                <Border Padding="14" StrokeThickness="0" StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="10">
+                        <Label Text="版本信息" FontSize="15" FontAttributes="Bold" />
+
+                        <Grid ColumnDefinitions="88,*" RowDefinitions="Auto,Auto,Auto,Auto"
+                              RowSpacing="6" ColumnSpacing="8">
+                            <Label Grid.Row="0" Grid.Column="0" Text="游戏版本" FontSize="13"
+                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                            <Label x:Name="GameVersionLabel" Grid.Row="0" Grid.Column="1" FontSize="13" />
+
+                            <Label Grid.Row="1" Grid.Column="0" Text="模式" FontSize="13"
+                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                            <Label x:Name="ModeLabel" Grid.Row="1" Grid.Column="1" FontSize="13" />
+
+                            <Label Grid.Row="2" Grid.Column="0" Text="本地端口" FontSize="13"
+                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                            <Label x:Name="PortLabel" Grid.Row="2" Grid.Column="1" FontSize="13" />
+
+                            <Label Grid.Row="3" Grid.Column="0" Text="运行状态" FontSize="13"
+                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                            <Label x:Name="StatusLabel" Grid.Row="3" Grid.Column="1" FontSize="13" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                            <VerticalStackLayout Grid.Column="0" Spacing="3">
+                                <Label Text="版本目录" FontSize="13"
+                                       TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                <Label x:Name="PathLabel" FontSize="11"
+                                       LineBreakMode="CharacterWrap"
+                                       TextColor="{AppThemeBinding Light=#4A4A4A, Dark=#C8C8C8}" />
+                            </VerticalStackLayout>
+                            <Button Grid.Column="1" Text="复制" FontSize="12" Padding="0"
+                                    HeightRequest="32" WidthRequest="52" CornerRadius="8"
+                                    VerticalOptions="End"
+                                    Clicked="OnCopyPathClicked"
+                                    BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                                    TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+                        </Grid>
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- 操作 -->
+                <Border Padding="14" StrokeThickness="0" StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="10">
+                        <Label Text="操作" FontSize="15" FontAttributes="Bold" />
+
+                        <Button x:Name="LaunchButton" Text="启动游戏"
+                                HeightRequest="48" CornerRadius="10"
+                                FontSize="16" FontAttributes="Bold"
+                                Clicked="OnLaunchClicked" />
+
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                            <Button x:Name="StopButton" Grid.Column="0" Text="停止"
+                                    HeightRequest="42" CornerRadius="10" FontSize="14"
+                                    IsEnabled="False"
+                                    Clicked="OnStopClicked"
+                                    BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                                    TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+                            <Button x:Name="ProblemButton" Grid.Column="1" Text="未发现问题"
+                                    HeightRequest="42" CornerRadius="10" FontSize="14"
+                                    IsEnabled="False"
+                                    Clicked="OnProblemClicked"
+                                    BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                                    TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+                        </Grid>
+
+                        <Button x:Name="HelperButton" Text="存档助手"
+                                HeightRequest="42" CornerRadius="10" FontSize="14"
+                                Clicked="OnHelperClicked"
+                                BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                                TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+
+                        <Button x:Name="DeleteButton" Text="删除版本"
+                                HeightRequest="42" CornerRadius="10" FontSize="14"
+                                Clicked="OnDeleteClicked"
+                                BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                                TextColor="#C62828" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- 问题列表 -->
+                <Border x:Name="ProblemPanel" IsVisible="False" Padding="14"
+                        StrokeThickness="0" StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="8">
+                        <Label Text="问题详情" FontSize="15" FontAttributes="Bold" />
+                        <VerticalStackLayout x:Name="ProblemList" Spacing="8" />
+                    </VerticalStackLayout>
+                </Border>
+
+            </VerticalStackLayout>
+        </ScrollView>
+
+        <Grid x:Name="BusyOverlay" IsVisible="False" BackgroundColor="#80000000">
+            <ActivityIndicator IsRunning="True" Color="White"
+                               VerticalOptions="Center" HorizontalOptions="Center" />
+        </Grid>
+
+    </Grid>
+
+</ContentPage>

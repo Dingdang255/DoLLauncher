@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="DoLLauncher.Maui.ModsPage"
+             Title="模组">
+
+    <ContentPage.ToolbarItems>
+        <ToolbarItem x:Name="ImportItem" Text="导入模组" Clicked="OnImportClicked" />
+    </ContentPage.ToolbarItems>
+
+    <Grid Padding="16,12,16,0">
+
+        <RefreshView x:Name="Refresher" Refreshing="OnRefreshing">
+            <CollectionView x:Name="ModList" SelectionMode="None">
+                <CollectionView.EmptyView>
+                    <VerticalStackLayout Padding="24" Spacing="8" VerticalOptions="Center">
+                        <Label Text="还没有模组，可用右上角导入模组包"
+                               HorizontalTextAlignment="Center" FontSize="14"
+                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                    </VerticalStackLayout>
+                </CollectionView.EmptyView>
+                <CollectionView.ItemTemplate>
+                    <DataTemplate>
+                        <Border Padding="12" Margin="0,0,0,10"
+                                StrokeThickness="0"
+                                StrokeShape="RoundRectangle 12"
+                                BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+                                <VerticalStackLayout Grid.Column="0" Spacing="2" VerticalOptions="Center">
+                                    <Label Text="{Binding Title}" FontSize="15" FontAttributes="Bold"
+                                           LineBreakMode="TailTruncation" />
+                                    <Label Text="{Binding FileName}" FontSize="11"
+                                           LineBreakMode="MiddleTruncation"
+                                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                </VerticalStackLayout>
+
+                                <Switch Grid.Column="1" VerticalOptions="Center"
+                                        IsToggled="{Binding Enabled, Mode=OneWay}"
+                                        Toggled="OnModToggled" />
+
+                                <VerticalStackLayout Grid.Column="2" Spacing="4" VerticalOptions="Center">
+                                    <Button Text="↑" FontSize="13" Padding="0" CornerRadius="6"
+                                            HeightRequest="28" WidthRequest="36"
+                                            Clicked="OnMoveUpClicked" IsEnabled="{Binding CanMoveUp}" />
+                                    <Button Text="↓" FontSize="13" Padding="0" CornerRadius="6"
+                                            HeightRequest="28" WidthRequest="36"
+                                            Clicked="OnMoveDownClicked" IsEnabled="{Binding CanMoveDown}" />
+                                </VerticalStackLayout>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+        </RefreshView>
+
+        <Grid x:Name="BusyOverlay" IsVisible="False" BackgroundColor="#80000000">
+            <ActivityIndicator IsRunning="True" Color="White"
+                               VerticalOptions="Center" HorizontalOptions="Center" />
+        </Grid>
+
+    </Grid>
+
+</ContentPage>

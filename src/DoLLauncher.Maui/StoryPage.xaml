@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="DoLLauncher.Maui.StoryPage"
+             Title="剧情分支">
+
+    <Grid>
+
+        <ScrollView>
+            <VerticalStackLayout Padding="16,12,16,24" Spacing="12">
+
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <Label x:Name="HeaderLabel" FontSize="22" FontAttributes="Bold"
+                           VerticalOptions="Center" LineBreakMode="TailTruncation" />
+                    <Button Grid.Column="1" Text="刷新" FontSize="12" Padding="0"
+                            HeightRequest="32" WidthRequest="52" CornerRadius="8"
+                            Clicked="OnRefreshClicked"
+                            BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                            TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+                </Grid>
+
+                <!-- 空状态 -->
+                <VerticalStackLayout x:Name="EmptyState" IsVisible="False" Padding="16,40" Spacing="10">
+                    <Label Text="还没有模拟结果。请在 Windows 端启动器里运行剧情模拟后再查看"
+                           HorizontalTextAlignment="Center" FontSize="13"
+                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                    <Label x:Name="ErrorLabel" IsVisible="False" FontSize="12"
+                           HorizontalTextAlignment="Center" TextColor="#D9534F" />
+                </VerticalStackLayout>
+
+                <!-- 摘要 -->
+                <Border x:Name="SummaryCard" IsVisible="False" Padding="14" StrokeThickness="0"
+                        StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="8">
+                        <Label Text="模拟结果" FontSize="15" FontAttributes="Bold" />
+                        <VerticalStackLayout x:Name="SummaryList" Spacing="4" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- 版本不一致警告 -->
+                <Border x:Name="WarningCard" IsVisible="False" Padding="12" StrokeThickness="0"
+                        StrokeShape="RoundRectangle 10"
+                        BackgroundColor="{AppThemeBinding Light=#FFF4E5, Dark=#3A2E1A}">
+                    <Label x:Name="WarningLabel" FontSize="12"
+                           TextColor="{AppThemeBinding Light=#8A5A00, Dark=#FFC978}" />
+                </Border>
+
+                <!-- 分支列表 -->
+                <Border x:Name="NodeCard" IsVisible="False" Padding="14" StrokeThickness="0"
+                        StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="8">
+                        <Label Text="分支列表" FontSize="15" FontAttributes="Bold" />
+                        <Label Text="点击任意一行查看详情。" FontSize="11"
+                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                        <VerticalStackLayout x:Name="NodeList" Spacing="0" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- 节点详情 -->
+                <Border x:Name="DetailCard" IsVisible="False" Padding="14" StrokeThickness="0"
+                        StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="8">
+                        <Label x:Name="DetailTitle" FontSize="15" FontAttributes="Bold" />
+                        <VerticalStackLayout x:Name="DetailList" Spacing="4" />
+                    </VerticalStackLayout>
+                </Border>
+
+            </VerticalStackLayout>
+        </ScrollView>
+
+        <Grid x:Name="BusyOverlay" IsVisible="False" BackgroundColor="#80000000">
+            <ActivityIndicator IsRunning="True" Color="White"
+                               VerticalOptions="Center" HorizontalOptions="Center" />
+        </Grid>
+
+    </Grid>
+
+</ContentPage>

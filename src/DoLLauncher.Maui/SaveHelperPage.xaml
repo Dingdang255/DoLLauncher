@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="DoLLauncher.Maui.SaveHelperPage"
+             Title="存档助手">
+
+    <Grid RowDefinitions="*">
+        <WebView x:Name="HelperView" Navigated="OnNavigated" />
+    </Grid>
+
+</ContentPage>

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="DoLLauncher.Maui.BackupPage"
+             Title="备份">
+
+    <ContentPage.ToolbarItems>
+        <ToolbarItem x:Name="BackupItem" Text="立即备份" Clicked="OnBackupClicked" />
+    </ContentPage.ToolbarItems>
+
+    <Grid RowDefinitions="*,Auto" Padding="16,12,16,16">
+
+        <RefreshView Grid.Row="0" x:Name="Refresher" Refreshing="OnRefreshing">
+            <CollectionView x:Name="BackupList" SelectionMode="None">
+                <CollectionView.EmptyView>
+                    <VerticalStackLayout Padding="24" Spacing="8" VerticalOptions="Center">
+                        <Label Text="还没有备份" FontAttributes="Bold" HorizontalOptions="Center" />
+                        <Label Text="点右上角「立即备份」，或在存档助手里备份浏览器存档。"
+                               HorizontalTextAlignment="Center" FontSize="13"
+                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                    </VerticalStackLayout>
+                </CollectionView.EmptyView>
+                <CollectionView.ItemTemplate>
+                    <DataTemplate>
+                        <Border Padding="12" Margin="0,0,0,10"
+                                StrokeThickness="0"
+                                StrokeShape="RoundRectangle 12"
+                                BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <VerticalStackLayout Grid.Column="0" Spacing="3" VerticalOptions="Center">
+                                    <Label Text="{Binding TimeText}" FontSize="15" FontAttributes="Bold" />
+                                    <HorizontalStackLayout Spacing="10">
+                                        <Label Text="{Binding Kind}" FontSize="12"
+                                               TextColor="{AppThemeBinding Light=#4A4A4A, Dark=#C8C8C8}" />
+                                        <Label Text="{Binding SizeText}" FontSize="12"
+                                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                    </HorizontalStackLayout>
+                                    <Label Text="{Binding FileName}" FontSize="11"
+                                           LineBreakMode="MiddleTruncation"
+                                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                </VerticalStackLayout>
+
+                                <Button Grid.Column="1" Text="删除" FontSize="13" Padding="14,0"
+                                        HeightRequest="32" WidthRequest="62" CornerRadius="8"
+                                        VerticalOptions="Center"
+                                        Clicked="OnDeleteClicked"
+                                        BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                                        TextColor="#C62828" />
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+        </RefreshView>
+
+        <Button Grid.Row="1" Text="打开存档助手" Clicked="OnSaveHelperClicked"
+                Margin="0,12,0,0" HeightRequest="44" CornerRadius="10"
+                FontSize="15" />
+
+        <Grid x:Name="BusyOverlay" Grid.RowSpan="2" IsVisible="False"
+              BackgroundColor="#80000000">
+            <ActivityIndicator IsRunning="True" Color="White"
+                               VerticalOptions="Center" HorizontalOptions="Center" />
+        </Grid>
+
+    </Grid>
+
+</ContentPage>
