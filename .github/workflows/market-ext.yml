@@ -23,7 +23,7 @@ jobs:
         with:
           node-version: 20
 
-      - name: Suggest data: prefix
+      - name: "Suggest data prefix"
         shell: bash
         run: |
           msg="$(git log -1 --pretty=%s)"
