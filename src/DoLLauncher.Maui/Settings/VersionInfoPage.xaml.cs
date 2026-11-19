@@ -75,4 +75,44 @@ public partial class VersionInfoPage : ContentPage
         _config.General.AutoCheckUpdate = e.Value;
         await SettingsStore.SaveAsync(_config, "启动时自动检测更新 = " + (e.Value ? "开" : "关"));
     }
+
+    private async void OnCheckUpdateClicked(object? sender, EventArgs e)
+    {
+        CheckUpdateButton.IsEnabled = false;
+        UpdateStatusLabel.IsVisible = true;
+        UpdateStatusLabel.Text = "正在检查更新…";
+
+        try
+        {
+            var release = await UpdateService.CheckAsync();
+            if (release.Tag.Length == 0)
+            {
+                UpdateStatusLabel.Text = "没有可用的 Release 信息。";
+                return;
+            }
+
+            var hasUpdate = BuildInfo.Tag == "dev" || UpdateService.IsNewer(release.Tag, BuildInfo.Tag);
+            if (!hasUpdate)
+            {
+                UpdateStatusLabel.Text = $"已是最新版本（{BuildInfo.Tag}）。";
+                return;
+            }
+
+            UpdateStatusLabel.Text = BuildInfo.Tag == "dev"
+                ? $"当前为开发版构建，最新 Release 为 {release.Tag}。"
+                : $"发现新版本 {release.Tag}（当前 {BuildInfo.Tag}）。";
+            await UpdateDialogPage.ShowAsync(this, release);
+        }
+        catch (Exception ex)
+        {
+            UpdateStatusLabel.Text = ex.Message.Contains("404")
+                ? "仓库还没有发布任何 Release。"
+                : "检查更新失败：" + ex.Message;
+            LogService.Error("检查更新失败", ex);
+        }
+        finally
+        {
+            CheckUpdateButton.IsEnabled = true;
+        }
+    }
 }

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+	<!-- AndroidUpdateInstaller 下载 APK 的缓存目录（FileSystem.CacheDirectory/updates） -->
+	<cache-path name="updates" path="updates/" />
+	<!-- 设为可分享的缓存（导出 / 诊断 / 分享日志都会先落在这里） -->
+	<cache-path name="shared_cache" path="." />
+	<!-- 应用私有目录：启动器根目录与 logs，便于 FileProvider 直接分享日志文件 -->
+	<files-path name="launcher_root" path="DoL/" />
+	<files-path name="launcher_logs" path="DoL/logs/" />
+</paths>

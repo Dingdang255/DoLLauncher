@@ -4,24 +4,96 @@
              x:Class="DoLLauncher.Maui.StoryPage"
              Title="剧情分支">
 
+    <ContentPage.Resources>
+        <Style x:Key="SectionTitle" TargetType="Label">
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontAttributes" Value="Bold" />
+        </Style>
+        <Style x:Key="HintLabel" TargetType="Label">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="LineBreakMode" Value="WordWrap" />
+            <Setter Property="TextColor"
+                    Value="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="Label">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="VerticalOptions" Value="Center" />
+            <Setter Property="TextColor"
+                    Value="{AppThemeBinding Light=#606060, Dark=#B0B0B0}" />
+        </Style>
+        <Style x:Key="SecondaryButton" TargetType="Button">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="HeightRequest" Value="38" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="BackgroundColor"
+                    Value="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}" />
+            <Setter Property="TextColor"
+                    Value="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+        </Style>
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="HeightRequest" Value="38" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="BackgroundColor"
+                    Value="{AppThemeBinding Light=#2F6FDB, Dark=#3B82F6}" />
+            <Setter Property="TextColor" Value="White" />
+        </Style>
+    </ContentPage.Resources>
+
     <Grid>
 
         <ScrollView>
-            <VerticalStackLayout Padding="16,12,16,24" Spacing="12">
+            <VerticalStackLayout x:Name="ContentStack" Padding="16,12,16,24" Spacing="12">
 
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                     <Label x:Name="HeaderLabel" FontSize="22" FontAttributes="Bold"
                            VerticalOptions="Center" LineBreakMode="TailTruncation" />
-                    <Button Grid.Column="1" Text="刷新" FontSize="12" Padding="0"
+                    <Button x:Name="RefreshButton" Grid.Column="1" Text="刷新" FontSize="12" Padding="0"
                             HeightRequest="32" WidthRequest="52" CornerRadius="8"
                             Clicked="OnRefreshClicked"
                             BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
                             TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
                 </Grid>
 
+                <!-- 版本 / 存档槽 -->
+                <Border Padding="14" StrokeThickness="0" StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="8">
+                        <Label Text="数据来源" Style="{StaticResource SectionTitle}" />
+
+                        <Grid ColumnDefinitions="60,*" ColumnSpacing="8">
+                            <Label Text="版本" Style="{StaticResource FieldLabel}" />
+                            <Picker x:Name="VersionPicker" Grid.Column="1" FontSize="13"
+                                    SelectedIndexChanged="OnVersionChanged" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="60,*" ColumnSpacing="8">
+                            <Label Text="存档槽" Style="{StaticResource FieldLabel}" />
+                            <Picker x:Name="SlotPicker" Grid.Column="1" FontSize="13"
+                                    SelectedIndexChanged="OnSlotChanged" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                            <HorizontalStackLayout Spacing="6">
+                                <Switch x:Name="SuccessOnlySwitch" VerticalOptions="Center"
+                                        OnColor="{AppThemeBinding Light=#2F6FDB, Dark=#3B82F6}"
+                                        Toggled="OnSuccessOnlyToggled" />
+                                <Label Text="仅成功" FontSize="12" VerticalOptions="Center" />
+                            </HorizontalStackLayout>
+                            <Label x:Name="SlotPassageLabel" Grid.Column="1" Style="{StaticResource HintLabel}"
+                                   VerticalOptions="Center" HorizontalTextAlignment="End"
+                                   MaximumWidthRequest="220" />
+                        </Grid>
+
+                        <Label x:Name="StatusLabel" Style="{StaticResource HintLabel}" />
+                    </VerticalStackLayout>
+                </Border>
+
                 <!-- 空状态 -->
-                <VerticalStackLayout x:Name="EmptyState" IsVisible="False" Padding="16,40" Spacing="10">
-                    <Label Text="还没有模拟结果。请在 Windows 端启动器里运行剧情模拟后再查看"
+                <VerticalStackLayout x:Name="EmptyState" IsVisible="False" Padding="16,20" Spacing="10">
+                    <Label Text="还没有模拟结果。选择存档槽后点「开始模拟」，或在 Windows 端启动器里运行剧情模拟。"
                            HorizontalTextAlignment="Center" FontSize="13"
                            TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
                     <Label x:Name="ErrorLabel" IsVisible="False" FontSize="12"
@@ -33,17 +105,83 @@
                         StrokeShape="RoundRectangle 12"
                         BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
                     <VerticalStackLayout Spacing="8">
-                        <Label Text="模拟结果" FontSize="15" FontAttributes="Bold" />
+                        <Label Text="模拟结果" Style="{StaticResource SectionTitle}" />
                         <VerticalStackLayout x:Name="SummaryList" Spacing="4" />
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="8" Margin="0,4,0,0">
+                            <Button x:Name="ExportJsonButton" Text="导出结果"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Clicked="OnExportJsonClicked" />
+                            <Button x:Name="ExportImageButton" Grid.Column="1" Text="导出图片"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Clicked="OnExportImageClicked" />
+                        </Grid>
                     </VerticalStackLayout>
                 </Border>
 
-                <!-- 版本不一致警告 -->
+                <!-- 版本不一致 / 副作用警告 -->
                 <Border x:Name="WarningCard" IsVisible="False" Padding="12" StrokeThickness="0"
                         StrokeShape="RoundRectangle 10"
                         BackgroundColor="{AppThemeBinding Light=#FFF4E5, Dark=#3A2E1A}">
-                    <Label x:Name="WarningLabel" FontSize="12"
+                    <Label x:Name="WarningLabel" FontSize="12" LineBreakMode="WordWrap"
                            TextColor="{AppThemeBinding Light=#8A5A00, Dark=#FFC978}" />
+                </Border>
+
+                <!-- 剧情模拟 -->
+                <Border x:Name="SimCard" IsVisible="False" Padding="14" StrokeThickness="0"
+                        StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="8">
+                        <Label Text="剧情模拟" Style="{StaticResource SectionTitle}" />
+                        <Label Text="使用所选存档作为起点，模拟后续剧情分支。模拟期间会打开游戏页面。"
+                               Style="{StaticResource HintLabel}" />
+
+                        <Grid ColumnDefinitions="Auto,*,Auto,*,Auto,*" ColumnSpacing="6">
+                            <Label Text="深度" Style="{StaticResource FieldLabel}" />
+                            <Entry x:Name="DepthEntry" Grid.Column="1" Text="3" FontSize="12"
+                                   Keyboard="Numeric" />
+                            <Label Grid.Column="2" Text="预算" Style="{StaticResource FieldLabel}" />
+                            <Entry x:Name="BudgetEntry" Grid.Column="3" Text="150" FontSize="12"
+                                   Keyboard="Numeric" />
+                            <Label Grid.Column="4" Text="种子" Style="{StaticResource FieldLabel}" />
+                            <Entry x:Name="SeedEntry" Grid.Column="5" Placeholder="留空随机" FontSize="12"
+                                   Keyboard="Numeric" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                            <Button x:Name="StartSimButton" Text="开始模拟"
+                                    Style="{StaticResource PrimaryButton}"
+                                    Clicked="OnStartSimClicked" />
+                            <Button x:Name="ContinueSimButton" Grid.Column="1" Text="继续模拟"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Clicked="OnContinueSimClicked" />
+                        </Grid>
+
+                        <Label x:Name="ContinueHint" IsVisible="False" Style="{StaticResource HintLabel}"
+                               Text="「继续模拟」需先在分支列表中选择一个末端节点。" />
+                        <Label x:Name="SimStatusLabel" Style="{StaticResource HintLabel}"
+                               Text="尚未开始" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- 缺少剧情模组时的引导 -->
+                <Border x:Name="ModMissingCard" IsVisible="False" Padding="18" StrokeThickness="0"
+                        StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#FFF4E5, Dark=#3A2E1A}">
+                    <VerticalStackLayout Spacing="10">
+                        <Label Text="请先安装「剧情分支模拟」模组" FontSize="15" FontAttributes="Bold"
+                               HorizontalTextAlignment="Center"
+                               TextColor="{AppThemeBinding Light=#8A5A00, Dark=#FFC978}" />
+                        <Label Text="剧情模拟依赖游戏内的 Story Branch Simulator（剧情分支模拟）模组。请在模组页或模组市场安装并启用后，回到这里刷新。"
+                               Style="{StaticResource HintLabel}" HorizontalTextAlignment="Center" />
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                            <Button x:Name="OpenModsButton" Text="前往模组页"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Clicked="OnOpenModsClicked" />
+                            <Button x:Name="OpenMarketButton" Grid.Column="1" Text="模组市场"
+                                    Style="{StaticResource PrimaryButton}"
+                                    Clicked="OnOpenMarketClicked" />
+                        </Grid>
+                    </VerticalStackLayout>
                 </Border>
 
                 <!-- 分支列表 -->
@@ -51,9 +189,8 @@
                         StrokeShape="RoundRectangle 12"
                         BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
                     <VerticalStackLayout Spacing="8">
-                        <Label Text="分支列表" FontSize="15" FontAttributes="Bold" />
-                        <Label Text="点击任意一行查看详情。" FontSize="11"
-                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                        <Label Text="分支列表" Style="{StaticResource SectionTitle}" />
+                        <Label Text="点击任意一行查看详情。" Style="{StaticResource HintLabel}" />
                         <VerticalStackLayout x:Name="NodeList" Spacing="0" />
                     </VerticalStackLayout>
                 </Border>
@@ -63,7 +200,7 @@
                         StrokeShape="RoundRectangle 12"
                         BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
                     <VerticalStackLayout Spacing="8">
-                        <Label x:Name="DetailTitle" FontSize="15" FontAttributes="Bold" />
+                        <Label x:Name="DetailTitle" Style="{StaticResource SectionTitle}" />
                         <VerticalStackLayout x:Name="DetailList" Spacing="4" />
                     </VerticalStackLayout>
                 </Border>

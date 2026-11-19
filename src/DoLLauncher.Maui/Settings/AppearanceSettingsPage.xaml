@@ -8,6 +8,27 @@
         <VerticalStackLayout Padding="16,12" Spacing="14">
 
             <Border Style="{StaticResource SettingsCard}">
+                <VerticalStackLayout Spacing="6">
+                    <Label Text="UI 美化包" Style="{StaticResource SettingsItemTitle}" />
+                    <Label Style="{StaticResource SettingsHint}"
+                           Text="导入 zip 美化包可替换主色与页面背景（Android 端不支持 CSS）。美化包设置优先于下面的主题与主题色。" />
+                    <Label x:Name="SkinStatusLabel" Style="{StaticResource SettingsHint}" Margin="0,4,0,0" />
+                    <Label x:Name="SkinOverrideNote" Style="{StaticResource SettingsHint}"
+                           IsVisible="False" TextColor="#C62828" />
+                    <HorizontalStackLayout Spacing="10" Margin="0,6,0,0">
+                        <Button Text="导入美化包" FontSize="12" Padding="10,4" CornerRadius="8"
+                                HeightRequest="34" Clicked="OnSkinImport"
+                                BackgroundColor="{DynamicResource AccentColor}"
+                                TextColor="{DynamicResource AccentOnColor}" />
+                        <Button Text="卸载美化包" FontSize="12" Padding="10,4" CornerRadius="8"
+                                HeightRequest="34" Clicked="OnSkinUnload"
+                                BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                                TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+                    </HorizontalStackLayout>
+                </VerticalStackLayout>
+            </Border>
+
+            <Border x:Name="ThemeCard" Style="{StaticResource SettingsCard}">
                 <VerticalStackLayout Spacing="4">
                     <Label Text="主题" Style="{StaticResource SettingsItemTitle}" />
                     <Label Style="{StaticResource SettingsHint}"
@@ -17,7 +38,7 @@
                 </VerticalStackLayout>
             </Border>
 
-            <Border Style="{StaticResource SettingsCard}">
+            <Border x:Name="AccentCard" Style="{StaticResource SettingsCard}">
                 <VerticalStackLayout Spacing="4">
                     <Label Text="主题色" Style="{StaticResource SettingsItemTitle}" />
                     <Label Style="{StaticResource SettingsHint}"

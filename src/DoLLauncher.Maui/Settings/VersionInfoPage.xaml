@@ -15,11 +15,26 @@
             </Border>
 
             <Border Style="{StaticResource SettingsCard}">
+                <VerticalStackLayout Spacing="6">
+                    <Label Text="检查更新" Style="{StaticResource SettingsItemTitle}" />
+                    <Label Style="{StaticResource SettingsHint}"
+                           Text="立即向 GitHub 查询最新 Release；发现新版本时可下载 APK 并交给系统安装程序。" />
+                    <Button x:Name="CheckUpdateButton" Text="检查更新" FontSize="12" Padding="12,6"
+                            CornerRadius="8" HeightRequest="36" HorizontalOptions="Start" Margin="0,4,0,0"
+                            Clicked="OnCheckUpdateClicked"
+                            BackgroundColor="{DynamicResource AccentColor}"
+                            TextColor="{DynamicResource AccentOnColor}" />
+                    <Label x:Name="UpdateStatusLabel" Style="{StaticResource SettingsHint}"
+                           IsVisible="False" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Style="{StaticResource SettingsCard}">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                     <VerticalStackLayout Grid.Column="0" Spacing="4" VerticalOptions="Center">
                         <Label Text="启动时自动检测更新" Style="{StaticResource SettingsItemTitle}" />
                         <Label Style="{StaticResource SettingsHint}"
-                               Text="启动后在后台检查 GitHub 最新 Release，有更新时提醒；网络异常时只写入日志。当前仅保存配置，检查逻辑随后续版本接入。" />
+                               Text="启动后在后台检查 GitHub 最新 Release，有更新时提醒；网络异常时只写入日志。" />
                     </VerticalStackLayout>
                     <Switch x:Name="AutoUpdateSwitch" Grid.Column="1" VerticalOptions="Center"
                             Toggled="OnAutoUpdateToggled" />

@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using DoLLauncher.Maui.Platform;
 using DoLLauncher.Models;
 using DoLLauncher.Platform;
 using DoLLauncher.Services;
@@ -40,7 +41,39 @@ public partial class ModsPage : ContentPage
     protected override void OnAppearing()
     {
         base.OnAppearing();
+        AndroidKeyRouter.Handler = HandleHardwareKey;
         _ = ReloadAsync();
+    }
+
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+        if (AndroidKeyRouter.Handler == HandleHardwareKey) AndroidKeyRouter.Handler = null;
+    }
+
+    /// <summary>外接键盘：Ctrl+A 进入多选并全选，Delete 删除选中（沿用现有二次确认）。</summary>
+    private bool HandleHardwareKey(Android.Views.KeyEvent e)
+    {
+        if (_busy) return false;
+
+        if (e.IsCtrlPressed && e.KeyCode == Android.Views.Keycode.A)
+        {
+            if (_rows.Count == 0) return false;
+            if (!_multiSelect) EnterMultiSelect();
+            foreach (var row in _rows) row.IsSelected = true;
+            UpdateToolbar();
+            return true;
+        }
+
+        if (e.KeyCode == Android.Views.Keycode.Del || e.KeyCode == Android.Views.Keycode.ForwardDel)
+        {
+            var targets = GetSelectedRows();
+            if (targets.Count == 0) return false;
+            _ = DeleteRowsAsync(targets);
+            return true;
+        }
+
+        return false;
     }
 
     // ---------- 加载与刷新 ----------
@@ -309,24 +342,23 @@ public partial class ModsPage : ContentPage
 
     private void OnSelectClicked(object? sender, EventArgs e)
     {
-        _multiSelect = !_multiSelect;
-        if (_multiSelect)
-        {
-            _selectedRow = null;
-            ModList.SelectionMode = SelectionMode.None;
-            ModList.SelectedItem = null;
-        }
-        else
-        {
-            ModList.SelectionMode = SelectionMode.Single;
-        }
+        if (_multiSelect) ExitMultiSelect();
+        else EnterMultiSelect();
+        UpdateToolbar();
+    }
 
+    /// <summary>进入多选模式（工具栏按钮与 Ctrl+A 共用）。</summary>
+    private void EnterMultiSelect()
+    {
+        _multiSelect = true;
+        _selectedRow = null;
+        ModList.SelectionMode = SelectionMode.None;
+        ModList.SelectedItem = null;
         foreach (var row in _rows)
         {
             row.IsSelected = false;
-            row.IsMultiSelect = _multiSelect;
+            row.IsMultiSelect = true;
         }
-        UpdateToolbar();
     }
 
     private void OnSelectAllClicked(object? sender, EventArgs e)

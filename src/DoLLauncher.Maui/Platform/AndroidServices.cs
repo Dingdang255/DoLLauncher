@@ -62,11 +62,28 @@ public sealed class AndroidExternalLinks : IExternalLinks
     public void OpenUrl(string url)
     {
         if (string.IsNullOrWhiteSpace(url)) return;
-        _ = Launcher.Default.OpenAsync(url);
+        _ = OpenUrlAsync(url);
     }
 
-    public void OpenPath(string path) => LogService.Warn($"Android 端暂不支持直接打开路径：{path}");
+    private static async Task OpenUrlAsync(string url)
+    {
+        try
+        {
+            // 统一走系统 Launcher：没有可处理的应用时记录日志，不静默失败。
+            await Launcher.Default.OpenAsync(url);
+        }
+        catch (Exception ex)
+        {
+            LogService.Error($"打开链接失败：{url}", ex);
+        }
+    }
+
+    public void OpenPath(string path)
+    {
+        // Android 没有桌面文件管理器语义；路径在应用私有目录内，其它应用也读不到。
+        LogService.Warn($"Android 端无法直接打开路径（请使用「分享」导出）：{path}");
+    }
 
     public void RevealInExplorer(IReadOnlyList<string> paths) =>
-        LogService.Warn($"Android 端暂不支持在文件管理器中定位：{string.Join(", ", paths)}");
+        LogService.Warn($"Android 端无法在文件管理器中定位：{string.Join(", ", paths)}");
 }

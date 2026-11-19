@@ -31,8 +31,14 @@ public partial class VersionDetailPage : ContentPage
         _ = CheckProblemsAsync();
     }
 
-    private void RefreshStatus()
+    /// <summary>供关页检测等外部动作刷新「运行中 / 未运行」状态。</summary>
+    internal void RefreshStatus()
     {
+        if (!MainThread.IsMainThread)
+        {
+            MainThread.BeginInvokeOnMainThread(RefreshStatus);
+            return;
+        }
         var running = ServerManager.IsRunning(_version.Folder);
         var helperOnly = running && ServerManager.IsHelperOnly(_version.Folder);
 
@@ -52,6 +58,10 @@ public partial class VersionDetailPage : ContentPage
         ExportButton.IsEnabled = !_busy;
         DeleteButton.IsEnabled = !_busy;
     }
+
+    /// <summary>该详情页是否对应指定版本目录。</summary>
+    internal bool MatchesFolder(string folder) =>
+        string.Equals(_version.Folder, folder, StringComparison.OrdinalIgnoreCase);
 
     private async Task CheckProblemsAsync()
     {
@@ -165,6 +175,24 @@ public partial class VersionDetailPage : ContentPage
                 return;
             }
 
+            // file:// 版本：先说明 Android 端限制，用户仍可尝试（WebView 已放开文件访问）。
+            if (_version.IsFileMode)
+            {
+                LogService.Append($"版本 {_version.Folder} 为 file:// 模式，准备用 WebView 直接打开。");
+                if (!await PlatformServices.Dialogs.ConfirmAsync(
+                        "这个版本是 file:// 模式（直接打开本地 HTML）。\n\n" +
+                        "Android 的 WebView 对本地文件限制较多，部分资源可能无法加载。\n" +
+                        "若页面空白，请转为 http 版本（导入 zip 版本包或重新下载）。\n\n仍要尝试打开吗？",
+                        "文件模式", "仍然打开"))
+                    return;
+
+                // file:// 版本不走本地服务器：直接把本地 HTML 交给 WebView。
+                var fileUrl = new Uri(_version.HtmlPath).AbsoluteUri;
+                LogService.Append($"file:// 版本直接打开：{fileUrl}");
+                await Navigation.PushAsync(new GamePage(_version, fileUrl));
+                return;
+            }
+
             // 每次启动前重新核对；有问题时由用户决定是否仍然启动。
             var problems = await Task.Run(CollectProblems);
             ApplyProblems(problems);
@@ -179,6 +207,7 @@ public partial class VersionDetailPage : ContentPage
             });
 
             LogService.Append($"已启动 {_version.DisplayName}：{server.GameUrl}");
+            LauncherStatusService.Sync();
             RefreshStatus();
             await Navigation.PushAsync(new GamePage(_version, server.GameUrl));
         }
@@ -225,6 +254,7 @@ public partial class VersionDetailPage : ContentPage
         try
         {
             ServerManager.Stop(_version.Folder);
+            LauncherStatusService.Sync();
             LogService.Append($"已停止：{_version.DisplayName}");
         }
         catch (Exception ex)
@@ -249,6 +279,7 @@ public partial class VersionDetailPage : ContentPage
         try
         {
             var server = await Task.Run(() => ServerManager.EnsureStarted(_version, saveHelperOnly: true));
+            LauncherStatusService.Sync();
             await Navigation.PushAsync(new SaveHelperPage(_version, server.SaveHelperUrl));
         }
         catch (Exception ex)
@@ -355,6 +386,7 @@ public partial class VersionDetailPage : ContentPage
         try
         {
             ServerManager.Stop(_version.Folder);
+            LauncherStatusService.Sync();
             try
             {
                 Directory.Delete(_version.FullPath, recursive: true);

@@ -1,6 +1,7 @@
 using System.IO;
 using DoLLauncher.Core.Theme;
 using DoLLauncher.Core.Ui;
+using DoLLauncher.Maui.Platform;
 using DoLLauncher.Models;
 using DoLLauncher.Platform;
 using DoLLauncher.Services;
@@ -16,6 +17,15 @@ public partial class AppearanceSettingsPage : ContentPage
     {
         "#FF1370F3", "#FF6C5CE7", "#FFEC4899", "#FFE5484D", "#FFF59E0B", "#FF22A06B", "#FF0EA5E9",
     };
+
+    private static readonly FilePickerFileType SkinFileType = new(
+        new Dictionary<Microsoft.Maui.Devices.DevicePlatform, IEnumerable<string>>
+        {
+            [Microsoft.Maui.Devices.DevicePlatform.Android] = new[]
+            {
+                "application/zip", "application/x-zip-compressed", "application/octet-stream",
+            },
+        });
 
     private LauncherConfig _config = new();
     private bool _loading;
@@ -84,6 +94,7 @@ public partial class AppearanceSettingsPage : ContentPage
             _accentDirty = false;
             UpdateAccentLabels();
             UpdateAvatar();
+            UpdateSkinStatus();
         }
         finally
         {
@@ -333,5 +344,104 @@ public partial class AppearanceSettingsPage : ContentPage
 
         _config.General.ShowAnimations = e.Value;
         await SettingsStore.SaveAsync(_config, "界面过渡动画 = " + (e.Value ? "开" : "关"));
+    }
+
+    // ---------- UI 美化包 ----------
+
+    private void UpdateSkinStatus()
+    {
+        SkinStatusLabel.Text = AndroidSkinStore.StatusText;
+
+        // 美化包已指定的值优先：把会被覆盖的设置整块置灰，并给出说明
+        var requiresDark = AndroidSkinStore.Current != null && AndroidSkinStore.RequiresDarkPalette;
+        var accent = AndroidSkinStore.AccentColor;
+
+        ThemeCard.IsEnabled = !requiresDark;
+        ThemeCard.Opacity = requiresDark ? 0.55 : 1;
+        AccentCard.IsEnabled = accent == null;
+        AccentCard.Opacity = accent == null ? 1 : 0.55;
+
+        var notes = new List<string>();
+        if (requiresDark) notes.Add("当前美化包指定了深色背景，主题已跟随美化包，无法在此修改。");
+        if (accent != null) notes.Add($"当前美化包已指定主色 {accent}，主题色设置不生效。");
+        SkinOverrideNote.Text = string.Join("\n", notes);
+        SkinOverrideNote.IsVisible = notes.Count > 0;
+    }
+
+    private async void OnSkinImport(object? sender, EventArgs e)
+    {
+        FileResult? file;
+        try
+        {
+            file = await FilePicker.Default.PickAsync(new PickOptions
+            {
+                PickerTitle = "选择 UI 美化包",
+                FileTypes = SkinFileType,
+            });
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("打开美化包选择器失败", ex);
+            await PlatformServices.Dialogs.ErrorAsync("无法打开文件选择器：" + ex.Message, "UI 美化包");
+            return;
+        }
+        if (file == null) return;
+
+        string? temp = null;
+        try
+        {
+            temp = Path.Combine(FileSystem.CacheDirectory, "skin-" + Guid.NewGuid().ToString("N") + ".zip");
+            await using (var source = await file.OpenReadAsync())
+            await using (var dest = File.Create(temp))
+            {
+                await source.CopyToAsync(dest);
+            }
+
+            var (ok, message) = await Task.Run(() =>
+                AndroidSkinStore.ImportFromZip(temp, msg => LogService.Append(msg)));
+            if (!ok)
+            {
+                UpdateSkinStatus();
+                await PlatformServices.Dialogs.ErrorAsync(message, "UI 美化包");
+                return;
+            }
+
+            AndroidSkinStore.Refresh();
+            Load();
+            await PlatformServices.Dialogs.InfoAsync(message + "\n\n如需还原，点击「卸载美化包」。", "UI 美化包");
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("导入美化包失败", ex);
+            await PlatformServices.Dialogs.ErrorAsync("导入美化包失败：" + ex.Message, "UI 美化包");
+        }
+        finally
+        {
+            if (temp != null)
+            {
+                try { File.Delete(temp); } catch { }
+            }
+        }
+    }
+
+    private async void OnSkinUnload(object? sender, EventArgs e)
+    {
+        if (AndroidSkinStore.Current == null)
+        {
+            await PlatformServices.Dialogs.InfoAsync("当前没有启用中的美化包。", "UI 美化包");
+            return;
+        }
+
+        try
+        {
+            AndroidSkinStore.Deactivate();
+            Load();
+            await PlatformServices.Dialogs.InfoAsync("已卸载美化包，并恢复你原来的主题设置。", "UI 美化包");
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("卸载美化包失败", ex);
+            await PlatformServices.Dialogs.ErrorAsync("卸载美化包失败：" + ex.Message, "UI 美化包");
+        }
     }
 }

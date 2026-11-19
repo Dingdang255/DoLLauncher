@@ -25,6 +25,29 @@ public static class MauiProgram
 		LogService.Configure(AppConfig.Load().General.LogVerbosity);
 		LogService.Append("DoL 启动器（Android）启动，根目录：" + Paths.Root);
 
+		// 关页检测：订阅 SessionLost，按设置决定是否停服
+		AndroidSessionWatcher.Initialize();
+
+#if ANDROID
+		// file:// 版本：Android WebView 默认禁止本地文件访问，这里放开后再尝试加载，
+		// 若仍受限制（例如目录与资源路径不符），游戏页会给出「请转为 http 版本」的提示。
+		Microsoft.Maui.Handlers.WebViewHandler.Mapper.AppendToMapping("DoLFileAccess", (handler, _) =>
+		{
+			try
+			{
+				var settings = handler.PlatformView.Settings;
+				settings.AllowContentAccess = true;
+				settings.AllowFileAccess = true;
+				settings.AllowFileAccessFromFileURLs = true;
+				settings.AllowUniversalAccessFromFileURLs = true;
+			}
+			catch (Exception ex)
+			{
+				LogService.Error("配置 WebView 文件访问失败", ex);
+			}
+		});
+#endif
+
 		// 全局异常钩子：未捕获异常与未观察的任务异常都写入 launcher-error.log，避免静默丢失
 		AppDomain.CurrentDomain.UnhandledException += (_, e) =>
 			LogService.Crash(e.ExceptionObject as Exception

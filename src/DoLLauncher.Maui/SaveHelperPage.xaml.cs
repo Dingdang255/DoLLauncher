@@ -1,3 +1,4 @@
+using DoLLauncher.Maui.Platform;
 using DoLLauncher.Models;
 using DoLLauncher.Platform;
 using DoLLauncher.Services;
@@ -27,13 +28,16 @@ public partial class SaveHelperPage : ContentPage
     {
         base.OnAppearing();
         BackRouter.Handler = HandleBack;
+        AndroidSessionWatcher.Track(_version.Folder);
     }
 
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
         if (BackRouter.Handler == HandleBack) BackRouter.Handler = null;
+        AndroidSessionWatcher.Untrack(_version.Folder);
         ServerManager.Stop(_version.Folder);
+        LauncherStatusService.Sync();
     }
 
     private bool HandleBack()
