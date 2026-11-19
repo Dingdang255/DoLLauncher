@@ -15,6 +15,7 @@ public partial class DiagnosticsPage : ContentPage
     private bool _loading;
     private bool _loaded;
     private bool _exporting;
+    private bool _analyzing;
 
     public DiagnosticsPage(VersionInfo version)
     {
@@ -48,6 +49,9 @@ public partial class DiagnosticsPage : ContentPage
             GameLogList.Children.Clear();
             if (logs.Count == 0) GameLogList.Children.Add(MakeHint("暂无游戏日志"));
             else foreach (var path in logs) GameLogList.Children.Add(MakeLogButton(path));
+
+            // 本次会话的日志上报状态（内存快照，不读日志文件）
+            LogStatusLabel.Text = await Task.Run(() => GameLogService.StatusSummary(_version.FullPath));
 
             await LoadLauncherLogAsync();
         }
@@ -189,10 +193,36 @@ public partial class DiagnosticsPage : ContentPage
         }
     }
 
+    private async void OnAnalyzeClicked(object? sender, EventArgs e)
+    {
+        if (_analyzing) return;
+        _analyzing = true;
+        SetBusy(true);
+        AnalysisView.IsVisible = true;
+        AnalysisView.Text = "正在分析最近日志…";
+        try
+        {
+            var text = await Task.Run(() => GameLogAnalysis.Analyze(_version, 5));
+            AnalysisView.Text = string.IsNullOrWhiteSpace(text) ? "没有可分析的内容。" : text;
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("分析游戏日志失败", ex);
+            AnalysisView.Text = "分析失败：" + ex.Message;
+            await PlatformServices.Dialogs.ErrorAsync("分析日志失败：" + ex.Message);
+        }
+        finally
+        {
+            _analyzing = false;
+            SetBusy(false);
+        }
+    }
+
     private void SetBusy(bool busy)
     {
         BusyOverlay.IsVisible = busy;
         ExportItem.IsEnabled = !busy;
+        AnalyzeButton.IsEnabled = !busy;
     }
 
     /// <summary>读取文件末尾内容：限制行数与字符数，并允许日志被同时写入。</summary>

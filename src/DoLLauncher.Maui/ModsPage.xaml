@@ -4,47 +4,140 @@
              x:Class="DoLLauncher.Maui.ModsPage"
              Title="模组">
 
-    <ContentPage.ToolbarItems>
-        <ToolbarItem x:Name="ImportItem" Text="导入模组" Clicked="OnImportClicked" />
-    </ContentPage.ToolbarItems>
+    <ContentPage.Resources>
+        <Style x:Key="ToolButton" TargetType="Button">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HeightRequest" Value="34" />
+            <Setter Property="MinimumWidthRequest" Value="56" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="BackgroundColor"
+                    Value="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}" />
+            <Setter Property="TextColor"
+                    Value="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+        </Style>
+    </ContentPage.Resources>
 
-    <Grid Padding="16,12,16,0">
+    <Grid RowDefinitions="Auto,Auto,*" Padding="16,12,16,0">
 
-        <RefreshView x:Name="Refresher" Refreshing="OnRefreshing">
-            <CollectionView x:Name="ModList" SelectionMode="None">
+        <!-- 标题与计数 -->
+        <HorizontalStackLayout Grid.Row="0" Spacing="10" VerticalOptions="Center">
+            <Label Text="模组" FontSize="18" FontAttributes="Bold" VerticalOptions="Center" />
+            <Label x:Name="CountLabel" FontSize="12" VerticalOptions="Center"
+                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+        </HorizontalStackLayout>
+
+        <!-- 工具条与批量栏 -->
+        <VerticalStackLayout Grid.Row="1" Spacing="6" Margin="0,8,0,10">
+            <ScrollView Orientation="Horizontal">
+                <HorizontalStackLayout Spacing="6">
+                    <Button x:Name="ImportButton" Text="导入" Style="{StaticResource ToolButton}"
+                            Clicked="OnImportClicked" />
+                    <Button x:Name="DetailButton" Text="详情" Style="{StaticResource ToolButton}"
+                            IsEnabled="False" Clicked="OnDetailClicked" />
+                    <Button x:Name="RenameButton" Text="重命名" Style="{StaticResource ToolButton}"
+                            IsEnabled="False" Clicked="OnRenameClicked" />
+                    <Button x:Name="DeleteButton" Text="删除" Style="{StaticResource ToolButton}"
+                            IsEnabled="False" TextColor="#C62828" Clicked="OnDeleteClicked" />
+                    <Button x:Name="EnableButton" Text="启用" Style="{StaticResource ToolButton}"
+                            IsEnabled="False" Clicked="OnEnableClicked" />
+                    <Button x:Name="DisableButton" Text="停用" Style="{StaticResource ToolButton}"
+                            IsEnabled="False" Clicked="OnDisableClicked" />
+                    <Button x:Name="CheckButton" Text="检查" Style="{StaticResource ToolButton}"
+                            Clicked="OnCheckClicked" />
+                    <Button x:Name="RefreshButton" Text="刷新" Style="{StaticResource ToolButton}"
+                            Clicked="OnRefreshClicked" />
+                    <Button x:Name="ProblemsButton" Text="问题" Style="{StaticResource ToolButton}"
+                            Clicked="OnProblemsClicked" />
+                    <Button x:Name="SelectButton" Text="选择" Style="{StaticResource ToolButton}"
+                            Clicked="OnSelectClicked" />
+                </HorizontalStackLayout>
+            </ScrollView>
+
+            <HorizontalStackLayout x:Name="BulkBar" IsVisible="False" Spacing="6">
+                <Label x:Name="BulkCountLabel" Text="已选 0 个" FontSize="12"
+                       VerticalOptions="Center"
+                       TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                <Button Text="全选" Style="{StaticResource ToolButton}" Clicked="OnSelectAllClicked" />
+                <Button Text="启用" Style="{StaticResource ToolButton}" Clicked="OnEnableClicked" />
+                <Button Text="停用" Style="{StaticResource ToolButton}" Clicked="OnDisableClicked" />
+                <Button Text="删除" Style="{StaticResource ToolButton}" TextColor="#C62828"
+                        Clicked="OnDeleteClicked" />
+                <Button Text="取消" Style="{StaticResource ToolButton}" Clicked="OnSelectClicked" />
+            </HorizontalStackLayout>
+        </VerticalStackLayout>
+
+        <RefreshView x:Name="Refresher" Grid.Row="2" Refreshing="OnRefreshing">
+            <CollectionView x:Name="ModList" SelectionMode="Single"
+                            SelectionChanged="OnSelectionChanged">
                 <CollectionView.EmptyView>
                     <VerticalStackLayout Padding="24" Spacing="8" VerticalOptions="Center">
-                        <Label Text="还没有模组，可用右上角导入模组包"
+                        <Label Text="还没有模组，可用上方「导入」导入模组包"
                                HorizontalTextAlignment="Center" FontSize="14"
                                TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
                     </VerticalStackLayout>
                 </CollectionView.EmptyView>
                 <CollectionView.ItemTemplate>
                     <DataTemplate>
-                        <Border Padding="12" Margin="0,0,0,10"
+                        <Border x:Name="RowBorder" Padding="12" Margin="0,0,0,10"
                                 StrokeThickness="0"
                                 StrokeShape="RoundRectangle 12"
                                 BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
-                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
-                                <VerticalStackLayout Grid.Column="0" Spacing="2" VerticalOptions="Center">
+                            <VisualStateManager.VisualStateGroups>
+                                <VisualStateGroupList>
+                                    <VisualStateGroup Name="CommonStates">
+                                        <VisualState Name="Normal" />
+                                        <VisualState Name="Selected">
+                                            <VisualState.Setters>
+                                                <Setter Property="BackgroundColor" Value="#3378A9FF" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                    </VisualStateGroup>
+                                </VisualStateGroupList>
+                            </VisualStateManager.VisualStateGroups>
+
+                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                <CheckBox Grid.Column="0" VerticalOptions="Center"
+                                          IsVisible="{Binding IsMultiSelect}"
+                                          IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                          CheckedChanged="OnRowChecked" />
+
+                                <VerticalStackLayout Grid.Column="1" Spacing="2" VerticalOptions="Center">
                                     <Label Text="{Binding Title}" FontSize="15" FontAttributes="Bold"
                                            LineBreakMode="TailTruncation" />
                                     <Label Text="{Binding FileName}" FontSize="11"
                                            LineBreakMode="MiddleTruncation"
                                            TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                    <Label Text="{Binding StateText}" FontSize="11"
+                                           TextColor="{Binding StateColor}" />
+                                    <Label Text="{Binding IssueText}" FontSize="11"
+                                           IsVisible="{Binding HasIssue}"
+                                           LineBreakMode="CharacterWrap"
+                                           TextColor="{Binding IssueColor}" />
+                                    <Label Text="{Binding ConflictText}" FontSize="11"
+                                           IsVisible="{Binding HasConflict}"
+                                           LineBreakMode="CharacterWrap"
+                                           TextColor="#C62828" />
                                 </VerticalStackLayout>
 
-                                <Switch Grid.Column="1" VerticalOptions="Center"
-                                        IsToggled="{Binding Enabled, Mode=OneWay}"
-                                        Toggled="OnModToggled" />
-
-                                <VerticalStackLayout Grid.Column="2" Spacing="4" VerticalOptions="Center">
-                                    <Button Text="↑" FontSize="13" Padding="0" CornerRadius="6"
-                                            HeightRequest="28" WidthRequest="36"
-                                            Clicked="OnMoveUpClicked" IsEnabled="{Binding CanMoveUp}" />
-                                    <Button Text="↓" FontSize="13" Padding="0" CornerRadius="6"
-                                            HeightRequest="28" WidthRequest="36"
-                                            Clicked="OnMoveDownClicked" IsEnabled="{Binding CanMoveDown}" />
+                                <VerticalStackLayout Grid.Column="2" Spacing="4" VerticalOptions="Center"
+                                                     IsVisible="{Binding IsNormalMode}">
+                                    <HorizontalStackLayout Spacing="2" HorizontalOptions="End">
+                                        <Switch VerticalOptions="Center"
+                                                IsToggled="{Binding Enabled, Mode=OneWay}"
+                                                Toggled="OnModToggled" />
+                                        <Button Text="⋯" FontSize="13" Padding="0" CornerRadius="6"
+                                                HeightRequest="28" WidthRequest="36"
+                                                Clicked="OnRowMenuClicked" />
+                                    </HorizontalStackLayout>
+                                    <HorizontalStackLayout Spacing="4" HorizontalOptions="End">
+                                        <Button Text="↑" FontSize="13" Padding="0" CornerRadius="6"
+                                                HeightRequest="28" WidthRequest="36"
+                                                Clicked="OnMoveUpClicked" IsEnabled="{Binding CanMoveUp}" />
+                                        <Button Text="↓" FontSize="13" Padding="0" CornerRadius="6"
+                                                HeightRequest="28" WidthRequest="36"
+                                                Clicked="OnMoveDownClicked" IsEnabled="{Binding CanMoveDown}" />
+                                    </HorizontalStackLayout>
                                 </VerticalStackLayout>
                             </Grid>
                         </Border>
@@ -53,7 +146,8 @@
             </CollectionView>
         </RefreshView>
 
-        <Grid x:Name="BusyOverlay" IsVisible="False" BackgroundColor="#80000000">
+        <Grid x:Name="BusyOverlay" Grid.Row="0" Grid.RowSpan="3" IsVisible="False"
+              BackgroundColor="#80000000">
             <ActivityIndicator IsRunning="True" Color="White"
                                VerticalOptions="Center" HorizontalOptions="Center" />
         </Grid>

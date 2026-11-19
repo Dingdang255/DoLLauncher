@@ -48,6 +48,31 @@
                     </VerticalStackLayout>
                 </Border>
 
+                <!-- 日志分析与上报状态 -->
+                <Border Padding="14" StrokeThickness="0" StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="8">
+                        <Label Text="日志分析" FontSize="15" FontAttributes="Bold" />
+
+                        <Label Text="本次日志上报状态" FontSize="12" FontAttributes="Bold"
+                               TextColor="{AppThemeBinding Light=#606060, Dark=#B0B0B0}" />
+                        <Label x:Name="LogStatusLabel" FontSize="12"
+                               LineBreakMode="WordWrap"
+                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+
+                        <Button x:Name="AnalyzeButton" Text="分析最近日志" FontSize="13"
+                                HeightRequest="36" CornerRadius="8"
+                                HorizontalOptions="Start" Padding="18,0"
+                                Clicked="OnAnalyzeClicked"
+                                BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                                TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+
+                        <Editor x:Name="AnalysisView" IsVisible="False" IsReadOnly="True"
+                                AutoSize="Disabled" HeightRequest="300" FontSize="11"
+                                FontFamily="monospace" />
+                    </VerticalStackLayout>
+                </Border>
+
                 <!-- 启动器日志 -->
                 <Border Padding="14" StrokeThickness="0" StrokeShape="RoundRectangle 12"
                         BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">

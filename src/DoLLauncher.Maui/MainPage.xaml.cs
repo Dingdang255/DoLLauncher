@@ -128,8 +128,7 @@ public partial class MainPage : ContentPage
             var inspection = await Task.Run(() => PackService.Inspect(tempZip));
             if (inspection.IsModPack)
             {
-                await PlatformServices.Dialogs.InfoAsync(
-                    "这是模组包，需要在对应版本里导入；Android 端模组页稍后支持。");
+                await ImportModPackAsync(file.FileName, tempZip, inspection);
                 return;
             }
             if (!inspection.IsGame)
@@ -163,6 +162,48 @@ public partial class MainPage : ContentPage
                 try { File.Delete(tempZip); } catch { }
             }
         }
+    }
+
+    /// <summary>模组包不含游戏本体：先选目标版本，再交给 PackService 走模组导入流程。</summary>
+    private async Task ImportModPackAsync(string displayName, string packPath,
+        PackService.PackInspection inspection)
+    {
+        var versions = _versions.ToList();
+        if (versions.Count == 0)
+        {
+            await PlatformServices.Dialogs.WarnAsync(
+                "还没有可接收模组的版本，请先导入或下载游戏本体。", "导入模组包");
+            return;
+        }
+
+        var options = versions.Select((v, i) => $"{i + 1}. {v.DisplayName}").ToArray();
+        var choice = await DisplayActionSheetAsync("这是模组包，导入到哪个版本？",
+            "取消", null!, options);
+        if (string.IsNullOrEmpty(choice)) return;
+        var index = Array.IndexOf(options, choice);
+        if (index < 0) return;
+        var target = versions[index];
+
+        if (!await PlatformServices.Dialogs.ConfirmAsync(
+                $"将「{displayName}」导入版本「{target.DisplayName}」？\n包内同名模组会被覆盖。",
+                "导入模组包", "导入"))
+            return;
+
+        var result = await Task.Run(() => PackService.Import(packPath, inspection, target.FullPath,
+            msg => LogService.Append("[导入模组] " + msg)));
+        LogService.Append($"[导入模组] {displayName} → {target.DisplayName}：成功 {result.ModCount} 个");
+
+        await ReloadAsync();
+
+        var message = $"已导入 {result.ModCount} 个模组到「{target.DisplayName}」。";
+        if (result.FailedMods.Count > 0)
+        {
+            message += "\n\n跳过：" + string.Join("\n",
+                result.FailedMods.Take(5).Select(f => "· " + f));
+            if (result.FailedMods.Count > 5)
+                message += $"\n…另有 {result.FailedMods.Count - 5} 个";
+        }
+        await PlatformServices.Dialogs.InfoAsync(message, "导入模组包");
     }
 
     private void SetBusy(bool busy)

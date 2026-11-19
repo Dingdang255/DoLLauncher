@@ -8,12 +8,26 @@ namespace DoLLauncher.Maui;
 
 public partial class ModsPage : ContentPage
 {
+    private const string ActionDetail = "查看详情";
+    private const string ActionRename = "重命名";
+    private const string ActionEnable = "启用";
+    private const string ActionDisable = "停用";
+    private const string ActionMoveUp = "提前加载";
+    private const string ActionMoveDown = "延后加载";
+
     private readonly VersionInfo _version;
     private readonly ObservableCollection<ModsRow> _rows = new();
+    private readonly List<ModConflict> _conflicts = new();
+    private readonly List<ProblemItem> _problems = new();
+
+    private ModsRow? _selectedRow;
     private bool _loading;
     private bool _importing;
     /// <summary>批量重建列表时置位，避免开关的程序化赋值触发保存。</summary>
     private bool _syncing;
+    private bool _multiSelect;
+    private bool _busy;
+    private int _loadToken;
 
     public ModsPage(VersionInfo version)
     {
@@ -29,24 +43,20 @@ public partial class ModsPage : ContentPage
         _ = ReloadAsync();
     }
 
+    // ---------- 加载与刷新 ----------
+
     private async Task ReloadAsync()
     {
         if (_loading) return;
         _loading = true;
+        var token = ++_loadToken;
+        ModSnapshot? snapshot = null;
+        SetBusy(true);
         try
         {
-            var mods = await Task.Run(() => ModService.Load(_version.FullPath));
-            _syncing = true;
-            try
-            {
-                _rows.Clear();
-                foreach (var mod in mods) _rows.Add(new ModsRow(mod));
-                RefreshMoveFlags();
-            }
-            finally
-            {
-                _syncing = false;
-            }
+            snapshot = await Task.Run(CollectSnapshot);
+            if (token != _loadToken) return;
+            ApplySnapshot(snapshot);
         }
         catch (Exception ex)
         {
@@ -57,39 +67,316 @@ public partial class ModsPage : ContentPage
         {
             _loading = false;
             Refresher.IsRefreshing = false;
+            SetBusy(false);
         }
+
+        if (snapshot != null)
+            _ = CheckConflictsAsync(token, snapshot.Mods);
+    }
+
+    /// <summary>后台读取磁盘模组并汇总缺前置 / 重复 / 版本不匹配等问题。</summary>
+    private ModSnapshot CollectSnapshot()
+    {
+        ModService.EnsureModList(_version.FullPath);
+        var mods = ModService.Load(_version.FullPath);
+        var cfg = AppConfig.Load();
+        var threshold = ProblemService.NormalizeThreshold(cfg.General.VersionGapThreshold);
+
+        var snapshot = new ModSnapshot { Mods = mods };
+        var issues = snapshot.Issues;
+
+        foreach (var missing in ProblemService.MissingDependencies(mods))
+        {
+            AddIssue(issues, missing.ModFile,
+                missing.LocalVersion.Length == 0
+                    ? $"缺少前置「{missing.DependencyName}」"
+                    : missing.Disabled
+                        ? $"前置未启用「{missing.DependencyName}」"
+                        : $"前置版本不满足「{missing.DependencyName}」",
+                red: false);
+            snapshot.Problems.Add(new ProblemItem(missing.Title, missing.Detail));
+        }
+
+        foreach (var duplicate in ProblemService.Duplicates(mods))
+        {
+            snapshot.Problems.Add(new ProblemItem(duplicate.Title, duplicate.Detail));
+            foreach (var member in duplicate.Members)
+                AddIssue(issues, member.FileName, "重复模组", red: false);
+        }
+
+        var ignored = new HashSet<string>(
+            cfg.Versions.FirstOrDefault(v => v.Folder == _version.Folder)?.IgnoredVersionIssues
+                ?? new List<string>(),
+            StringComparer.OrdinalIgnoreCase);
+
+        var mismatches = ProblemService.VersionMismatches(mods, _version.GameVersion, threshold);
+        foreach (var issue in RuntimeIssueScanner.Scan(_version.FullPath, mods, _version.GameVersion))
+        {
+            // boot.json 已经报过的模组不再重复列一条。
+            var duplicate = issue.ModFile.Length > 0
+                ? mismatches.Any(m => string.Equals(m.ModFile, issue.ModFile,
+                    StringComparison.OrdinalIgnoreCase))
+                : mismatches.Any(m => m.ModFile.Length == 0 &&
+                    string.Equals(m.ModName, issue.ModName, StringComparison.OrdinalIgnoreCase));
+            if (!duplicate) mismatches.Add(issue);
+        }
+
+        foreach (var issue in mismatches)
+        {
+            issue.Ignored = ignored.Contains(issue.Key);
+            if (issue.ModFile.Length == 0) continue;
+            AddIssue(issues, issue.ModFile,
+                issue.Runtime ? "运行日志：" + issue.RuntimeReason : "版本不匹配",
+                issue.Severity == ProblemSeverity.Red);
+            if (!issue.Ignored)
+                snapshot.Problems.Add(new ProblemItem(issue.Title, issue.Detail));
+        }
+
+        foreach (var mod in mods.Where(m => !m.BootParsed))
+            AddIssue(issues, mod.FileName, "boot.json 无法解析", red: false);
+
+        return snapshot;
+    }
+
+    private static void AddIssue(Dictionary<string, IssueInfo> issues, string fileName,
+        string text, bool red)
+    {
+        if (fileName.Length == 0) return;
+        if (!issues.TryGetValue(fileName, out var info))
+            issues[fileName] = info = new IssueInfo();
+        info.Add(text, red);
+    }
+
+    private void ApplySnapshot(ModSnapshot snapshot)
+    {
+        var keepFile = _selectedRow?.Mod.FileName;
+        _problems.Clear();
+        _problems.AddRange(snapshot.Problems);
+        _conflicts.Clear();
+
+        _syncing = true;
+        try
+        {
+            _rows.Clear();
+            foreach (var mod in snapshot.Mods)
+            {
+                var row = new ModsRow(mod)
+                {
+                    IsMultiSelect = _multiSelect,
+                    IsSelected = false,
+                };
+                if (snapshot.Issues.TryGetValue(mod.FileName, out var issue))
+                    row.SetIssue(issue.Text, issue.Red);
+                _rows.Add(row);
+            }
+            RefreshMoveFlags();
+
+            _selectedRow = _multiSelect
+                ? null
+                : _rows.FirstOrDefault(r => r.Mod.FileName == keepFile);
+            ModList.SelectedItem = _selectedRow;
+        }
+        finally
+        {
+            _syncing = false;
+        }
+        UpdateToolbar();
+    }
+
+    private async Task CheckConflictsAsync(int token, List<ModInfo> snapshotMods)
+    {
+        // 没有已启用模组时冲突检查没有意义，避免无谓的市场索引请求。
+        if (snapshotMods.All(m => !m.Enabled)) return;
+        try
+        {
+            var catalog = await ModMarketCache.GetAsync();
+            if (catalog == null || catalog.Mods.Count == 0 || token != _loadToken) return;
+
+            var found = await ModConflictService.CheckAsync(snapshotMods, catalog,
+                msg => LogService.Append("[模组冲突] " + msg));
+            if (token != _loadToken) return;
+
+            var ignored = new HashSet<string>(
+                AppConfig.Load().Versions.FirstOrDefault(v => v.Folder == _version.Folder)
+                    ?.IgnoredConflicts ?? new List<string>(),
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var conflict in found) conflict.Ignored = ignored.Contains(conflict.PairKey);
+
+            MainThread.BeginInvokeOnMainThread(() => ApplyConflicts(found));
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("检查模组冲突失败", ex);
+        }
+    }
+
+    /// <summary>把冲突写成行内红色提示；停用的一方不在启用集合里，自然消失。</summary>
+    private void ApplyConflicts(List<ModConflict> found)
+    {
+        _conflicts.Clear();
+        _conflicts.AddRange(found.Where(c => !c.Ignored));
+
+        foreach (var row in _rows)
+        {
+            var others = new List<string>();
+            foreach (var conflict in _conflicts)
+            {
+                if (conflict.LeftFile.Length > 0 &&
+                    string.Equals(conflict.LeftFile, row.Mod.FileName, StringComparison.OrdinalIgnoreCase))
+                    others.Add(conflict.RightName);
+                else if (conflict.RightFile.Length > 0 &&
+                         string.Equals(conflict.RightFile, row.Mod.FileName, StringComparison.OrdinalIgnoreCase))
+                    others.Add(conflict.LeftName);
+            }
+
+            row.SetConflict(others.Count == 0
+                ? string.Empty
+                : "可能与「" + string.Join("」「", others.Distinct(StringComparer.OrdinalIgnoreCase)) + "」冲突");
+        }
+        UpdateToolbar();
+    }
+
+    /// <summary>启用 / 停用后重新计算行内问题提示。</summary>
+    private async Task RefreshIssuesAsync()
+    {
+        var mods = _rows.Select(r => r.Mod).ToList();
+        var token = ++_loadToken;
+        try
+        {
+            var snapshot = await Task.Run(CollectSnapshot);
+            if (token != _loadToken) return;
+
+            _problems.Clear();
+            _problems.AddRange(snapshot.Problems);
+            foreach (var row in _rows)
+            {
+                if (snapshot.Issues.TryGetValue(row.Mod.FileName, out var issue))
+                    row.SetIssue(issue.Text, issue.Red);
+                else
+                    row.SetIssue(string.Empty, red: false);
+            }
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("重新计算模组问题失败", ex);
+        }
+
+        UpdateToolbar();
+        _ = CheckConflictsAsync(token, mods);
+    }
+
+    // ---------- 工具条 ----------
+
+    private void UpdateToolbar()
+    {
+        var selectedCount = GetSelectedRows().Count;
+        var enabled = _rows.Count(r => r.Enabled);
+
+        CountLabel.Text = $"共 {_rows.Count} 个 · 启用 {enabled} 个";
+        BulkCountLabel.Text = $"已选 {selectedCount} 个";
+        BulkBar.IsVisible = _multiSelect;
+
+        var canAct = !_busy && selectedCount > 0;
+        DetailButton.IsEnabled = !_busy && !_multiSelect && selectedCount == 1;
+        RenameButton.IsEnabled = !_busy && !_multiSelect && selectedCount == 1;
+        DeleteButton.IsEnabled = canAct;
+        EnableButton.IsEnabled = canAct;
+        DisableButton.IsEnabled = canAct;
+        ImportButton.IsEnabled = !_busy && !_importing;
+        CheckButton.IsEnabled = !_busy && !_loading;
+        RefreshButton.IsEnabled = !_busy && !_loading;
+        ProblemsButton.IsEnabled = !_busy;
+        SelectButton.Text = _multiSelect ? "退出选择" : "选择";
+    }
+
+    private List<ModsRow> GetSelectedRows() => _multiSelect
+        ? _rows.Where(r => r.IsSelected).ToList()
+        : _selectedRow == null ? new List<ModsRow>() : new List<ModsRow> { _selectedRow };
+
+    private void OnSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_syncing || _multiSelect) return;
+        _selectedRow = e.CurrentSelection.FirstOrDefault() as ModsRow;
+        UpdateToolbar();
+    }
+
+    private void OnRowChecked(object? sender, CheckedChangedEventArgs e)
+    {
+        if (sender is not CheckBox { BindingContext: ModsRow row }) return;
+        row.IsSelected = e.Value;
+        UpdateToolbar();
+    }
+
+    private void OnSelectClicked(object? sender, EventArgs e)
+    {
+        _multiSelect = !_multiSelect;
+        if (_multiSelect)
+        {
+            _selectedRow = null;
+            ModList.SelectionMode = SelectionMode.None;
+            ModList.SelectedItem = null;
+        }
+        else
+        {
+            ModList.SelectionMode = SelectionMode.Single;
+        }
+
+        foreach (var row in _rows)
+        {
+            row.IsSelected = false;
+            row.IsMultiSelect = _multiSelect;
+        }
+        UpdateToolbar();
+    }
+
+    private void OnSelectAllClicked(object? sender, EventArgs e)
+    {
+        var all = _rows.Count > 0 && _rows.All(r => r.IsSelected);
+        foreach (var row in _rows) row.IsSelected = !all;
+        UpdateToolbar();
+    }
+
+    private async void OnRefreshClicked(object? sender, EventArgs e)
+    {
+        LogService.Append("已重新读取磁盘模组。");
+        await ReloadAsync();
     }
 
     private async void OnRefreshing(object? sender, EventArgs e) => await ReloadAsync();
 
+    // ---------- 行内操作 ----------
+
     private async void OnModToggled(object? sender, ToggledEventArgs e)
     {
-        if (_syncing) return;
+        if (_syncing || _busy) return;
         if (sender is not Switch { BindingContext: ModsRow row }) return;
         if (row.Mod.Enabled == e.Value) return;
 
-        row.Mod.Enabled = e.Value;
+        row.SetEnabled(e.Value);
         await SaveAsync();
+        await RefreshIssuesAsync();
     }
 
     private async void OnMoveUpClicked(object? sender, EventArgs e)
     {
         if (sender is not Button { BindingContext: ModsRow row }) return;
-        var index = _rows.IndexOf(row);
-        if (index <= 0) return;
-
-        _rows.Move(index, index - 1);
-        RefreshMoveFlags();
-        await SaveAsync();
+        await MoveRowAsync(row, -1);
     }
 
     private async void OnMoveDownClicked(object? sender, EventArgs e)
     {
         if (sender is not Button { BindingContext: ModsRow row }) return;
-        var index = _rows.IndexOf(row);
-        if (index < 0 || index >= _rows.Count - 1) return;
+        await MoveRowAsync(row, 1);
+    }
 
-        _rows.Move(index, index + 1);
+    private async Task MoveRowAsync(ModsRow row, int delta)
+    {
+        if (_busy) return;
+        var index = _rows.IndexOf(row);
+        var target = index + delta;
+        if (index < 0 || target < 0 || target >= _rows.Count) return;
+
+        _rows.Move(index, target);
         RefreshMoveFlags();
         await SaveAsync();
     }
@@ -107,24 +394,256 @@ public partial class ModsPage : ContentPage
         }
     }
 
-    private async Task SaveAsync()
+    private async void OnRowMenuClicked(object? sender, EventArgs e)
     {
-        var mods = _rows.Select(r => r.Mod).ToList();
-        try
+        if (sender is not Button { BindingContext: ModsRow row } || _busy) return;
+
+        _selectedRow = row;
+        ModList.SelectedItem = row;
+        UpdateToolbar();
+
+        var action = await DisplayActionSheetAsync($"模组：{row.Title}", "取消", "删除",
+            ActionDetail, ActionRename, ActionEnable, ActionDisable, ActionMoveUp, ActionMoveDown);
+        switch (action)
         {
-            await Task.Run(() => ModService.Save(_version.FullPath, mods));
-        }
-        catch (Exception ex)
-        {
-            LogService.Error("保存模组状态失败", ex);
-            await PlatformServices.Dialogs.ErrorAsync("保存模组状态失败：" + ex.Message);
-            await ReloadAsync();
+            case ActionDetail:
+                await OpenDetailAsync(row);
+                break;
+            case ActionRename:
+                await RenameAsync(row);
+                break;
+            case ActionEnable:
+                await SetEnabledAsync(new List<ModsRow> { row }, true);
+                break;
+            case ActionDisable:
+                await SetEnabledAsync(new List<ModsRow> { row }, false);
+                break;
+            case ActionMoveUp:
+                await MoveRowAsync(row, -1);
+                break;
+            case ActionMoveDown:
+                await MoveRowAsync(row, 1);
+                break;
+            case "删除":
+                await DeleteRowsAsync(new List<ModsRow> { row });
+                break;
         }
     }
 
+    private async Task OpenDetailAsync(ModsRow row)
+    {
+        await Navigation.PushAsync(new ModDetailPage(_version, row.Mod));
+    }
+
+    // ---------- 单条操作 ----------
+
+    private async void OnDetailClicked(object? sender, EventArgs e)
+    {
+        if (_multiSelect || _selectedRow == null) return;
+        await OpenDetailAsync(_selectedRow);
+    }
+
+    private async void OnRenameClicked(object? sender, EventArgs e)
+    {
+        if (_multiSelect || _selectedRow == null) return;
+        await RenameAsync(_selectedRow);
+    }
+
+    private async Task RenameAsync(ModsRow row)
+    {
+        if (_busy) return;
+        var initial = Path.GetFileNameWithoutExtension(row.Mod.FileName);
+        var input = await DisplayPromptAsync("重命名模组",
+            "新的文件名（不含 .zip 也可以）：", "确定", "取消", "文件名",
+            maxLength: 120, keyboard: Keyboard.Text, initialValue: initial);
+        if (string.IsNullOrWhiteSpace(input)) return;
+        if (string.Equals(input.Trim(), initial, StringComparison.Ordinal)) return;
+
+        SetBusy(true);
+        try
+        {
+            await Task.Run(() => ModService.Rename(_version.FullPath, row.Mod.FileName, input.Trim()));
+            LogService.Append($"已重命名：{row.Mod.FileName} → {input.Trim()}");
+            _selectedRow = null;
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("重命名模组失败", ex);
+            await PlatformServices.Dialogs.ErrorAsync("重命名失败：" + ex.Message);
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    private async void OnEnableClicked(object? sender, EventArgs e) =>
+        await SetEnabledAsync(GetSelectedRows(), true);
+
+    private async void OnDisableClicked(object? sender, EventArgs e) =>
+        await SetEnabledAsync(GetSelectedRows(), false);
+
+    private async Task SetEnabledAsync(List<ModsRow> targets, bool enabled)
+    {
+        if (_busy || targets.Count == 0) return;
+        var changed = 0;
+        foreach (var row in targets)
+        {
+            if (row.Enabled == enabled) continue;
+            row.SetEnabled(enabled);
+            changed++;
+        }
+        if (changed == 0) return;
+
+        await SaveAsync();
+        await RefreshIssuesAsync();
+        if (_multiSelect) ExitMultiSelect();
+        UpdateToolbar();
+        LogService.Append($"已将 {changed} 个模组{(enabled ? "启用" : "停用")}。");
+    }
+
+    private async void OnDeleteClicked(object? sender, EventArgs e) =>
+        await DeleteRowsAsync(GetSelectedRows());
+
+    private async Task DeleteRowsAsync(List<ModsRow> targets)
+    {
+        if (_busy || targets.Count == 0) return;
+
+        var fileList = string.Join("\n", targets.Select(m => "· " + m.Mod.FileName));
+        var message = targets.Count == 1
+            ? $"确定删除模组「{targets[0].Mod.Name}」吗？\n\n文件：{targets[0].Mod.FileName}\n\n" +
+              "只删除磁盘上的模组包，不影响浏览器里的存档。"
+            : $"确定删除选中的 {targets.Count} 个模组吗？\n\n{fileList}\n\n" +
+              "只删除磁盘上的模组包，不影响浏览器里的存档。";
+        if (!await PlatformServices.Dialogs.ConfirmAsync(message, "删除模组", "删除", danger: true))
+            return;
+
+        SetBusy(true);
+        try
+        {
+            var files = targets.Select(m => m.Mod.FileName).ToList();
+            await Task.Run(() =>
+            {
+                foreach (var file in files) ModService.Delete(_version.FullPath, file);
+            });
+            LogService.Append($"已删除 {files.Count} 个模组：{string.Join("、", files)}");
+            if (_multiSelect) ExitMultiSelect();
+            _selectedRow = null;
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("删除模组失败", ex);
+            await PlatformServices.Dialogs.ErrorAsync("删除失败：" + ex.Message);
+            await ReloadAsync();
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    private void ExitMultiSelect()
+    {
+        _multiSelect = false;
+        ModList.SelectionMode = SelectionMode.Single;
+        foreach (var row in _rows)
+        {
+            row.IsSelected = false;
+            row.IsMultiSelect = false;
+        }
+    }
+
+    // ---------- 检查与问题 ----------
+
+    private async void OnCheckClicked(object? sender, EventArgs e)
+    {
+        if (_busy) return;
+        SetBusy(true);
+        try
+        {
+            var lines = await Task.Run(() => ModService.Check(_version));
+            await Task.Run(() => ModService.Apply(_version.FullPath));
+
+            var errors = lines.Count(l => l.StartsWith("[错误]", StringComparison.Ordinal));
+            var warns = lines.Count(l => l.StartsWith("[警告]", StringComparison.Ordinal));
+            var summary = errors > 0
+                ? $"检查完成：已重新生成 modList.json，存在 {errors + warns} 个问题（错误 {errors}，警告 {warns}）。"
+                : $"检查完成：已重新生成 modList.json，未发现阻断性问题（{warns} 个提醒）。";
+
+            var text = summary + "\n\n" + string.Join("\n", lines);
+            if (text.Length > 4000) text = text[..4000] + "\n…（内容过长，完整结果见启动器日志）";
+            LogService.Append("[模组检查] " + summary);
+
+            if (errors > 0) await PlatformServices.Dialogs.WarnAsync(text, "模组检查");
+            else await PlatformServices.Dialogs.InfoAsync(text, "模组检查");
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("模组完整性检查失败", ex);
+            await PlatformServices.Dialogs.ErrorAsync("检查失败：" + ex.Message);
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+
+        await ReloadAsync();
+    }
+
+    private async void OnProblemsClicked(object? sender, EventArgs e)
+    {
+        var items = new List<ProblemItem>(_problems);
+        items.AddRange(_conflicts.Select(c => new ProblemItem(c.Title, c.Detail)));
+        if (items.Count == 0)
+        {
+            await PlatformServices.Dialogs.InfoAsync("暂未检测到问题。", "模组问题");
+            return;
+        }
+
+        var stack = new VerticalStackLayout { Padding = new Thickness(16, 12, 16, 24), Spacing = 10 };
+        foreach (var item in items)
+        {
+            var block = new VerticalStackLayout { Spacing = 3 };
+            block.Children.Add(new Label
+            {
+                Text = item.Title,
+                FontSize = 13,
+                FontAttributes = FontAttributes.Bold,
+                LineBreakMode = LineBreakMode.CharacterWrap,
+            });
+            block.Children.Add(new Label
+            {
+                Text = item.Detail,
+                FontSize = 12,
+                LineBreakMode = LineBreakMode.CharacterWrap,
+            });
+
+            var border = new Border
+            {
+                Padding = 12,
+                StrokeThickness = 0,
+                StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 12 },
+                Content = block,
+            };
+            border.SetAppThemeColor(Border.BackgroundColorProperty,
+                Color.FromArgb("#F2F2F2"), Color.FromArgb("#2A2A2A"));
+            stack.Children.Add(border);
+        }
+
+        await Navigation.PushAsync(new ContentPage
+        {
+            Title = "模组问题",
+            Content = new ScrollView { Content = stack },
+        });
+    }
+
+    // ---------- 导入 ----------
+
     private async void OnImportClicked(object? sender, EventArgs e)
     {
-        if (_importing) return;
+        if (_importing || _busy) return;
 
         var temps = new List<string>();
         try
@@ -175,11 +694,30 @@ public partial class ModsPage : ContentPage
         }
     }
 
+    // ---------- 保存与忙碌状态 ----------
+
+    private async Task SaveAsync()
+    {
+        var mods = _rows.Select(r => r.Mod).ToList();
+        try
+        {
+            await Task.Run(() => ModService.Save(_version.FullPath, mods));
+            UpdateToolbar();
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("保存模组状态失败", ex);
+            await PlatformServices.Dialogs.ErrorAsync("保存模组状态失败：" + ex.Message);
+            await ReloadAsync();
+        }
+    }
+
     private void SetBusy(bool busy)
     {
+        _busy = busy;
         BusyOverlay.IsVisible = busy;
         Refresher.IsEnabled = !busy;
-        ImportItem.IsEnabled = !busy;
+        UpdateToolbar();
     }
 
     /// <summary>SAF 复制到缓存的同名文件改为加序号，避免覆盖。</summary>
@@ -197,13 +735,42 @@ public partial class ModsPage : ContentPage
         }
         return Path.Combine(dir, $"{stem}-{Guid.NewGuid():N}{ext}");
     }
+
+    // ---------- 快照类型 ----------
+
+    private sealed class ModSnapshot
+    {
+        public List<ModInfo> Mods { get; init; } = new();
+        public Dictionary<string, IssueInfo> Issues { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public List<ProblemItem> Problems { get; } = new();
+    }
+
+    private sealed class IssueInfo
+    {
+        private readonly List<string> _texts = new();
+        public bool Red { get; private set; }
+        public string Text => string.Join("；", _texts);
+
+        public void Add(string text, bool red)
+        {
+            if (!_texts.Contains(text)) _texts.Add(text);
+            Red |= red;
+        }
+    }
+
+    private sealed record ProblemItem(string Title, string Detail);
 }
 
-/// <summary>模组列表行：包装 ModInfo，并提供排序按钮的可用状态。</summary>
+/// <summary>模组列表行：包装 ModInfo，并提供状态、问题提示与多选状态。</summary>
 public sealed class ModsRow : INotifyPropertyChanged
 {
     private bool _canMoveUp;
     private bool _canMoveDown;
+    private bool _isSelected;
+    private bool _isMultiSelect;
+    private string _issueText = string.Empty;
+    private bool _issueRed;
+    private string _conflictText = string.Empty;
 
     public ModsRow(ModInfo mod) => Mod = mod;
 
@@ -211,6 +778,11 @@ public sealed class ModsRow : INotifyPropertyChanged
     public string Title => Mod.Title;
     public string FileName => Mod.FileName;
     public bool Enabled => Mod.Enabled;
+    public string StateText => Mod.Enabled ? "已启用" : "已停用";
+    public Color StateColor => Mod.Enabled
+        ? Color.FromArgb("#2E7D32")
+        : Color.FromArgb("#808080");
+
     public bool IsFirst { get; set; }
     public bool IsLast { get; set; }
 
@@ -236,8 +808,95 @@ public sealed class ModsRow : INotifyPropertyChanged
         }
     }
 
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set
+        {
+            if (_isSelected == value) return;
+            _isSelected = value;
+            OnPropertyChanged(nameof(IsSelected));
+        }
+    }
+
+    public bool IsMultiSelect
+    {
+        get => _isMultiSelect;
+        set
+        {
+            if (_isMultiSelect == value) return;
+            _isMultiSelect = value;
+            OnPropertyChanged(nameof(IsMultiSelect));
+            OnPropertyChanged(nameof(IsNormalMode));
+        }
+    }
+
+    public bool IsNormalMode => !_isMultiSelect;
+
+    public string IssueText => _issueText;
+    public bool HasIssue => _issueText.Length > 0;
+    public Color IssueColor => _issueRed
+        ? Color.FromArgb("#C62828")
+        : Color.FromArgb("#E65100");
+
+    public string ConflictText => _conflictText;
+    public bool HasConflict => _conflictText.Length > 0;
+
+    /// <summary>启用 / 停用后刷新开关与状态文字。</summary>
+    public void SetEnabled(bool value)
+    {
+        if (Mod.Enabled == value) return;
+        Mod.Enabled = value;
+        OnPropertyChanged(nameof(Enabled));
+        OnPropertyChanged(nameof(StateText));
+        OnPropertyChanged(nameof(StateColor));
+    }
+
+    public void SetIssue(string text, bool red)
+    {
+        if (_issueText == text && _issueRed == red) return;
+        _issueText = text;
+        _issueRed = red;
+        OnPropertyChanged(nameof(IssueText));
+        OnPropertyChanged(nameof(HasIssue));
+        OnPropertyChanged(nameof(IssueColor));
+    }
+
+    public void SetConflict(string text)
+    {
+        if (_conflictText == text) return;
+        _conflictText = text;
+        OnPropertyChanged(nameof(ConflictText));
+        OnPropertyChanged(nameof(HasConflict));
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private void OnPropertyChanged(string name) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+}
+
+/// <summary>模组市场索引的进程级缓存：冲突检查与详情元数据补全共用一次拉取结果。</summary>
+internal static class ModMarketCache
+{
+    private static readonly object Sync = new();
+    private static Task<MarketCatalog?>? _task;
+
+    public static Task<MarketCatalog?> GetAsync()
+    {
+        lock (Sync) return _task ??= LoadAsync();
+    }
+
+    private static async Task<MarketCatalog?> LoadAsync()
+    {
+        try
+        {
+            return await DownloadService.FetchMarketAsync(msg => LogService.Append("[市场] " + msg));
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("加载模组市场索引失败", ex);
+            return null;
+        }
+    }
 }

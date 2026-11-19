@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="DoLLauncher.Maui.ModDetailPage"
+             Title="模组详情">
+
+    <Grid>
+
+        <ScrollView>
+            <VerticalStackLayout Padding="16,12,16,24" Spacing="12">
+
+                <VerticalStackLayout Spacing="2">
+                    <Label x:Name="NameLabel" FontSize="22" FontAttributes="Bold"
+                           LineBreakMode="TailTruncation" />
+                    <Label x:Name="MetaLabel" FontSize="12"
+                           LineBreakMode="MiddleTruncation"
+                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                </VerticalStackLayout>
+
+                <!-- 基本信息 -->
+                <Border Padding="14" StrokeThickness="0" StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="10">
+                        <Label Text="基本信息" FontSize="15" FontAttributes="Bold" />
+
+                        <Grid ColumnDefinitions="72,*" RowDefinitions="Auto,Auto,Auto"
+                              RowSpacing="6" ColumnSpacing="8">
+                            <Label Grid.Row="0" Grid.Column="0" Text="版本" FontSize="13"
+                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                            <Label x:Name="VersionLabel" Grid.Row="0" Grid.Column="1" FontSize="13" />
+
+                            <Label Grid.Row="1" Grid.Column="0" Text="作者" FontSize="13"
+                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                            <Label x:Name="AuthorLabel" Grid.Row="1" Grid.Column="1" FontSize="13" />
+
+                            <Label Grid.Row="2" Grid.Column="0" Text="文件名" FontSize="13"
+                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                            <Label x:Name="FileNameLabel" Grid.Row="2" Grid.Column="1" FontSize="12"
+                                   LineBreakMode="MiddleTruncation" />
+                        </Grid>
+
+                        <Label x:Name="MetadataNote" Text="已补全元数据" FontSize="11"
+                               IsVisible="False" TextColor="#2E7D32" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- 描述 -->
+                <Border x:Name="DescriptionPanel" Padding="14" StrokeThickness="0"
+                        StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="6">
+                        <Label Text="描述" FontSize="15" FontAttributes="Bold" />
+                        <Label x:Name="DescriptionLabel" FontSize="13"
+                               LineBreakMode="CharacterWrap" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- 前置依赖 -->
+                <Border Padding="14" StrokeThickness="0" StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="6">
+                        <Label Text="前置依赖" FontSize="15" FontAttributes="Bold" />
+                        <Label x:Name="DependencyLabel" FontSize="13"
+                               LineBreakMode="CharacterWrap" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- README -->
+                <Border Padding="14" StrokeThickness="0" StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="6">
+                        <Label Text="README" FontSize="15" FontAttributes="Bold" />
+                        <Editor x:Name="ReadmeEditor" IsReadOnly="True" AutoSize="Disabled"
+                                HeightRequest="320" FontSize="11" FontFamily="monospace" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <HorizontalStackLayout Spacing="10">
+                    <Button x:Name="HomepageButton" Text="打开主页" IsVisible="False"
+                            HeightRequest="40" CornerRadius="10" FontSize="13" Padding="16,0"
+                            Clicked="OnHomepageClicked" />
+                    <Button x:Name="WikiButton" Text="打开 WIKI" IsVisible="False"
+                            HeightRequest="40" CornerRadius="10" FontSize="13" Padding="16,0"
+                            Clicked="OnWikiClicked" />
+                </HorizontalStackLayout>
+
+            </VerticalStackLayout>
+        </ScrollView>
+
+        <Grid x:Name="BusyOverlay" IsVisible="False" BackgroundColor="#80000000">
+            <ActivityIndicator IsRunning="True" Color="White"
+                               VerticalOptions="Center" HorizontalOptions="Center" />
+        </Grid>
+
+    </Grid>
+
+</ContentPage>
