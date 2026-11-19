@@ -11,6 +11,10 @@ public partial class MainPage : ContentPage
     private bool _loading;
     private bool _suppressNextSelection;
 
+    // 启动时的自动备份检查只执行一次（返回列表不再重复）。
+    private static bool _startupBackupChecked;
+    private static bool _startupHelperOpened;
+
     public MainPage()
     {
         InitializeComponent();
@@ -110,7 +114,65 @@ public partial class MainPage : ContentPage
         // 从模组页返回时恢复正常的选中行为。
         _suppressNextSelection = false;
         // 删除 / 导入版本后回到列表，重新扫描一次。
-        _ = ReloadAsync();
+        _ = InitializeAsync();
+    }
+
+    private async Task InitializeAsync()
+    {
+        await ReloadAsync();
+        await RunStartupBackupAsync();
+    }
+
+    /// <summary>
+    /// 启动后只执行一次：按设置对每个版本做一次自动备份（内部按间隔判断），
+    /// 需要时再以 ?auto=1 打开一次存档助手。
+    /// </summary>
+    private async Task RunStartupBackupAsync()
+    {
+        if (_startupBackupChecked) return;
+        _startupBackupChecked = true;
+
+        try
+        {
+            var cfg = AppConfig.Load();
+            if (!cfg.Backup.Enabled && !cfg.Backup.SaveAuto) return;
+
+            var versions = _versions.ToList();
+            if (versions.Count == 0) return;
+
+            if (cfg.Backup.Enabled)
+            {
+                foreach (var version in versions)
+                {
+                    var target = version;
+                    try
+                    {
+                        await Task.Run(() => BackupService.AutoBackup(target,
+                            msg => LogService.Append("[自动备份] " + msg)));
+                    }
+                    catch (Exception ex)
+                    {
+                        // 单个版本失败不影响其它版本和界面。
+                        LogService.Error($"自动备份版本 {target.Folder} 失败", ex);
+                    }
+                }
+            }
+
+            if (cfg.Backup.SaveAuto && !_startupHelperOpened)
+            {
+                _startupHelperOpened = true;
+                var version = versions[0];
+                var server = await Task.Run(() =>
+                    ServerManager.EnsureStarted(version, saveHelperOnly: true));
+                await Navigation.PushAsync(
+                    new SaveHelperPage(version, server.SaveHelperUrl + "?auto=1"));
+                LogService.Append("已打开自动存档备份页（完成后可关闭）。");
+            }
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("启动时自动备份失败", ex);
+        }
     }
 
     private async void OnImportClicked(object? sender, EventArgs e)

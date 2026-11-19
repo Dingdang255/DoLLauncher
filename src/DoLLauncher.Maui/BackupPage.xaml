@@ -4,48 +4,266 @@
              x:Class="DoLLauncher.Maui.BackupPage"
              Title="备份">
 
-    <ContentPage.ToolbarItems>
-        <ToolbarItem x:Name="BackupItem" Text="立即备份" Clicked="OnBackupClicked" />
-    </ContentPage.ToolbarItems>
+    <ContentPage.Resources>
+        <Style x:Key="ChipButton" TargetType="Button">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="10,0" />
+            <Setter Property="HeightRequest" Value="32" />
+            <Setter Property="MinimumHeightRequest" Value="32" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="BackgroundColor"
+                    Value="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}" />
+            <Setter Property="TextColor"
+                    Value="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+        </Style>
+        <Style x:Key="RowActionButton" TargetType="Button">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Padding" Value="8,0" />
+            <Setter Property="HeightRequest" Value="28" />
+            <Setter Property="MinimumHeightRequest" Value="28" />
+            <Setter Property="WidthRequest" Value="58" />
+            <Setter Property="CornerRadius" Value="7" />
+            <Setter Property="BackgroundColor"
+                    Value="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}" />
+            <Setter Property="TextColor"
+                    Value="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+        </Style>
+        <Style x:Key="SecondaryButton" TargetType="Button">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="HeightRequest" Value="40" />
+            <Setter Property="MinimumHeightRequest" Value="40" />
+            <Setter Property="CornerRadius" Value="9" />
+            <Setter Property="Padding" Value="6,0" />
+            <Setter Property="BackgroundColor"
+                    Value="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}" />
+            <Setter Property="TextColor"
+                    Value="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+        </Style>
+        <Style x:Key="SectionLabel" TargetType="Label">
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontAttributes" Value="Bold" />
+        </Style>
+        <Style x:Key="HintLabel" TargetType="Label">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="TextColor"
+                    Value="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+        </Style>
+    </ContentPage.Resources>
 
-    <Grid RowDefinitions="*,Auto" Padding="16,12,16,16">
+    <Grid>
 
-        <RefreshView Grid.Row="0" x:Name="Refresher" Refreshing="OnRefreshing">
+        <RefreshView x:Name="Refresher" Refreshing="OnRefreshing">
             <CollectionView x:Name="BackupList" SelectionMode="None">
-                <CollectionView.EmptyView>
-                    <VerticalStackLayout Padding="24" Spacing="8" VerticalOptions="Center">
+                <CollectionView.Header>
+                    <VerticalStackLayout Padding="16,12,16,10" Spacing="12">
+
+                        <!-- 目标版本 -->
+                        <Border Padding="14" StrokeThickness="0" StrokeShape="RoundRectangle 12"
+                                BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                            <VerticalStackLayout Spacing="8">
+                                <Label Text="目标版本" Style="{StaticResource SectionLabel}" />
+                                <Picker x:Name="VersionPicker" FontSize="13"
+                                        SelectedIndexChanged="OnVersionChanged" />
+                                <Label x:Name="VersionHintLabel" Text="请选择一个版本后再操作。"
+                                       Style="{StaticResource HintLabel}" />
+                            </VerticalStackLayout>
+                        </Border>
+
+                        <!-- 快捷操作 -->
+                        <Border Padding="14" StrokeThickness="0" StrokeShape="RoundRectangle 12"
+                                BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                            <VerticalStackLayout Spacing="10">
+                                <Label Text="快捷操作" Style="{StaticResource SectionLabel}" />
+
+                                <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                                    <Button x:Name="OpenHelperButton" Grid.Column="0" Text="打开存档助手"
+                                            Style="{StaticResource SecondaryButton}"
+                                            Clicked="OnOpenHelperClicked" />
+                                    <Button x:Name="BackupSavesButton" Grid.Column="1" Text="立即备份存档"
+                                            Style="{StaticResource SecondaryButton}"
+                                            Clicked="OnBackupSavesClicked" />
+                                </Grid>
+
+                                <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                                    <Button x:Name="ExportConfigButton" Grid.Column="0" Text="导出模组配置"
+                                            Style="{StaticResource SecondaryButton}"
+                                            Clicked="OnExportConfigClicked" />
+                                    <Button x:Name="RestoreConfigButton" Grid.Column="1" Text="还原模组配置"
+                                            Style="{StaticResource SecondaryButton}"
+                                            Clicked="OnRestoreConfigClicked" />
+                                </Grid>
+
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="4">
+                                    <CheckBox x:Name="SnapshotGameCheck" Grid.Column="0" IsChecked="False"
+                                              VerticalOptions="Center" />
+                                    <Label Grid.Column="1" FontSize="12" VerticalOptions="Center"
+                                           LineBreakMode="WordWrap"
+                                           Text="快照包含游戏本体（体积大，还原时作为新版本导入）" />
+                                </Grid>
+
+                                <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                                    <Button x:Name="CreateSnapshotButton" Grid.Column="0" Text="创建整版快照"
+                                            Style="{StaticResource SecondaryButton}"
+                                            Clicked="OnCreateSnapshotClicked" />
+                                    <Button x:Name="QuickSnapshotButton" Grid.Column="1" Text="立即备份"
+                                            Style="{StaticResource SecondaryButton}"
+                                            Clicked="OnQuickSnapshotClicked" />
+                                </Grid>
+                                <Label Text="快照只包含模组与配置；「立即备份」不会询问备注。"
+                                       Style="{StaticResource HintLabel}" />
+                            </VerticalStackLayout>
+                        </Border>
+
+                        <!-- 自动备份 -->
+                        <Border Padding="14" StrokeThickness="0" StrokeShape="RoundRectangle 12"
+                                BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                            <VerticalStackLayout Spacing="10">
+                                <Label Text="自动备份" Style="{StaticResource SectionLabel}" />
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <Label Grid.Column="0" Text="启动时自动备份" FontSize="13"
+                                           VerticalOptions="Center" />
+                                    <Switch x:Name="AutoBackupSwitch" Grid.Column="1"
+                                            Toggled="OnAutoBackupToggled" />
+                                </Grid>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <Label Grid.Column="0" Text="同时打开存档助手" FontSize="13"
+                                           VerticalOptions="Center" />
+                                    <Switch x:Name="AutoSaveSwitch" Grid.Column="1"
+                                            Toggled="OnAutoSaveToggled" />
+                                </Grid>
+
+                                <Label Text="启动时按间隔判断，间隔内已备份过的版本不会重复备份；备份与清理都在启动器 backups 目录完成。"
+                                       Style="{StaticResource HintLabel}" />
+
+                                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto"
+                                      ColumnSpacing="8" RowSpacing="2">
+                                    <Label Grid.Row="0" Grid.Column="0" Text="备份间隔（小时）" FontSize="13" />
+                                    <Label x:Name="IntervalLabel" Grid.Row="0" Grid.Column="1" Text="6 小时"
+                                           FontSize="12" VerticalOptions="Center"
+                                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                    <Stepper x:Name="IntervalStepper" Grid.Row="1" Grid.ColumnSpan="2"
+                                             Minimum="1" Maximum="168" Increment="1"
+                                             HorizontalOptions="End"
+                                             ValueChanged="OnIntervalChanged" />
+                                </Grid>
+
+                                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto"
+                                      ColumnSpacing="8" RowSpacing="2">
+                                    <Label Grid.Row="0" Grid.Column="0" Text="保留份数" FontSize="13" />
+                                    <Label x:Name="KeepLabel" Grid.Row="0" Grid.Column="1" Text="5 份"
+                                           FontSize="12" VerticalOptions="Center"
+                                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                    <Stepper x:Name="KeepStepper" Grid.Row="1" Grid.ColumnSpan="2"
+                                             Minimum="1" Maximum="20" Increment="1"
+                                             HorizontalOptions="End"
+                                             ValueChanged="OnKeepChanged" />
+                                </Grid>
+                            </VerticalStackLayout>
+                        </Border>
+
+                        <!-- 磁盘镜像 -->
+                        <Border Padding="14" StrokeThickness="0" StrokeShape="RoundRectangle 12"
+                                BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                            <VerticalStackLayout Spacing="6">
+                                <Label Text="磁盘镜像" Style="{StaticResource SectionLabel}" />
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                    <Label x:Name="MirrorLabel" Grid.Column="0" Text="—" FontSize="12"
+                                           LineBreakMode="WordWrap" VerticalOptions="Center"
+                                           TextColor="{AppThemeBinding Light=#4A4A4A, Dark=#C8C8C8}" />
+                                    <Button x:Name="RefreshMirrorButton" Grid.Column="1" Text="刷新"
+                                            Style="{StaticResource RowActionButton}"
+                                            Clicked="OnRefreshMirrorClicked" />
+                                </Grid>
+                            </VerticalStackLayout>
+                        </Border>
+
+                        <!-- 列表标题与筛选 -->
+                        <VerticalStackLayout Spacing="8">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <Label Grid.Column="0" Text="备份列表"
+                                       Style="{StaticResource SectionLabel}" />
+                                <Label x:Name="CountLabel" Grid.Column="1" Text="" FontSize="12"
+                                       VerticalOptions="Center"
+                                       TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                            </Grid>
+                            <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*" ColumnSpacing="6">
+                                <Button x:Name="ChipAll" Grid.Column="0" Text="全部"
+                                        Style="{StaticResource ChipButton}" Clicked="OnChipAllClicked" />
+                                <Button x:Name="ChipSnapshot" Grid.Column="1" Text="快照"
+                                        Style="{StaticResource ChipButton}" Clicked="OnChipSnapshotClicked" />
+                                <Button x:Name="ChipSaves" Grid.Column="2" Text="存档"
+                                        Style="{StaticResource ChipButton}" Clicked="OnChipSavesClicked" />
+                                <Button x:Name="ChipConfig" Grid.Column="3" Text="配置"
+                                        Style="{StaticResource ChipButton}" Clicked="OnChipConfigClicked" />
+                            </Grid>
+                        </VerticalStackLayout>
+
+                        <ActivityIndicator x:Name="LoadingBar" IsRunning="True" IsVisible="False"
+                                           HorizontalOptions="Center" />
+
+                        <Border x:Name="FailurePanel" IsVisible="False" Padding="12"
+                                StrokeThickness="0" StrokeShape="RoundRectangle 10"
+                                BackgroundColor="{AppThemeBinding Light=#FFEBEE, Dark=#3A2224}">
+                            <VerticalStackLayout Spacing="6">
+                                <Label x:Name="FailureLabel" FontSize="12" TextColor="#C62828"
+                                       LineBreakMode="WordWrap" />
+                                <Button Text="重试" Style="{StaticResource RowActionButton}"
+                                        HorizontalOptions="Start" Clicked="OnRetryClicked" />
+                            </VerticalStackLayout>
+                        </Border>
+
+                    </VerticalStackLayout>
+                </CollectionView.Header>
+
+                <CollectionView.Footer>
+                    <VerticalStackLayout x:Name="EmptyPanel" IsVisible="False"
+                                         Padding="24,16,24,24" Spacing="8">
                         <Label Text="还没有备份" FontAttributes="Bold" HorizontalOptions="Center" />
-                        <Label Text="点右上角「立即备份」，或在存档助手里备份浏览器存档。"
+                        <Label Text="点上方「立即备份」创建快照，或在存档助手里备份浏览器存档。"
                                HorizontalTextAlignment="Center" FontSize="13"
                                TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
                     </VerticalStackLayout>
-                </CollectionView.EmptyView>
+                </CollectionView.Footer>
+
                 <CollectionView.ItemTemplate>
                     <DataTemplate>
-                        <Border Padding="12" Margin="0,0,0,10"
+                        <Border Padding="12" Margin="16,0,16,10"
                                 StrokeThickness="0"
                                 StrokeShape="RoundRectangle 12"
                                 BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnRowTapped"
+                                                      CommandParameter="{Binding .}" />
+                            </Border.GestureRecognizers>
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                                 <VerticalStackLayout Grid.Column="0" Spacing="3" VerticalOptions="Center">
-                                    <Label Text="{Binding TimeText}" FontSize="15" FontAttributes="Bold" />
-                                    <HorizontalStackLayout Spacing="10">
-                                        <Label Text="{Binding Kind}" FontSize="12"
-                                               TextColor="{AppThemeBinding Light=#4A4A4A, Dark=#C8C8C8}" />
-                                        <Label Text="{Binding SizeText}" FontSize="12"
-                                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                    <HorizontalStackLayout Spacing="8">
+                                        <Border Padding="6,1" StrokeThickness="0"
+                                                StrokeShape="RoundRectangle 6"
+                                                VerticalOptions="Center"
+                                                BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}">
+                                            <Label Text="{Binding Kind}" FontSize="10"
+                                                   TextColor="{AppThemeBinding Light=#4A4A4A, Dark=#C8C8C8}" />
+                                        </Border>
+                                        <Label Text="{Binding TimeText}" FontSize="14"
+                                               FontAttributes="Bold" VerticalOptions="Center" />
                                     </HorizontalStackLayout>
                                     <Label Text="{Binding FileName}" FontSize="11"
                                            LineBreakMode="MiddleTruncation"
                                            TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                    <Label Text="{Binding SizeText}" FontSize="11"
+                                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
                                 </VerticalStackLayout>
 
-                                <Button Grid.Column="1" Text="删除" FontSize="13" Padding="14,0"
-                                        HeightRequest="32" WidthRequest="62" CornerRadius="8"
-                                        VerticalOptions="Center"
-                                        Clicked="OnDeleteClicked"
-                                        BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
-                                        TextColor="#C62828" />
+                                <VerticalStackLayout Grid.Column="1" Spacing="6"
+                                                     VerticalOptions="Center">
+                                    <Button Text="还原" Style="{StaticResource RowActionButton}"
+                                            Clicked="OnRestoreClicked" />
+                                    <Button Text="删除" Style="{StaticResource RowActionButton}"
+                                            TextColor="#C62828" Clicked="OnDeleteClicked" />
+                                </VerticalStackLayout>
                             </Grid>
                         </Border>
                     </DataTemplate>
@@ -53,12 +271,7 @@
             </CollectionView>
         </RefreshView>
 
-        <Button Grid.Row="1" Text="打开存档助手" Clicked="OnSaveHelperClicked"
-                Margin="0,12,0,0" HeightRequest="44" CornerRadius="10"
-                FontSize="15" />
-
-        <Grid x:Name="BusyOverlay" Grid.RowSpan="2" IsVisible="False"
-              BackgroundColor="#80000000">
+        <Grid x:Name="BusyOverlay" IsVisible="False" BackgroundColor="#80000000">
             <ActivityIndicator IsRunning="True" Color="White"
                                VerticalOptions="Center" HorizontalOptions="Center" />
         </Grid>

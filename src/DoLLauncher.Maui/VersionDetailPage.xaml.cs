@@ -170,6 +170,8 @@ public partial class VersionDetailPage : ContentPage
             ApplyProblems(problems);
             if (problems.Count > 0 && !await ConfirmLaunchAsync(problems)) return;
 
+            await TryAutoBackupAsync();
+
             var server = await Task.Run(() =>
             {
                 ModService.Apply(_version.FullPath);
@@ -188,6 +190,22 @@ public partial class VersionDetailPage : ContentPage
         finally
         {
             SetBusy(false);
+        }
+    }
+
+    /// <summary>启动前按间隔补一次自动备份；未到间隔时 Core 会直接跳过。</summary>
+    private async Task TryAutoBackupAsync()
+    {
+        if (!AppConfig.Load().Backup.Enabled) return;
+        try
+        {
+            await Task.Run(() => BackupService.AutoBackup(_version,
+                msg => LogService.Append("[自动备份] " + msg)));
+        }
+        catch (Exception ex)
+        {
+            // 自动备份失败不影响启动。
+            LogService.Error("启动前自动备份失败", ex);
         }
     }
 
