@@ -143,7 +143,10 @@ public partial class MainPage : ContentPage
         PanelHost.Content = panel;
         PanelHost.IsVisible = true;
         Highlight(nav);
-        await ActivateAsync(panel);
+
+        var activation = ActivateAsync(panel);
+        await PlayEnterAsync(PanelHost, 18);
+        await activation;
     }
 
     private void ShowVersions()
@@ -155,6 +158,19 @@ public partial class MainPage : ContentPage
         PanelHost.IsVisible = false;
         VersionsPane.IsVisible = true;
         Highlight(NavVersions);
+        _ = PlayEnterAsync(VersionsPane, -14);
+    }
+
+    /// <summary>面板切换时淡入并轻微横移，减少「瞬间换屏」的突兀感。</summary>
+    private static async Task PlayEnterAsync(VisualElement view, double fromX)
+    {
+        view.Opacity = 0;
+        view.TranslationX = fromX;
+        await Task.WhenAll(
+            view.FadeToAsync(1, 150, Easing.CubicOut),
+            view.TranslateToAsync(0, 0, 180, Easing.CubicOut));
+        view.Opacity = 1;
+        view.TranslationX = 0;
     }
 
     private void Highlight(IconActionView nav)
@@ -359,12 +375,36 @@ public partial class MainPage : ContentPage
     }
 }
 
-/// <summary>主界面版本行：包装 VersionInfo。</summary>
+/// <summary>主界面版本行：包装 VersionInfo，带 WPF 版本卡片的副标题与运行状态。</summary>
 public sealed class MainVersionRow
 {
     public MainVersionRow(VersionInfo version) => Version = version;
 
     public VersionInfo Version { get; }
     public string DisplayName => Version.DisplayName;
-    public string Folder => Version.Folder;
+
+    public string Subtitle => Version.IsFileMode
+        ? "file:// 模式 · 与所有本地网页共享浏览器数据"
+        : $"端口 {Version.Port} · {(string.IsNullOrWhiteSpace(Version.GameVersion) ? "未知版本" : Version.GameVersion)}";
+
+    public string StatusText
+    {
+        get
+        {
+            if (Version.IsFileMode) return "旧数据";
+            if (SimulationTracker.IsSimulating(Version.Folder)) return "模拟中";
+            if (!ServerManager.IsRunning(Version.Folder)) return "未启动";
+            return ServerManager.IsHelperOnly(Version.Folder) ? "存档助手" : "运行中";
+        }
+    }
+
+    public Color StatusColor => Version.IsFileMode
+        ? Color.FromArgb("#E0A65C")
+        : SimulationTracker.IsSimulating(Version.Folder)
+            ? Color.FromArgb("#B39DDB")
+            : !ServerManager.IsRunning(Version.Folder)
+                ? Color.FromArgb("#9098A6")
+                : ServerManager.IsHelperOnly(Version.Folder)
+                    ? Color.FromArgb("#6C9CD9")
+                    : Color.FromArgb("#6ECB8F");
 }

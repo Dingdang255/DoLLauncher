@@ -33,7 +33,7 @@ public partial class UpdateDialogPage : ContentPage
         SubtitleLabel.Text = current == "dev"
             ? $"最新版本 {release.Tag}（当前为开发版构建）"
             : $"最新版本 {release.Tag}（当前 {current}）";
-        ChangelogLabel.Text = release.Body.Trim().Length > 0
+        ChangelogView.Markdown = release.Body.Trim().Length > 0
             ? release.Body.Trim()
             : "（该版本没有提供更新日志）";
     }

@@ -161,9 +161,16 @@ public partial class DownloadPage : ContentView
 
     private void ShowSegment(bool game)
     {
+        if (_marketActive == !game) return;
         _marketActive = !game;
-        GameContent.IsVisible = game;
-        MarketContent.IsVisible = !game;
+
+        var show = game ? (View)GameContent : MarketContent;
+        var hide = game ? (View)MarketContent : GameContent;
+        hide.IsVisible = false;
+        show.Opacity = 0;
+        show.IsVisible = true;
+        _ = show.FadeToAsync(1, 150, Easing.CubicOut);
+
         TargetPanel.IsVisible = !game;
         StyleNav(NavGame, game);
         StyleNav(NavMarket, !game);

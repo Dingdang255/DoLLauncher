@@ -85,7 +85,7 @@
                                                 Tapped="OnLaunchClicked" />
 
                             <Grid ColumnDefinitions="*,*" ColumnSpacing="8" RowSpacing="8"
-                                  RowDefinitions="Auto,Auto,Auto">
+                                  RowDefinitions="Auto,Auto,Auto,Auto">
                                 <ctl:IconActionView x:Name="StopButton" Grid.Row="0" Grid.Column="0"
                                                     Glyph="{x:Static local:IconGlyph.Stop}"
                                                     Text="停止" IsEnabled="False"
@@ -102,7 +102,11 @@
                                                     Glyph="{x:Static local:IconGlyph.Box}"
                                                     Text="导出版本包"
                                                     Tapped="OnExportClicked" />
-                                <ctl:IconActionView x:Name="DeleteButton" Grid.Row="2" Grid.ColumnSpan="2"
+                                <ctl:IconActionView x:Name="IntegrityButton" Grid.Row="2" Grid.ColumnSpan="2"
+                                                    Glyph="{x:Static local:IconGlyph.CheckmarkCircle}"
+                                                    Text="完整性检查"
+                                                    Tapped="OnIntegrityClicked" />
+                                <ctl:IconActionView x:Name="DeleteButton" Grid.Row="3" Grid.ColumnSpan="2"
                                                     Glyph="{x:Static local:IconGlyph.Delete}"
                                                     Text="删除版本" Variant="danger"
                                                     Tapped="OnDeleteClicked" />

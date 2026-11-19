@@ -56,6 +56,7 @@ public partial class VersionDetailPage : ContentPage
         LaunchButton.IsEnabled = !_busy;
         HelperButton.IsEnabled = !_busy;
         ExportButton.IsEnabled = !_busy;
+        IntegrityButton.IsEnabled = !_busy && !_version.IsFileMode;
         DeleteButton.IsEnabled = !_busy;
     }
 
@@ -270,6 +271,40 @@ public partial class VersionDetailPage : ContentPage
         if (_problems.Count == 0) return;
         ProblemPanel.IsVisible = !ProblemPanel.IsVisible;
         if (ProblemPanel.IsVisible) RenderProblems();
+    }
+
+    /// <summary>与 WPF 的「完整性检查」一致：检查模组并重新生成 modList.json。</summary>
+    private async void OnIntegrityClicked(object? sender, EventArgs e)
+    {
+        if (_busy || _version.IsFileMode) return;
+        SetBusy(true);
+        try
+        {
+            var lines = await Task.Run(() =>
+            {
+                var result = ModService.Check(_version);
+                ModService.Apply(_version.FullPath);
+                return result;
+            });
+
+            foreach (var line in lines) LogService.Append(line);
+            LogService.Append("已重新生成 modList.json。");
+
+            var text = lines.Count == 0
+                ? "未发现问题，已重新生成 modList.json。"
+                : string.Join("\n", lines.Take(20)) +
+                  (lines.Count > 20 ? $"\n…共 {lines.Count} 条，详见运行记录。" : string.Empty);
+            await PlatformServices.Dialogs.InfoAsync(text, "完整性检查");
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("完整性检查失败", ex);
+            await PlatformServices.Dialogs.ErrorAsync("完整性检查失败：" + ex.Message);
+        }
+        finally
+        {
+            SetBusy(false);
+        }
     }
 
     private async void OnHelperClicked(object? sender, EventArgs e)

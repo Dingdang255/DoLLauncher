@@ -607,6 +607,8 @@ public sealed class MarketRow : INotifyPropertyChanged
 
     public bool HasEditions => Editions.Count > 1;
 
+    public bool HasDescription => !string.IsNullOrWhiteSpace(Mod.Description);
+
     /// <summary>程序化回填选中项时置位，避免事件处理里重复拉取。</summary>
     public bool Syncing { get; set; }
 

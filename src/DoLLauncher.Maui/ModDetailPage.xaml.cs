@@ -73,7 +73,7 @@ public partial class ModDetailPage : ContentPage
         var description = string.IsNullOrWhiteSpace(detail.Description)
             ? "（没有简介）"
             : detail.Description;
-        DescriptionLabel.Text = description;
+        DescriptionView.Markdown = description;
         DescriptionPanel.IsVisible = true;
 
         if (ModService.IsNativePack(detail.FilePath))
@@ -99,7 +99,7 @@ public partial class ModDetailPage : ContentPage
         {
             readme = readme[..ReadmeLimit] + "\n…（README 过长，已截断）";
         }
-        ReadmeEditor.Text = readme;
+        ReadmeView.Markdown = readme;
 
         UpdateLinks(detail.Homepage);
     }

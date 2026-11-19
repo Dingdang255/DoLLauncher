@@ -91,7 +91,7 @@
                                         StrokeThickness="0"
                                         StrokeShape="RoundRectangle 12"
                                         BackgroundColor="{AppThemeBinding Light=#F7F7F7, Dark=#2A2A2A}">
-                                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
                                         <Grid Grid.Column="0" Grid.ColumnSpan="2"
                                               ColumnDefinitions="Auto,*" ColumnSpacing="12">
                                             <Grid.GestureRecognizers>
@@ -109,13 +109,17 @@
                                             <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
                                                 <Label Text="{Binding DisplayName}" FontSize="16" FontAttributes="Bold"
                                                        LineBreakMode="TailTruncation" />
-                                                <Label Text="{Binding Folder}" FontSize="11"
+                                                <Label Text="{Binding Subtitle}" FontSize="11"
                                                        LineBreakMode="MiddleTruncation"
                                                        TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
                                             </VerticalStackLayout>
                                         </Grid>
 
-                                        <ctl:IconActionView Grid.Column="2" Glyph="{x:Static local:IconGlyph.PuzzlePiece}"
+                                        <Label Grid.Column="2" Text="{Binding StatusText}" FontSize="11"
+                                               TextColor="{Binding StatusColor}"
+                                               VerticalOptions="Center" />
+
+                                        <ctl:IconActionView Grid.Column="3" Glyph="{x:Static local:IconGlyph.PuzzlePiece}"
                                                             Text="模组管理" Variant="pale"
                                                             Tapped="OnRowModsClicked"
                                                             CommandParameter="{Binding .}" />

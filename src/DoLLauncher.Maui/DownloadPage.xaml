@@ -195,9 +195,8 @@
                                                     Clicked="OnToggleBodyClicked"
                                                     BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
                                                     TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
-                                            <Label Text="{Binding BodyPreview}" IsVisible="{Binding IsExpanded}"
-                                                   FontSize="11" LineBreakMode="WordWrap"
-                                                   TextColor="{AppThemeBinding Light=#4A4A4A, Dark=#C8C8C8}" />
+                                            <ctl:MarkdownView Markdown="{Binding BodyPreview}"
+                                                              IsVisible="{Binding IsExpanded}" />
                                         </VerticalStackLayout>
                                     </Border>
                                 </DataTemplate>

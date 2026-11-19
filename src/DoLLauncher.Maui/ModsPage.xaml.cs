@@ -25,6 +25,8 @@ public partial class ModsPage : ContentPage
     private bool _multiSelect;
     private bool _busy;
     private int _loadToken;
+    /// <summary>批量操作栏是否已经播放过展开动画，避免每次刷新重复触发。</summary>
+    private bool _bulkBarShown;
 
     public ModsPage(VersionInfo version)
     {
@@ -306,6 +308,7 @@ public partial class ModsPage : ContentPage
         CountLabel.Text = $"共 {_rows.Count} 个 · 启用 {enabled} 个";
         BulkCountLabel.Text = $"已选 {selected.Count} 个";
         BulkBar.IsVisible = _multiSelect;
+        AnimateBulkBar(_multiSelect);
 
         var canAct = !_busy && selected.Count > 0;
         BulkDetailButton.IsEnabled = canAct && selected.Count == 1;
@@ -318,6 +321,20 @@ public partial class ModsPage : ContentPage
     }
 
     private List<ModsRow> GetSelectedRows() => _rows.Where(r => r.IsSelected).ToList();
+
+    /// <summary>进入选择模式时让批量栏轻微下落淡入，退出时直接隐藏。</summary>
+    private void AnimateBulkBar(bool visible)
+    {
+        if (_bulkBarShown == visible) return;
+        _bulkBarShown = visible;
+        if (!visible) return;
+
+        BulkBar.Opacity = 0;
+        BulkBar.TranslationY = -8;
+        _ = Task.WhenAll(
+            BulkBar.FadeToAsync(1, 140, Easing.CubicOut),
+            BulkBar.TranslateToAsync(0, 0, 160, Easing.CubicOut));
+    }
 
     private void OnRowChecked(object? sender, CheckedChangedEventArgs e)
     {

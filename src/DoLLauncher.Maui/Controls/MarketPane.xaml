@@ -156,6 +156,10 @@
                                             TextColor="White" />
                                 </Grid>
 
+                                <Label Text="{Binding Mod.Description}" FontSize="11" MaxLines="3"
+                                       IsVisible="{Binding HasDescription}" LineBreakMode="TailTruncation"
+                                       TextColor="{AppThemeBinding Light=#4A4A4A, Dark=#C8C8C8}" />
+
                                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
                                     <Button Grid.Column="0" Text="版本选择"
                                             Style="{StaticResource RowToolButton}"

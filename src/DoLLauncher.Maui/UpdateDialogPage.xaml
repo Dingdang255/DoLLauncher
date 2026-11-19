@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:ctl="clr-namespace:DoLLauncher.Maui.Controls"
              x:Class="DoLLauncher.Maui.UpdateDialogPage"
              Title="发现新版本">
 
@@ -18,8 +19,7 @@
                 <Border Style="{StaticResource SettingsCard}">
                     <VerticalStackLayout Spacing="6">
                         <Label Text="更新内容" Style="{StaticResource SettingsItemTitle}" />
-                        <Label x:Name="ChangelogLabel" FontSize="12" LineBreakMode="WordWrap"
-                               TextColor="{AppThemeBinding Light=#404040, Dark=#D8D8D8}" />
+                        <ctl:MarkdownView x:Name="ChangelogView" />
                     </VerticalStackLayout>
                 </Border>
 
