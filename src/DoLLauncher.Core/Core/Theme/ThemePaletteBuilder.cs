@@ -86,10 +86,9 @@ public static class ThemePaletteBuilder
         return result;
     }
 
-    private static void Set(Dictionary<string, string> palette, string key, RgbColor color)
-    {
-        if (palette.ContainsKey(key)) palette[key] = color.ToArgbHex();
-    }
+    private static void Set(Dictionary<string, string> palette, string key, RgbColor color) =>
+        // 原调色板可能只包含背景色（Android 端），派生键也要写进去，不能因为原表缺键就丢弃。
+        palette[key] = color.ToArgbHex();
 
     /// <summary>饱和度低于阈值时按 HSL 补到阈值（保持色相与亮度），让浅色模式下的主题色不发灰。</summary>
     private static RgbColor Vivid(RgbColor color, double minSaturation)
