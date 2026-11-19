@@ -138,7 +138,7 @@
                     HeightRequest="38" MinimumHeightRequest="38" WidthRequest="104"
                     CornerRadius="9" Clicked="OnStartClicked"
                     BackgroundColor="{DynamicResource AccentColor}"
-                    TextColor="White" />
+                    TextColor="{DynamicResource AccentOnColor}" />
         </Grid>
 
     </Grid>

@@ -68,7 +68,8 @@
                                 BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
                             <Border.Triggers>
                                 <DataTrigger TargetType="Border" Binding="{Binding IsSelected}" Value="True">
-                                    <Setter Property="BackgroundColor" Value="#3378A9FF" />
+                                    <Setter Property="BackgroundColor"
+                                            Value="{DynamicResource AccentPaleColor}" />
                                 </DataTrigger>
                             </Border.Triggers>
 

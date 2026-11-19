@@ -695,11 +695,11 @@ public partial class StoryPage : ContentView
     {
         if (selected)
         {
-            row.SetAppThemeColor(VisualElement.BackgroundColorProperty,
-                Color.FromArgb("#DCEBFF"), Color.FromArgb("#2E4258"));
+            row.SetDynamicResource(VisualElement.BackgroundColorProperty, "AccentPaleColor");
         }
         else
         {
+            row.RemoveDynamicResource(VisualElement.BackgroundColorProperty);
             row.SetAppThemeColor(VisualElement.BackgroundColorProperty,
                 Color.FromArgb("#F7F7F7"), Color.FromArgb("#242424"));
         }
@@ -724,8 +724,7 @@ public partial class StoryPage : ContentView
             FontAttributes = FontAttributes.Bold,
             Margin = new Thickness(0, 6, 0, 0),
         };
-        label.SetAppThemeColor(Label.TextColorProperty,
-            Color.FromArgb("#2F6FDB"), Color.FromArgb("#7FB4FF"));
+        label.SetDynamicResource(Label.TextColorProperty, "AccentColor");
         parent.Children.Add(label);
     }
 
@@ -767,8 +766,7 @@ public partial class StoryPage : ContentView
             FontSize = 11,
             LineBreakMode = LineBreakMode.CharacterWrap,
         };
-        key.SetAppThemeColor(Label.TextColorProperty,
-            Color.FromArgb("#2F6FDB"), Color.FromArgb("#7FB4FF"));
+        key.SetDynamicResource(Label.TextColorProperty, "AccentColor");
         head.Add(key, 0);
 
         var kind = new Label { Text = kindName, FontSize = 10, TextColor = kindColor };
