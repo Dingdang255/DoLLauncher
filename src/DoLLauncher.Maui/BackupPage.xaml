@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:ctl="clr-namespace:DoLLauncher.Maui.Controls"
+             xmlns:local="clr-namespace:DoLLauncher.Maui"
              x:Class="DoLLauncher.Maui.BackupPage"
              Title="备份">
 
@@ -23,17 +25,6 @@
             <Setter Property="MinimumHeightRequest" Value="28" />
             <Setter Property="WidthRequest" Value="58" />
             <Setter Property="CornerRadius" Value="7" />
-            <Setter Property="BackgroundColor"
-                    Value="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}" />
-            <Setter Property="TextColor"
-                    Value="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
-        </Style>
-        <Style x:Key="SecondaryButton" TargetType="Button">
-            <Setter Property="FontSize" Value="13" />
-            <Setter Property="HeightRequest" Value="40" />
-            <Setter Property="MinimumHeightRequest" Value="40" />
-            <Setter Property="CornerRadius" Value="9" />
-            <Setter Property="Padding" Value="6,0" />
             <Setter Property="BackgroundColor"
                     Value="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}" />
             <Setter Property="TextColor"
@@ -76,21 +67,25 @@
                                 <Label Text="快捷操作" Style="{StaticResource SectionLabel}" />
 
                                 <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
-                                    <Button x:Name="OpenHelperButton" Grid.Column="0" Text="打开存档助手"
-                                            Style="{StaticResource SecondaryButton}"
-                                            Clicked="OnOpenHelperClicked" />
-                                    <Button x:Name="BackupSavesButton" Grid.Column="1" Text="立即备份存档"
-                                            Style="{StaticResource SecondaryButton}"
-                                            Clicked="OnBackupSavesClicked" />
+                                    <ctl:IconActionView x:Name="OpenHelperButton" Grid.Column="0"
+                                                        Glyph="{x:Static local:IconGlyph.Save}"
+                                                        Text="打开存档助手"
+                                                        Tapped="OnOpenHelperClicked" />
+                                    <ctl:IconActionView x:Name="BackupSavesButton" Grid.Column="1"
+                                                        Glyph="{x:Static local:IconGlyph.Archive}"
+                                                        Text="立即备份存档"
+                                                        Tapped="OnBackupSavesClicked" />
                                 </Grid>
 
                                 <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
-                                    <Button x:Name="ExportConfigButton" Grid.Column="0" Text="导出模组配置"
-                                            Style="{StaticResource SecondaryButton}"
-                                            Clicked="OnExportConfigClicked" />
-                                    <Button x:Name="RestoreConfigButton" Grid.Column="1" Text="还原模组配置"
-                                            Style="{StaticResource SecondaryButton}"
-                                            Clicked="OnRestoreConfigClicked" />
+                                    <ctl:IconActionView x:Name="ExportConfigButton" Grid.Column="0"
+                                                        Glyph="{x:Static local:IconGlyph.Box}"
+                                                        Text="导出模组配置"
+                                                        Tapped="OnExportConfigClicked" />
+                                    <ctl:IconActionView x:Name="RestoreConfigButton" Grid.Column="1"
+                                                        Glyph="{x:Static local:IconGlyph.ArrowImport}"
+                                                        Text="还原模组配置"
+                                                        Tapped="OnRestoreConfigClicked" />
                                 </Grid>
 
                                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="4">
@@ -102,12 +97,14 @@
                                 </Grid>
 
                                 <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
-                                    <Button x:Name="CreateSnapshotButton" Grid.Column="0" Text="创建整版快照"
-                                            Style="{StaticResource SecondaryButton}"
-                                            Clicked="OnCreateSnapshotClicked" />
-                                    <Button x:Name="QuickSnapshotButton" Grid.Column="1" Text="立即备份"
-                                            Style="{StaticResource SecondaryButton}"
-                                            Clicked="OnQuickSnapshotClicked" />
+                                    <ctl:IconActionView x:Name="CreateSnapshotButton" Grid.Column="0"
+                                                        Glyph="{x:Static local:IconGlyph.Add}"
+                                                        Text="创建整版快照"
+                                                        Tapped="OnCreateSnapshotClicked" />
+                                    <ctl:IconActionView x:Name="QuickSnapshotButton" Grid.Column="1"
+                                                        Glyph="{x:Static local:IconGlyph.ArrowClockwise}"
+                                                        Text="立即备份"
+                                                        Tapped="OnQuickSnapshotClicked" />
                                 </Grid>
                                 <Label Text="快照只包含模组与配置；「立即备份」不会询问备注。"
                                        Style="{StaticResource HintLabel}" />
@@ -172,9 +169,10 @@
                                     <Label x:Name="MirrorLabel" Grid.Column="0" Text="—" FontSize="12"
                                            LineBreakMode="WordWrap" VerticalOptions="Center"
                                            TextColor="{AppThemeBinding Light=#4A4A4A, Dark=#C8C8C8}" />
-                                    <Button x:Name="RefreshMirrorButton" Grid.Column="1" Text="刷新"
-                                            Style="{StaticResource RowActionButton}"
-                                            Clicked="OnRefreshMirrorClicked" />
+                                    <ctl:IconActionView x:Name="RefreshMirrorButton" Grid.Column="1"
+                                                        Glyph="{x:Static local:IconGlyph.ArrowClockwise}"
+                                                        IsCompact="True"
+                                                        Tapped="OnRefreshMirrorClicked" />
                                 </Grid>
                             </VerticalStackLayout>
                         </Border>

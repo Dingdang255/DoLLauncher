@@ -1,24 +1,28 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:local="clr-namespace:DoLLauncher.Maui"
              x:Class="DoLLauncher.Maui.SettingsPage"
              Title="设置">
 
     <ScrollView>
-        <VerticalStackLayout Padding="16,12" Spacing="12">
+        <Grid Padding="16,12,16,20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+              ColumnDefinitions="*,*" ColumnSpacing="12" RowSpacing="10">
 
-            <Label Text="选择一个分类查看相关设置。" Style="{StaticResource SettingsHint}" Margin="2,0,0,2" />
+            <Label Grid.Row="0" Grid.ColumnSpan="2" Text="选择一个分类查看相关设置。"
+                   Style="{StaticResource SettingsHint}" Margin="2,0,0,4" />
 
             <!-- 网络下载 -->
-            <Border Style="{StaticResource SettingsCard}">
+            <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource SettingsCard}">
                 <Border.GestureRecognizers>
                     <TapGestureRecognizer Tapped="OnCategoryTapped" CommandParameter="网络下载" />
                 </Border.GestureRecognizers>
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                    <Border Grid.Column="0" WidthRequest="34" HeightRequest="34" StrokeThickness="0"
-                            StrokeShape="RoundRectangle 9" BackgroundColor="{DynamicResource AccentPaleColor}">
-                        <Label Text="网" FontSize="14" FontAttributes="Bold"
-                               TextColor="{DynamicResource AccentColor}"
+                    <Border Grid.Column="0" WidthRequest="36" HeightRequest="36" StrokeThickness="0"
+                            StrokeShape="RoundRectangle 9" VerticalOptions="Center"
+                            BackgroundColor="{DynamicResource AccentPaleColor}">
+                        <Label Text="{x:Static local:IconGlyph.ArrowDownload}" FontFamily="FluentIcons"
+                               FontSize="18" TextColor="{DynamicResource AccentColor}"
                                HorizontalOptions="Center" VerticalOptions="Center" />
                     </Border>
                     <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
@@ -26,21 +30,23 @@
                         <Label Style="{StaticResource SettingsHint}"
                                Text="模组下载源、GitHub 接口源与游戏本体来源：选择下载和访问接口时走的线路。" />
                     </VerticalStackLayout>
-                    <Label Grid.Column="2" Text="›" FontSize="22" VerticalOptions="Center"
+                    <Label Grid.Column="2" Text="{x:Static local:IconGlyph.ChevronRight}"
+                           FontFamily="FluentIcons" FontSize="12" VerticalOptions="Center"
                            TextColor="{AppThemeBinding Light=#B0B0B0, Dark=#808080}" />
                 </Grid>
             </Border>
 
             <!-- 数据与索引 -->
-            <Border Style="{StaticResource SettingsCard}">
+            <Border Grid.Row="1" Grid.Column="1" Style="{StaticResource SettingsCard}">
                 <Border.GestureRecognizers>
                     <TapGestureRecognizer Tapped="OnCategoryTapped" CommandParameter="数据与索引" />
                 </Border.GestureRecognizers>
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                    <Border Grid.Column="0" WidthRequest="34" HeightRequest="34" StrokeThickness="0"
-                            StrokeShape="RoundRectangle 9" BackgroundColor="{DynamicResource AccentPaleColor}">
-                        <Label Text="数" FontSize="14" FontAttributes="Bold"
-                               TextColor="{DynamicResource AccentColor}"
+                    <Border Grid.Column="0" WidthRequest="36" HeightRequest="36" StrokeThickness="0"
+                            StrokeShape="RoundRectangle 9" VerticalOptions="Center"
+                            BackgroundColor="{DynamicResource AccentPaleColor}">
+                        <Label Text="{x:Static local:IconGlyph.Database}" FontFamily="FluentIcons"
+                               FontSize="18" TextColor="{DynamicResource AccentColor}"
                                HorizontalOptions="Center" VerticalOptions="Center" />
                     </Border>
                     <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
@@ -48,21 +54,23 @@
                         <Label Style="{StaticResource SettingsHint}"
                                Text="模组市场索引源、启动时预取索引，以及是否把补全的作者 / 主页写回模组包。" />
                     </VerticalStackLayout>
-                    <Label Grid.Column="2" Text="›" FontSize="22" VerticalOptions="Center"
+                    <Label Grid.Column="2" Text="{x:Static local:IconGlyph.ChevronRight}"
+                           FontFamily="FluentIcons" FontSize="12" VerticalOptions="Center"
                            TextColor="{AppThemeBinding Light=#B0B0B0, Dark=#808080}" />
                 </Grid>
             </Border>
 
             <!-- 问题检查 -->
-            <Border Style="{StaticResource SettingsCard}">
+            <Border Grid.Row="2" Grid.Column="0" Style="{StaticResource SettingsCard}">
                 <Border.GestureRecognizers>
                     <TapGestureRecognizer Tapped="OnCategoryTapped" CommandParameter="问题检查" />
                 </Border.GestureRecognizers>
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                    <Border Grid.Column="0" WidthRequest="34" HeightRequest="34" StrokeThickness="0"
-                            StrokeShape="RoundRectangle 9" BackgroundColor="{DynamicResource AccentPaleColor}">
-                        <Label Text="查" FontSize="14" FontAttributes="Bold"
-                               TextColor="{DynamicResource AccentColor}"
+                    <Border Grid.Column="0" WidthRequest="36" HeightRequest="36" StrokeThickness="0"
+                            StrokeShape="RoundRectangle 9" VerticalOptions="Center"
+                            BackgroundColor="{DynamicResource AccentPaleColor}">
+                        <Label Text="{x:Static local:IconGlyph.CheckmarkCircle}" FontFamily="FluentIcons"
+                               FontSize="18" TextColor="{DynamicResource AccentColor}"
                                HorizontalOptions="Center" VerticalOptions="Center" />
                     </Border>
                     <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
@@ -70,21 +78,23 @@
                         <Label Style="{StaticResource SettingsHint}"
                                Text="游戏版本差异告警阈值：决定「可能存在问题」里版本不匹配的敏感度。" />
                     </VerticalStackLayout>
-                    <Label Grid.Column="2" Text="›" FontSize="22" VerticalOptions="Center"
+                    <Label Grid.Column="2" Text="{x:Static local:IconGlyph.ChevronRight}"
+                           FontFamily="FluentIcons" FontSize="12" VerticalOptions="Center"
                            TextColor="{AppThemeBinding Light=#B0B0B0, Dark=#808080}" />
                 </Grid>
             </Border>
 
             <!-- 游戏 -->
-            <Border Style="{StaticResource SettingsCard}">
+            <Border Grid.Row="2" Grid.Column="1" Style="{StaticResource SettingsCard}">
                 <Border.GestureRecognizers>
                     <TapGestureRecognizer Tapped="OnCategoryTapped" CommandParameter="游戏" />
                 </Border.GestureRecognizers>
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                    <Border Grid.Column="0" WidthRequest="34" HeightRequest="34" StrokeThickness="0"
-                            StrokeShape="RoundRectangle 9" BackgroundColor="{DynamicResource AccentPaleColor}">
-                        <Label Text="游" FontSize="14" FontAttributes="Bold"
-                               TextColor="{DynamicResource AccentColor}"
+                    <Border Grid.Column="0" WidthRequest="36" HeightRequest="36" StrokeThickness="0"
+                            StrokeShape="RoundRectangle 9" VerticalOptions="Center"
+                            BackgroundColor="{DynamicResource AccentPaleColor}">
+                        <Label Text="{x:Static local:IconGlyph.Play}" FontFamily="FluentIcons"
+                               FontSize="18" TextColor="{DynamicResource AccentColor}"
                                HorizontalOptions="Center" VerticalOptions="Center" />
                     </Border>
                     <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
@@ -92,21 +102,23 @@
                         <Label Style="{StaticResource SettingsHint}"
                                Text="关闭页面后的处理与关页检测（心跳、超时、宽限、防抖）时间参数。" />
                     </VerticalStackLayout>
-                    <Label Grid.Column="2" Text="›" FontSize="22" VerticalOptions="Center"
+                    <Label Grid.Column="2" Text="{x:Static local:IconGlyph.ChevronRight}"
+                           FontFamily="FluentIcons" FontSize="12" VerticalOptions="Center"
                            TextColor="{AppThemeBinding Light=#B0B0B0, Dark=#808080}" />
                 </Grid>
             </Border>
 
             <!-- 界面与外观 -->
-            <Border Style="{StaticResource SettingsCard}">
+            <Border Grid.Row="3" Grid.Column="0" Style="{StaticResource SettingsCard}">
                 <Border.GestureRecognizers>
                     <TapGestureRecognizer Tapped="OnCategoryTapped" CommandParameter="界面与外观" />
                 </Border.GestureRecognizers>
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                    <Border Grid.Column="0" WidthRequest="34" HeightRequest="34" StrokeThickness="0"
-                            StrokeShape="RoundRectangle 9" BackgroundColor="{DynamicResource AccentPaleColor}">
-                        <Label Text="界" FontSize="14" FontAttributes="Bold"
-                               TextColor="{DynamicResource AccentColor}"
+                    <Border Grid.Column="0" WidthRequest="36" HeightRequest="36" StrokeThickness="0"
+                            StrokeShape="RoundRectangle 9" VerticalOptions="Center"
+                            BackgroundColor="{DynamicResource AccentPaleColor}">
+                        <Label Text="{x:Static local:IconGlyph.PaintBrush}" FontFamily="FluentIcons"
+                               FontSize="18" TextColor="{DynamicResource AccentColor}"
                                HorizontalOptions="Center" VerticalOptions="Center" />
                     </Border>
                     <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
@@ -114,21 +126,23 @@
                         <Label Style="{StaticResource SettingsHint}"
                                Text="主题、主题色、玩家头像、启动器副标题与界面过渡动画，修改后立即生效。" />
                     </VerticalStackLayout>
-                    <Label Grid.Column="2" Text="›" FontSize="22" VerticalOptions="Center"
+                    <Label Grid.Column="2" Text="{x:Static local:IconGlyph.ChevronRight}"
+                           FontFamily="FluentIcons" FontSize="12" VerticalOptions="Center"
                            TextColor="{AppThemeBinding Light=#B0B0B0, Dark=#808080}" />
                 </Grid>
             </Border>
 
             <!-- 日志与诊断 -->
-            <Border Style="{StaticResource SettingsCard}">
+            <Border Grid.Row="3" Grid.Column="1" Style="{StaticResource SettingsCard}">
                 <Border.GestureRecognizers>
                     <TapGestureRecognizer Tapped="OnCategoryTapped" CommandParameter="日志与诊断" />
                 </Border.GestureRecognizers>
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                    <Border Grid.Column="0" WidthRequest="34" HeightRequest="34" StrokeThickness="0"
-                            StrokeShape="RoundRectangle 9" BackgroundColor="{DynamicResource AccentPaleColor}">
-                        <Label Text="日" FontSize="14" FontAttributes="Bold"
-                               TextColor="{DynamicResource AccentColor}"
+                    <Border Grid.Column="0" WidthRequest="36" HeightRequest="36" StrokeThickness="0"
+                            StrokeShape="RoundRectangle 9" VerticalOptions="Center"
+                            BackgroundColor="{DynamicResource AccentPaleColor}">
+                        <Label Text="{x:Static local:IconGlyph.Notebook}" FontFamily="FluentIcons"
+                               FontSize="18" TextColor="{DynamicResource AccentColor}"
                                HorizontalOptions="Center" VerticalOptions="Center" />
                     </Border>
                     <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
@@ -136,21 +150,23 @@
                         <Label Style="{StaticResource SettingsHint}"
                                Text="日志详细度、游戏日志保留 / 上限 / 超限策略、上报队列与清空 Mod 缓存。" />
                     </VerticalStackLayout>
-                    <Label Grid.Column="2" Text="›" FontSize="22" VerticalOptions="Center"
+                    <Label Grid.Column="2" Text="{x:Static local:IconGlyph.ChevronRight}"
+                           FontFamily="FluentIcons" FontSize="12" VerticalOptions="Center"
                            TextColor="{AppThemeBinding Light=#B0B0B0, Dark=#808080}" />
                 </Grid>
             </Border>
 
             <!-- 版本信息 -->
-            <Border Style="{StaticResource SettingsCard}">
+            <Border Grid.Row="4" Grid.Column="0" Style="{StaticResource SettingsCard}">
                 <Border.GestureRecognizers>
                     <TapGestureRecognizer Tapped="OnCategoryTapped" CommandParameter="版本信息" />
                 </Border.GestureRecognizers>
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                    <Border Grid.Column="0" WidthRequest="34" HeightRequest="34" StrokeThickness="0"
-                            StrokeShape="RoundRectangle 9" BackgroundColor="{DynamicResource AccentPaleColor}">
-                        <Label Text="版" FontSize="14" FontAttributes="Bold"
-                               TextColor="{DynamicResource AccentColor}"
+                    <Border Grid.Column="0" WidthRequest="36" HeightRequest="36" StrokeThickness="0"
+                            StrokeShape="RoundRectangle 9" VerticalOptions="Center"
+                            BackgroundColor="{DynamicResource AccentPaleColor}">
+                        <Label Text="{x:Static local:IconGlyph.Info}" FontFamily="FluentIcons"
+                               FontSize="18" TextColor="{DynamicResource AccentColor}"
                                HorizontalOptions="Center" VerticalOptions="Center" />
                     </Border>
                     <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
@@ -158,21 +174,23 @@
                         <Label Style="{StaticResource SettingsHint}"
                                Text="启动器版本、提交与构建时间、自动检测更新开关与致谢名单。" />
                     </VerticalStackLayout>
-                    <Label Grid.Column="2" Text="›" FontSize="22" VerticalOptions="Center"
+                    <Label Grid.Column="2" Text="{x:Static local:IconGlyph.ChevronRight}"
+                           FontFamily="FluentIcons" FontSize="12" VerticalOptions="Center"
                            TextColor="{AppThemeBinding Light=#B0B0B0, Dark=#808080}" />
                 </Grid>
             </Border>
 
             <!-- 关于 -->
-            <Border Style="{StaticResource SettingsCard}">
+            <Border Grid.Row="4" Grid.Column="1" Style="{StaticResource SettingsCard}">
                 <Border.GestureRecognizers>
                     <TapGestureRecognizer Tapped="OnCategoryTapped" CommandParameter="关于" />
                 </Border.GestureRecognizers>
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                    <Border Grid.Column="0" WidthRequest="34" HeightRequest="34" StrokeThickness="0"
-                            StrokeShape="RoundRectangle 9" BackgroundColor="{DynamicResource AccentPaleColor}">
-                        <Label Text="关" FontSize="14" FontAttributes="Bold"
-                               TextColor="{DynamicResource AccentColor}"
+                    <Border Grid.Column="0" WidthRequest="36" HeightRequest="36" StrokeThickness="0"
+                            StrokeShape="RoundRectangle 9" VerticalOptions="Center"
+                            BackgroundColor="{DynamicResource AccentPaleColor}">
+                        <Label Text="{x:Static local:IconGlyph.QuestionCircle}" FontFamily="FluentIcons"
+                               FontSize="18" TextColor="{DynamicResource AccentColor}"
                                HorizontalOptions="Center" VerticalOptions="Center" />
                     </Border>
                     <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
@@ -180,13 +198,14 @@
                         <Label Style="{StaticResource SettingsHint}"
                                Text="应用信息、应用根目录、项目主页与反馈入口。" />
                     </VerticalStackLayout>
-                    <Label Grid.Column="2" Text="›" FontSize="22" VerticalOptions="Center"
+                    <Label Grid.Column="2" Text="{x:Static local:IconGlyph.ChevronRight}"
+                           FontFamily="FluentIcons" FontSize="12" VerticalOptions="Center"
                            TextColor="{AppThemeBinding Light=#B0B0B0, Dark=#808080}" />
                 </Grid>
             </Border>
 
             <!-- 运行记录 -->
-            <Border Style="{StaticResource SettingsCard}" Margin="0,4,0,0">
+            <Border Grid.Row="5" Grid.ColumnSpan="2" Style="{StaticResource SettingsCard}" Margin="0,4,0,0">
                 <VerticalStackLayout Spacing="8">
                     <Grid ColumnDefinitions="*,Auto">
                         <VerticalStackLayout Grid.Column="0" Spacing="2">
@@ -214,7 +233,7 @@
                 </VerticalStackLayout>
             </Border>
 
-        </VerticalStackLayout>
+        </Grid>
     </ScrollView>
 
 </ContentPage>

@@ -53,7 +53,12 @@ public partial class GamePage : ContentPage
                 ShowFileModeNotice($"file:// 页面加载失败（{e.Result}）。" +
                                    "请把这个版本转为 http 版本后重试（导入 zip 版本包或重新下载）。");
             }
+            return;
         }
+
+        // 页面真正加载完成后重新登记：重置宽限期，让游戏初始化阶段的长时间
+        // 主线程占用不会被误判成「页面已关闭」。
+        if (!_fileMode) AndroidSessionWatcher.Track(_version.Folder);
     }
 
     protected override void OnAppearing()
@@ -84,9 +89,8 @@ public partial class GamePage : ContentPage
         base.OnDisappearing();
         if (BackRouter.Handler == HandleBack) BackRouter.Handler = null;
         AndroidSessionWatcher.Untrack(_version.Folder);
-        // 从工具栏返回箭头退出时也要停服，Stop 可重复调用
-        ServerManager.Stop(_version.Folder);
-        LauncherStatusService.Sync();
+        // 这里不能直接停服：页面被对话框或其它页面短暂遮挡时也会触发 OnDisappearing，
+        // 停服交给返回键关闭流程（CloseAsync）与关页检测处理。
     }
 
     /// <summary>返回键：先回退网页历史，再按关页策略退出。</summary>
@@ -119,6 +123,7 @@ public partial class GamePage : ContentPage
             }
 
             ServerManager.Stop(_version.Folder);
+            LauncherStatusService.Sync();
             await Navigation.PopAsync();
         }
         catch (Exception ex)

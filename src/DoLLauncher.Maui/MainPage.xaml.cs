@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using DoLLauncher.Maui.Controls;
 using DoLLauncher.Maui.Platform;
 using DoLLauncher.Models;
 using DoLLauncher.Platform;
@@ -10,7 +11,6 @@ public partial class MainPage : ContentPage
 {
     private readonly ObservableCollection<VersionInfo> _versions = new();
     private bool _loading;
-    private bool _suppressNextSelection;
 
     // 启动时的自动备份检查只执行一次（返回列表不再重复）。
     private static bool _startupBackupChecked;
@@ -37,6 +37,7 @@ public partial class MainPage : ContentPage
             var list = await Task.Run(VersionService.Scan);
             _versions.Clear();
             foreach (var item in list.Where(v => v.Mode == "http")) _versions.Add(item);
+            VersionCountLabel.Text = $"{_versions.Count} 个版本";
         }
         catch (Exception ex)
         {
@@ -52,50 +53,35 @@ public partial class MainPage : ContentPage
 
     private async void OnRefreshing(object? sender, EventArgs e) => await ReloadAsync();
 
-    private async void OnVersionSelected(object? sender, SelectionChangedEventArgs e)
+    private async void OnOpenDetailClicked(object? sender, EventArgs e)
     {
-        if (e.CurrentSelection.FirstOrDefault() is not VersionInfo version) return;
-        VersionList.SelectedItem = null;
-
-        // 「模组」等快捷按钮点击时可能顺带选中卡片，这里吞掉那一次选中，避免误进详情页。
-        if (_suppressNextSelection)
-        {
-            _suppressNextSelection = false;
-            return;
-        }
-
+        if (VersionOf(sender) is not { } version) return;
         await Navigation.PushAsync(new VersionDetailPage(version));
     }
 
+    private async void OnRefreshClicked(object? sender, EventArgs e) => await ReloadAsync();
+
     private async void OnModsClicked(object? sender, EventArgs e)
     {
-        if (sender is not Button { CommandParameter: VersionInfo version }) return;
-        _suppressNextSelection = true;
-        VersionList.SelectedItem = null;
+        if (VersionOf(sender) is not { } version) return;
         await Navigation.PushAsync(new ModsPage(version));
     }
 
     private async void OnBackupClicked(object? sender, EventArgs e)
     {
-        if (sender is not Button { CommandParameter: VersionInfo version }) return;
-        _suppressNextSelection = true;
-        VersionList.SelectedItem = null;
+        if (VersionOf(sender) is not { } version) return;
         await Navigation.PushAsync(new BackupPage(version));
     }
 
     private async void OnDiagnosticsClicked(object? sender, EventArgs e)
     {
-        if (sender is not Button { CommandParameter: VersionInfo version }) return;
-        _suppressNextSelection = true;
-        VersionList.SelectedItem = null;
+        if (VersionOf(sender) is not { } version) return;
         await Navigation.PushAsync(new DiagnosticsPage(version));
     }
 
     private async void OnStoryClicked(object? sender, EventArgs e)
     {
-        if (sender is not Button { CommandParameter: VersionInfo version }) return;
-        _suppressNextSelection = true;
-        VersionList.SelectedItem = null;
+        if (VersionOf(sender) is not { } version) return;
         await Navigation.PushAsync(new StoryPage(version));
     }
 
@@ -112,13 +98,19 @@ public partial class MainPage : ContentPage
     protected override void OnAppearing()
     {
         base.OnAppearing();
-        // 从模组页返回时恢复正常的选中行为。
-        _suppressNextSelection = false;
         // 删除 / 导入版本后回到列表，重新扫描一次。
         _ = InitializeAsync();
         // 冷启动 / 其它页面期间收到的分享文件，等主界面出现后处理。
         _ = ShareImportHelper.ProcessPendingAsync(this);
     }
+
+    /// <summary>取出列表项上挂的版本：兼容普通按钮与图标操作视图。</summary>
+    private static VersionInfo? VersionOf(object? sender) => sender switch
+    {
+        Button { CommandParameter: VersionInfo version } => version,
+        IconActionView { CommandParameter: VersionInfo version } => version,
+        _ => null,
+    };
 
     private async Task InitializeAsync()
     {

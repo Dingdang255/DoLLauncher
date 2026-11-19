@@ -26,6 +26,9 @@ public class MainActivity : MauiAppCompatActivity
     {
         base.OnCreate(savedInstanceState);
 
+        // 启动器采用横向布局（左侧导航 + 右侧内容），与桌面端窗口比例一致。
+        RequestedOrientation = ScreenOrientation.Landscape;
+
         // 启动即请求通知权限（Android 13+）；被拒绝时只影响通知展示，前台服务仍可运行。
         RequestNotificationPermission();
 

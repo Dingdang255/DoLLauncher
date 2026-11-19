@@ -17,6 +17,8 @@ public static class MauiProgram
 			{
 				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
 				fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
+				// 图标字体（Fluent System Icons，MIT），用 IconGlyph 里的码位显示
+				fonts.AddFont("FluentSystemIcons-Regular.ttf", "FluentIcons");
 			});
 
 		// 启动器根目录：应用私有目录下的 DoL，目录结构与 Windows 保持一致

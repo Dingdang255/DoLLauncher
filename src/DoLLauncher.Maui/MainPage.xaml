@@ -1,80 +1,133 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:ctl="clr-namespace:DoLLauncher.Maui.Controls"
+             xmlns:local="clr-namespace:DoLLauncher.Maui"
              x:Class="DoLLauncher.Maui.MainPage"
              Title="DoL 启动器">
 
-    <ContentPage.ToolbarItems>
-        <ToolbarItem Text="下载" Clicked="OnDownloadClicked" />
-        <ToolbarItem Text="导入版本" Clicked="OnImportClicked" />
-        <ToolbarItem Text="设置" Clicked="OnSettingsClicked" />
-    </ContentPage.ToolbarItems>
+    <Grid ColumnDefinitions="224,*" Padding="16,14" ColumnSpacing="16">
 
-    <Grid RowDefinitions="Auto,*" Padding="16,12,16,0">
+        <!-- 左侧导航（对应 WPF 的 PCL 式侧边栏） -->
+        <Border Grid.Column="0" StrokeThickness="0" StrokeShape="RoundRectangle 14"
+                BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#242424}"
+                Padding="14,16">
+            <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="14">
 
-        <VerticalStackLayout Grid.Row="0" Spacing="2">
-            <Label Text="DoL 启动器" FontSize="26" FontAttributes="Bold" />
-            <Label x:Name="RootLabel" FontSize="11" TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}"
-                   LineBreakMode="MiddleTruncation" />
-        </VerticalStackLayout>
-
-        <RefreshView Grid.Row="1" x:Name="Refresher" Refreshing="OnRefreshing" Margin="0,12,0,0">
-            <CollectionView x:Name="VersionList" SelectionMode="Single" SelectionChanged="OnVersionSelected">
-                <CollectionView.EmptyView>
-                    <VerticalStackLayout Padding="24" Spacing="8" VerticalOptions="Center">
-                        <Label Text="还没有版本" FontAttributes="Bold" HorizontalOptions="Center" />
-                        <Label Text="把游戏版本文件夹放进 versions 目录，然后下拉刷新。"
-                               HorizontalTextAlignment="Center" FontSize="13"
-                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                    </VerticalStackLayout>
-                </CollectionView.EmptyView>
-                <CollectionView.ItemTemplate>
-                    <DataTemplate>
-                        <Border Padding="14" Margin="0,0,0,10"
-                                StrokeThickness="0"
-                                StrokeShape="RoundRectangle 12"
-                                BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
-                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                <VerticalStackLayout Grid.Column="0" Spacing="4">
-                                    <Label Text="{Binding DisplayName}" FontSize="17" FontAttributes="Bold"
-                                           LineBreakMode="TailTruncation" />
-                                    <Label Text="{Binding Folder}" FontSize="12"
-                                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                                </VerticalStackLayout>
-                                <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
-                                    <Button Text="模组" FontSize="12" Padding="0"
-                                            HeightRequest="32" WidthRequest="52" CornerRadius="8"
-                                            Clicked="OnModsClicked"
-                                            CommandParameter="{Binding .}"
-                                            BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
-                                            TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
-                                    <Button Text="备份" FontSize="12" Padding="0"
-                                            HeightRequest="32" WidthRequest="52" CornerRadius="8"
-                                            Clicked="OnBackupClicked"
-                                            CommandParameter="{Binding .}"
-                                            BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
-                                            TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
-                                    <Button Text="诊断" FontSize="12" Padding="0"
-                                            HeightRequest="32" WidthRequest="52" CornerRadius="8"
-                                            Clicked="OnDiagnosticsClicked"
-                                            CommandParameter="{Binding .}"
-                                            BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
-                                            TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
-                                    <Button Text="剧情" FontSize="12" Padding="0"
-                                            HeightRequest="32" WidthRequest="52" CornerRadius="8"
-                                            Clicked="OnStoryClicked"
-                                            CommandParameter="{Binding .}"
-                                            BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
-                                            TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
-                                </HorizontalStackLayout>
-                            </Grid>
+                <VerticalStackLayout Grid.Row="0" Spacing="4">
+                    <HorizontalStackLayout Spacing="9">
+                        <Border WidthRequest="32" HeightRequest="32" StrokeThickness="0"
+                                StrokeShape="RoundRectangle 9"
+                                BackgroundColor="{DynamicResource AccentPaleColor}">
+                            <Label Text="{x:Static local:IconGlyph.Window}" FontFamily="FluentIcons"
+                                   FontSize="18" TextColor="{DynamicResource AccentColor}"
+                                   HorizontalOptions="Center" VerticalOptions="Center" />
                         </Border>
-                    </DataTemplate>
-                </CollectionView.ItemTemplate>
-            </CollectionView>
-        </RefreshView>
+                        <Label Text="DoL 启动器" FontSize="18" FontAttributes="Bold"
+                               VerticalOptions="Center" />
+                    </HorizontalStackLayout>
+                    <Label x:Name="RootLabel" FontSize="10"
+                           LineBreakMode="MiddleTruncation"
+                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                </VerticalStackLayout>
 
-        <Grid x:Name="BusyOverlay" Grid.Row="0" Grid.RowSpan="2" IsVisible="False"
+                <VerticalStackLayout Grid.Row="1" Spacing="8">
+                    <ctl:IconActionView Glyph="{x:Static local:IconGlyph.ArrowDownload}"
+                                        Text="下载中心" Variant="pale"
+                                        Tapped="OnDownloadClicked" />
+                    <ctl:IconActionView Glyph="{x:Static local:IconGlyph.ArrowImport}"
+                                        Text="导入版本 / 模组包"
+                                        Tapped="OnImportClicked" />
+                </VerticalStackLayout>
+
+                <VerticalStackLayout Grid.Row="3" Spacing="8">
+                    <ctl:IconActionView Glyph="{x:Static local:IconGlyph.Settings}"
+                                        Text="设置" Tapped="OnSettingsClicked" />
+                    <Label FontSize="10" LineBreakMode="WordWrap"
+                           Text="每个版本使用独立端口，存档、模组开关与设置互不干扰。"
+                           TextColor="{AppThemeBinding Light=#909090, Dark=#909090}" />
+                </VerticalStackLayout>
+
+            </Grid>
+        </Border>
+
+        <!-- 右侧版本列表 -->
+        <Grid Grid.Column="1" RowDefinitions="Auto,*" RowSpacing="10">
+
+            <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                <HorizontalStackLayout Grid.Column="0" Spacing="10" VerticalOptions="Center">
+                    <Label Text="游戏版本" FontSize="20" FontAttributes="Bold" VerticalOptions="Center" />
+                    <Label x:Name="VersionCountLabel" FontSize="12" VerticalOptions="Center"
+                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                </HorizontalStackLayout>
+                <ctl:IconActionView Grid.Column="1" Glyph="{x:Static local:IconGlyph.ArrowClockwise}"
+                                    Variant="pale" IsCompact="True" Tapped="OnRefreshClicked" />
+                <ctl:IconActionView Grid.Column="2" Glyph="{x:Static local:IconGlyph.ArrowImport}"
+                                    Text="导入" Variant="primary" Tapped="OnImportClicked" />
+            </Grid>
+
+            <RefreshView Grid.Row="1" x:Name="Refresher" Refreshing="OnRefreshing">
+                <CollectionView x:Name="VersionList" SelectionMode="None">
+                    <CollectionView.EmptyView>
+                        <VerticalStackLayout Padding="24" Spacing="8" VerticalOptions="Center">
+                            <Label Text="还没有版本" FontAttributes="Bold" HorizontalOptions="Center" />
+                            <Label Text="把游戏版本文件夹放进 versions 目录，然后点右上角刷新。"
+                                   HorizontalTextAlignment="Center" FontSize="13"
+                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                        </VerticalStackLayout>
+                    </CollectionView.EmptyView>
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate>
+                            <Border Padding="12" Margin="0,0,0,8"
+                                    StrokeThickness="0"
+                                    StrokeShape="RoundRectangle 12"
+                                    BackgroundColor="{AppThemeBinding Light=#F7F7F7, Dark=#2A2A2A}">
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                                    <Border Grid.Column="0" WidthRequest="42" HeightRequest="42"
+                                            StrokeThickness="0" StrokeShape="RoundRectangle 10"
+                                            VerticalOptions="Center"
+                                            BackgroundColor="{DynamicResource AccentPaleColor}">
+                                        <Label Text="{x:Static local:IconGlyph.Window}" FontFamily="FluentIcons"
+                                               FontSize="20" TextColor="{DynamicResource AccentColor}"
+                                               HorizontalOptions="Center" VerticalOptions="Center" />
+                                    </Border>
+
+                                    <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
+                                        <Label Text="{Binding DisplayName}" FontSize="16" FontAttributes="Bold"
+                                               LineBreakMode="TailTruncation" />
+                                        <Label Text="{Binding Folder}" FontSize="11"
+                                               LineBreakMode="MiddleTruncation"
+                                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                    </VerticalStackLayout>
+
+                                    <HorizontalStackLayout Grid.Column="2" Spacing="8" VerticalOptions="Center">
+                                        <ctl:IconActionView Glyph="{x:Static local:IconGlyph.PuzzlePiece}"
+                                                            IsCompact="True" Tapped="OnModsClicked"
+                                                            CommandParameter="{Binding .}" />
+                                        <ctl:IconActionView Glyph="{x:Static local:IconGlyph.Archive}"
+                                                            IsCompact="True" Tapped="OnBackupClicked"
+                                                            CommandParameter="{Binding .}" />
+                                        <ctl:IconActionView Glyph="{x:Static local:IconGlyph.Bug}"
+                                                            IsCompact="True" Tapped="OnDiagnosticsClicked"
+                                                            CommandParameter="{Binding .}" />
+                                        <ctl:IconActionView Glyph="{x:Static local:IconGlyph.Book}"
+                                                            IsCompact="True" Tapped="OnStoryClicked"
+                                                            CommandParameter="{Binding .}" />
+                                        <ctl:IconActionView Glyph="{x:Static local:IconGlyph.ChevronRight}"
+                                                            Variant="pale" IsCompact="True"
+                                                            Tapped="OnOpenDetailClicked"
+                                                            CommandParameter="{Binding .}" />
+                                    </HorizontalStackLayout>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+            </RefreshView>
+
+        </Grid>
+
+        <Grid x:Name="BusyOverlay" Grid.ColumnSpan="2" IsVisible="False"
               BackgroundColor="#80000000">
             <ActivityIndicator IsRunning="True" Color="White"
                                VerticalOptions="Center" HorizontalOptions="Center" />

@@ -176,8 +176,10 @@ public sealed class StaticServer : ILocalServer
             listener.Start(128);
             _listener = listener;
             _cts = new CancellationTokenSource();
-            // 心跳从 0 开始：页面还没真正跑起来之前不算“已连接”，避免误判为关闭
+            // 心跳与页面状态全部从头开始：上一轮留下的旧心跳 / 关闭事件会让新页面一登记就被误判。
             Interlocked.Exchange(ref _lastHeartbeatUtcTicks, 0);
+            Interlocked.Exchange(ref _pageClosedUtcTicks, 0);
+            _pageHeartbeats.Clear();
         }
         // 旧镜像回滚/迁移会读写数百 MB，放到后台做，避免启动器界面在拉起浏览器时卡住。
         // 存档接口会等这个任务完成后再读写槽位。

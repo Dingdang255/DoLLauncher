@@ -1,22 +1,10 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:ctl="clr-namespace:DoLLauncher.Maui.Controls"
+             xmlns:local="clr-namespace:DoLLauncher.Maui"
              x:Class="DoLLauncher.Maui.ModsPage"
              Title="模组">
-
-    <ContentPage.Resources>
-        <Style x:Key="ToolButton" TargetType="Button">
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="HeightRequest" Value="34" />
-            <Setter Property="MinimumWidthRequest" Value="56" />
-            <Setter Property="CornerRadius" Value="8" />
-            <Setter Property="BackgroundColor"
-                    Value="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}" />
-            <Setter Property="TextColor"
-                    Value="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
-        </Style>
-    </ContentPage.Resources>
 
     <Grid RowDefinitions="Auto,Auto,*" Padding="16,12,16,0">
 
@@ -31,26 +19,26 @@
         <VerticalStackLayout Grid.Row="1" Spacing="6" Margin="0,8,0,10">
             <ScrollView Orientation="Horizontal">
                 <HorizontalStackLayout Spacing="6">
-                    <Button x:Name="ImportButton" Text="导入" Style="{StaticResource ToolButton}"
-                            Clicked="OnImportClicked" />
-                    <Button x:Name="DetailButton" Text="详情" Style="{StaticResource ToolButton}"
-                            IsEnabled="False" Clicked="OnDetailClicked" />
-                    <Button x:Name="RenameButton" Text="重命名" Style="{StaticResource ToolButton}"
-                            IsEnabled="False" Clicked="OnRenameClicked" />
-                    <Button x:Name="DeleteButton" Text="删除" Style="{StaticResource ToolButton}"
-                            IsEnabled="False" TextColor="#C62828" Clicked="OnDeleteClicked" />
-                    <Button x:Name="EnableButton" Text="启用" Style="{StaticResource ToolButton}"
-                            IsEnabled="False" Clicked="OnEnableClicked" />
-                    <Button x:Name="DisableButton" Text="停用" Style="{StaticResource ToolButton}"
-                            IsEnabled="False" Clicked="OnDisableClicked" />
-                    <Button x:Name="CheckButton" Text="检查" Style="{StaticResource ToolButton}"
-                            Clicked="OnCheckClicked" />
-                    <Button x:Name="RefreshButton" Text="刷新" Style="{StaticResource ToolButton}"
-                            Clicked="OnRefreshClicked" />
-                    <Button x:Name="ProblemsButton" Text="问题" Style="{StaticResource ToolButton}"
-                            Clicked="OnProblemsClicked" />
-                    <Button x:Name="SelectButton" Text="选择" Style="{StaticResource ToolButton}"
-                            Clicked="OnSelectClicked" />
+                    <ctl:IconActionView x:Name="ImportButton" Glyph="{x:Static local:IconGlyph.ArrowImport}"
+                                        Text="导入" Tapped="OnImportClicked" />
+                    <ctl:IconActionView x:Name="DetailButton" Glyph="{x:Static local:IconGlyph.Info}"
+                                        Text="详情" IsEnabled="False" Tapped="OnDetailClicked" />
+                    <ctl:IconActionView x:Name="RenameButton" Glyph="{x:Static local:IconGlyph.Edit}"
+                                        Text="重命名" IsEnabled="False" Tapped="OnRenameClicked" />
+                    <ctl:IconActionView x:Name="DeleteButton" Glyph="{x:Static local:IconGlyph.Delete}"
+                                        Text="删除" Variant="danger" IsEnabled="False" Tapped="OnDeleteClicked" />
+                    <ctl:IconActionView x:Name="EnableButton" Glyph="{x:Static local:IconGlyph.CheckmarkCircle}"
+                                        Text="启用" IsEnabled="False" Tapped="OnEnableClicked" />
+                    <ctl:IconActionView x:Name="DisableButton" Glyph="{x:Static local:IconGlyph.Dismiss}"
+                                        Text="停用" IsEnabled="False" Tapped="OnDisableClicked" />
+                    <ctl:IconActionView x:Name="CheckButton" Glyph="{x:Static local:IconGlyph.Shield}"
+                                        Text="检查" Tapped="OnCheckClicked" />
+                    <ctl:IconActionView x:Name="RefreshButton" Glyph="{x:Static local:IconGlyph.ArrowClockwise}"
+                                        Text="刷新" Tapped="OnRefreshClicked" />
+                    <ctl:IconActionView x:Name="ProblemsButton" Glyph="{x:Static local:IconGlyph.Warning}"
+                                        Text="问题" Tapped="OnProblemsClicked" />
+                    <ctl:IconActionView x:Name="SelectButton" Glyph="{x:Static local:IconGlyph.List}"
+                                        Text="选择" Tapped="OnSelectClicked" />
                 </HorizontalStackLayout>
             </ScrollView>
 
@@ -58,12 +46,16 @@
                 <Label x:Name="BulkCountLabel" Text="已选 0 个" FontSize="12"
                        VerticalOptions="Center"
                        TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                <Button Text="全选" Style="{StaticResource ToolButton}" Clicked="OnSelectAllClicked" />
-                <Button Text="启用" Style="{StaticResource ToolButton}" Clicked="OnEnableClicked" />
-                <Button Text="停用" Style="{StaticResource ToolButton}" Clicked="OnDisableClicked" />
-                <Button Text="删除" Style="{StaticResource ToolButton}" TextColor="#C62828"
-                        Clicked="OnDeleteClicked" />
-                <Button Text="取消" Style="{StaticResource ToolButton}" Clicked="OnSelectClicked" />
+                <ctl:IconActionView Glyph="{x:Static local:IconGlyph.List}" Text="全选"
+                                    Tapped="OnSelectAllClicked" />
+                <ctl:IconActionView Glyph="{x:Static local:IconGlyph.CheckmarkCircle}" Text="启用"
+                                    Tapped="OnEnableClicked" />
+                <ctl:IconActionView Glyph="{x:Static local:IconGlyph.Dismiss}" Text="停用"
+                                    Tapped="OnDisableClicked" />
+                <ctl:IconActionView Glyph="{x:Static local:IconGlyph.Delete}" Text="删除" Variant="danger"
+                                    Tapped="OnDeleteClicked" />
+                <ctl:IconActionView Glyph="{x:Static local:IconGlyph.Dismiss}" Text="取消"
+                                    Tapped="OnSelectClicked" />
             </HorizontalStackLayout>
         </VerticalStackLayout>
 
