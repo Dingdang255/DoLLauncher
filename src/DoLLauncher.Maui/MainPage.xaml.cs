@@ -76,6 +76,14 @@ public partial class MainPage : ContentPage
 
     private async void OnRefreshing(object? sender, EventArgs e) => await ReloadAsync();
 
+    /// <summary>设置里的启动器副标题：为空时保持原样，有内容时显示在标题下方。</summary>
+    private void ApplySubtitle()
+    {
+        var text = (AppConfig.Load().General.Subtitle ?? string.Empty).Trim();
+        SubtitleLabel.Text = text;
+        SubtitleLabel.IsVisible = text.Length > 0;
+    }
+
     // ---------- 版本行 ----------
 
     /// <summary>整行单击 = 打开版本详情（与 WPF 一致）。</summary>
@@ -177,6 +185,13 @@ public partial class MainPage : ContentPage
     /// <summary>面板切换时淡入并轻微横移，减少「瞬间换屏」的突兀感。</summary>
     private static async Task PlayEnterAsync(VisualElement view, double fromX)
     {
+        if (!UiMotion.Enabled)
+        {
+            view.Opacity = 1;
+            view.TranslationX = 0;
+            return;
+        }
+
         view.Opacity = 0;
         view.TranslationX = fromX;
         await Task.WhenAll(
@@ -240,6 +255,7 @@ public partial class MainPage : ContentPage
         // 冷启动 / 其它页面期间收到的分享文件，等主界面出现后处理。
         _ = ShareImportHelper.ProcessPendingAsync(this);
         UpdateAvatar();
+        ApplySubtitle();
         // 从详情 / 模组管理等页面返回时，恢复当前面板的轮询与刷新。
         if (_activePanel != null) _ = ActivateAsync(_activePanel);
     }

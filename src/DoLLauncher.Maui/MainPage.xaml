@@ -27,8 +27,12 @@
                                 <Image x:Name="AvatarImage" Aspect="AspectFill" IsVisible="False" />
                             </Grid>
                         </Border>
-                        <Label Text="DoL 启动器" FontSize="18" FontAttributes="Bold"
-                               VerticalOptions="Center" />
+                        <VerticalStackLayout Spacing="1" VerticalOptions="Center">
+                            <Label Text="DoL 启动器" FontSize="18" FontAttributes="Bold" />
+                            <Label x:Name="SubtitleLabel" FontSize="10" IsVisible="False"
+                                   LineBreakMode="TailTruncation"
+                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                        </VerticalStackLayout>
                     </HorizontalStackLayout>
                     <Label x:Name="RootLabel" FontSize="10"
                            LineBreakMode="MiddleTruncation"

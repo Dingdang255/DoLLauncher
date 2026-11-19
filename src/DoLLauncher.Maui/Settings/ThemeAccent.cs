@@ -78,6 +78,14 @@ internal static class ThemeAccent
     public static Dictionary<string, string> Build(string? accentHex, int saturationPercent) =>
         ThemePaletteBuilder.Build(IsDark ? DarkPalette : LightPalette, accentHex, saturationPercent);
 
-    private static void Set(ResourceDictionary resources, string key, string hex) =>
-        resources[key] = Color.FromArgb(hex);
+    private static void Set(ResourceDictionary resources, string key, string hex)
+    {
+        var color = Color.FromArgb(hex);
+        resources[key] = color;
+        // Colors.xaml 里的键在合并字典内，只有那里也改掉才会触发已有控件的 DynamicResource 重新取值。
+        foreach (var merged in resources.MergedDictionaries)
+        {
+            if (merged.TryGetValue(key, out _)) merged[key] = color;
+        }
+    }
 }

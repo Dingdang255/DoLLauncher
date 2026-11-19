@@ -43,6 +43,7 @@ public static class MauiProgram
 			try
 			{
 				ApplyPickerChrome(edit);
+				RegisterPicker(edit);
 			}
 			catch (Exception ex)
 			{
@@ -87,6 +88,18 @@ public static class MauiProgram
 	}
 
 #if ANDROID
+	// 已创建的 Picker 原生控件，切主题时逐个刷新（隐藏页面里的不在可视树遍历范围内）。
+	private static readonly List<WeakReference<Android.Widget.EditText>> PickerViews = new();
+
+	private static void RegisterPicker(Android.Widget.EditText edit)
+	{
+		foreach (var item in PickerViews)
+		{
+			if (item.TryGetTarget(out var existing) && ReferenceEquals(existing, edit)) return;
+		}
+		PickerViews.Add(new WeakReference<Android.Widget.EditText>(edit));
+	}
+
 	/// <summary>按当前系统深浅色重新给一个 Picker 刷底色、描边与箭头。</summary>
 	internal static void ApplyPickerChrome(Android.Widget.EditText edit)
 	{
@@ -118,33 +131,26 @@ public static class MauiProgram
 
 	/// <summary>
 	/// 应用内切换深浅色后，已创建的 Picker 不会自动重跑映射，
-	/// 这里遍历当前窗口的可视树逐个刷新，避免停留在旧配色。
+	/// 这里刷新所有登记过的原生控件（包括仍在导航栈里的页面），避免停留在旧配色。
 	/// </summary>
 	internal static void RefreshPickers()
 	{
 		try
 		{
-			var windows = Application.Current?.Windows;
-			if (windows == null) return;
-			foreach (var window in windows)
+			for (var i = PickerViews.Count - 1; i >= 0; i--)
 			{
-				if (window.Page is IVisualTreeElement root) RefreshNode(root);
+				if (!PickerViews[i].TryGetTarget(out var edit))
+				{
+					PickerViews.RemoveAt(i);
+					continue;
+				}
+				try { ApplyPickerChrome(edit); }
+				catch { /* 单个控件失败不影响其它控件 */ }
 			}
 		}
 		catch (Exception ex)
 		{
 			LogService.Error("刷新 Picker 主题失败", ex);
-		}
-
-		static void RefreshNode(IVisualTreeElement node)
-		{
-			if (node is Picker picker)
-			{
-				try { picker.Handler?.UpdateValue("DoLPickerChrome"); }
-				catch { /* 单个控件失败不影响其它控件 */ }
-			}
-			foreach (var child in node.GetVisualChildren())
-				RefreshNode(child);
 		}
 	}
 

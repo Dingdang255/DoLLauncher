@@ -167,9 +167,16 @@ public partial class DownloadPage : ContentView
         var show = game ? (View)GameContent : MarketContent;
         var hide = game ? (View)MarketContent : GameContent;
         hide.IsVisible = false;
-        show.Opacity = 0;
         show.IsVisible = true;
-        _ = show.FadeToAsync(1, 150, Easing.CubicOut);
+        if (UiMotion.Enabled)
+        {
+            show.Opacity = 0;
+            _ = show.FadeToAsync(1, 150, Easing.CubicOut);
+        }
+        else
+        {
+            show.Opacity = 1;
+        }
 
         TargetPanel.IsVisible = !game;
         StyleNav(NavGame, game);

@@ -131,24 +131,27 @@ public sealed class IconActionView : ContentView
         switch ((Variant ?? string.Empty).Trim().ToLowerInvariant())
         {
             case "primary":
-                _border.BackgroundColor = Resource("AccentColor", Color.FromArgb("#1370F3"));
-                SetForeground(Resource("AccentOnColor", Colors.White));
+                _border.SetDynamicResource(Border.BackgroundColorProperty, "AccentColor");
+                SetForegroundDynamic("AccentOnColor", Colors.White);
                 break;
             case "pale":
-                _border.BackgroundColor = Resource("AccentPaleColor", Color.FromArgb("#EAF3FF"));
-                SetForeground(Resource("AccentColor", Color.FromArgb("#1370F3")));
+                _border.SetDynamicResource(Border.BackgroundColorProperty, "AccentPaleColor");
+                SetForegroundDynamic("AccentColor", Color.FromArgb("#1370F3"));
                 break;
             case "danger":
-                _border.SetAppThemeColor(BackgroundColorProperty,
+                _border.RemoveDynamicResource(Border.BackgroundColorProperty);
+                _border.SetAppThemeColor(Border.BackgroundColorProperty,
                     Color.FromArgb("#E0E0E0"), Color.FromArgb("#3C3C3C"));
                 SetForeground(Color.FromArgb("#C62828"), Color.FromArgb("#EF9A9A"));
                 break;
             case "plain":
+                _border.RemoveDynamicResource(Border.BackgroundColorProperty);
                 _border.BackgroundColor = Colors.Transparent;
                 SetForeground(Color.FromArgb("#333333"), Color.FromArgb("#E8E8E8"));
                 break;
             default:
-                _border.SetAppThemeColor(BackgroundColorProperty,
+                _border.RemoveDynamicResource(Border.BackgroundColorProperty);
+                _border.SetAppThemeColor(Border.BackgroundColorProperty,
                     Color.FromArgb("#E0E0E0"), Color.FromArgb("#3C3C3C"));
                 SetForeground(Color.FromArgb("#333333"), Color.FromArgb("#E8E8E8"));
                 break;
@@ -160,12 +163,22 @@ public sealed class IconActionView : ContentView
 
     private void SetForeground(Color color)
     {
+        _glyph.RemoveDynamicResource(Label.TextColorProperty);
+        _label.RemoveDynamicResource(Label.TextColorProperty);
         _glyph.TextColor = color;
         _label.TextColor = color;
     }
 
+    private void SetForegroundDynamic(string key, Color fallback)
+    {
+        _glyph.SetDynamicResource(Label.TextColorProperty, key);
+        _label.SetDynamicResource(Label.TextColorProperty, key);
+    }
+
     private void SetForeground(Color light, Color dark)
     {
+        _glyph.RemoveDynamicResource(Label.TextColorProperty);
+        _label.RemoveDynamicResource(Label.TextColorProperty);
         _glyph.SetAppThemeColor(Label.TextColorProperty, light, dark);
         _label.SetAppThemeColor(Label.TextColorProperty, light, dark);
     }

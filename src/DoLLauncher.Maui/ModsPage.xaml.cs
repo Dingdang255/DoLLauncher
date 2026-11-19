@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using DoLLauncher.Maui.Controls;
 using DoLLauncher.Maui.Platform;
 using DoLLauncher.Models;
 using DoLLauncher.Platform;
@@ -330,6 +331,12 @@ public partial class ModsPage : ContentPage
         if (_bulkBarShown == visible) return;
         _bulkBarShown = visible;
         if (!visible) return;
+        if (!UiMotion.Enabled)
+        {
+            BulkBar.Opacity = 1;
+            BulkBar.TranslationY = 0;
+            return;
+        }
 
         BulkBar.Opacity = 0;
         BulkBar.TranslationY = -8;
