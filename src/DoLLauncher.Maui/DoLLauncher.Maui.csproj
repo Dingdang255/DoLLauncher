@@ -18,8 +18,11 @@
 		<ApplicationId>com.dol.launcher</ApplicationId>
 
 		<!-- 版本 -->
-		<ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+		<ApplicationDisplayVersion>1.3.0</ApplicationDisplayVersion>
 		<ApplicationVersion>1</ApplicationVersion>
+		<!-- 版本信息由构建注入为 tag|commit|时间，关闭 SDK 的默认生成以便自行写入 -->
+		<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+		<GenerateAssemblyInformationalVersionAttribute>false</GenerateAssemblyInformationalVersionAttribute>
 
 		<SupportedOSPlatformVersion>24.0</SupportedOSPlatformVersion>
 		<SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
@@ -29,8 +32,8 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<!-- 应用图标：使用 DoL 角色头像，暖色底 -->
-		<MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.png" Color="#F7EFE2" />
+		<!-- 应用图标：直接取自 WPF 端的 dol.ico（256×256 帧），暖色底 -->
+		<MauiIcon Include="Resources\AppIcon\appicon.png" Color="#F7EFE2" />
 
 		<!-- 启动屏 -->
 		<MauiSplashScreen Include="Resources\Splash\splash.png" Color="#F7EFE2" BaseSize="128,128" />
@@ -54,5 +57,42 @@
 		<!-- 平台无关层：版本、模组、下载、日志、本地服务器 -->
 		<ProjectReference Include="..\DoLLauncher.Core\DoLLauncher.Core.csproj" />
 	</ItemGroup>
+
+	<!-- 与 build.ps1 相同的版本信息生成逻辑：git tag | 提交 | 构建时间；有未提交改动时按 dev 处理 -->
+	<Target Name="InjectDolBuildInfo" BeforeTargets="GenerateAssemblyInfo" Condition="'$(DesignTimeBuild)' != 'true'">
+		<Exec Command="git -C &quot;$(MSBuildProjectDirectory)\..\..&quot; describe --tags --exact-match"
+		      IgnoreExitCode="true" ConsoleToMSBuild="true" StandardOutputImportance="low">
+			<Output TaskParameter="ConsoleOutput" PropertyName="_DolTagOutput" />
+		</Exec>
+		<Exec Command="git -C &quot;$(MSBuildProjectDirectory)\..\..&quot; status --porcelain"
+		      IgnoreExitCode="true" ConsoleToMSBuild="true" StandardOutputImportance="low">
+			<Output TaskParameter="ConsoleOutput" PropertyName="_DolDirtyOutput" />
+		</Exec>
+		<Exec Command="git -C &quot;$(MSBuildProjectDirectory)\..\..&quot; rev-parse --short HEAD"
+		      IgnoreExitCode="true" ConsoleToMSBuild="true" StandardOutputImportance="low">
+			<Output TaskParameter="ConsoleOutput" PropertyName="_DolCommitOutput" />
+		</Exec>
+		<PropertyGroup>
+			<_DolTag>$(_DolTagOutput.Trim())</_DolTag>
+			<_DolTag Condition="'$(_DolTag)' == ''">dev</_DolTag>
+			<_DolTag Condition="'$(_DolDirtyOutput.Trim())' != ''">dev</_DolTag>
+			<_DolCommit>$(_DolCommitOutput.Trim())</_DolCommit>
+			<_DolCommit Condition="'$(_DolCommit)' == ''">local</_DolCommit>
+			<_DolBuildTime>$([System.DateTime]::Now.ToString('yyyy-MM-dd HH:mm'))</_DolBuildTime>
+			<InformationalVersion>$(_DolTag)|$(_DolCommit)|$(_DolBuildTime)</InformationalVersion>
+			<ApplicationDisplayVersion Condition="'$(_DolTag)' != 'dev'">$(_DolTag.TrimStart('v'))</ApplicationDisplayVersion>
+		</PropertyGroup>
+
+		<!-- 走自己的文件，避开 GenerateAssemblyInfo 的增量缓存不认属性变化的问题 -->
+		<ItemGroup>
+			<_DolBuildInfoLine Include="// &lt;auto-generated/&gt;" />
+			<_DolBuildInfoLine Include="[assembly: System.Reflection.AssemblyInformationalVersionAttribute(&quot;$(_DolTag)|$(_DolCommit)|$(_DolBuildTime)&quot;)]" />
+		</ItemGroup>
+		<WriteLinesToFile File="$(IntermediateOutputPath)DolBuildInfo.g.cs"
+		                  Lines="@(_DolBuildInfoLine)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+		<ItemGroup>
+			<Compile Include="$(IntermediateOutputPath)DolBuildInfo.g.cs" />
+		</ItemGroup>
+	</Target>
 
 </Project>

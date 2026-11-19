@@ -460,6 +460,14 @@ public partial class ModsPage : ContentPage
     {
         if (sender is not Element { BindingContext: ModsRow row } || _busy) return;
 
+        // 选择模式下没有「双击打开详情」的歧义，直接立刻切换勾选，避免等待判定窗口。
+        if (_multiSelect)
+        {
+            row.IsSelected = !row.IsSelected;
+            UpdateToolbar();
+            return;
+        }
+
         var now = Environment.TickCount64;
         var isDouble = ReferenceEquals(row, _lastTapRow) && now - _lastTapAt < DoubleTapWindow;
         _lastTapRow = isDouble ? null : row;

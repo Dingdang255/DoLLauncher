@@ -10,7 +10,7 @@ public partial class AboutPage : ContentPage
     public AboutPage()
     {
         InitializeComponent();
-        AppVersionLabel.Text = AppInfo.Current.VersionString;
+        AppVersionLabel.Text = "v" + AppInfo.Current.VersionString;
         RootLabel.Text = Paths.Root;
     }
 

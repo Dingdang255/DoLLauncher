@@ -128,7 +128,7 @@ public partial class VersionInfoPage : ContentPage
         };
         AddLink(links, "哔哩哔哩", entry.Bilibili);
         AddLink(links, "GitHub", entry.Github);
-        AddLink(links, "网站", entry.Website);
+        AddLink(links, "Wiki", entry.Website);
 
         var row = new Grid
         {

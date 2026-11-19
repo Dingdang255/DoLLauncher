@@ -1,4 +1,5 @@
 using System.IO;
+using System.Reflection;
 using DoLLauncher.Maui.Platform;
 using DoLLauncher.Platform;
 using DoLLauncher.Services;
@@ -10,6 +11,10 @@ public static class MauiProgram
 {
 	public static MauiApp CreateMauiApp()
 	{
+		// Android 没有托管入口程序集，把本程序集里构建注入的版本信息交给 Core。
+		BuildInfo.Override(typeof(MauiProgram).Assembly
+			.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion);
+
 		var builder = MauiApp.CreateBuilder();
 		builder
 			.UseMauiApp<App>()
