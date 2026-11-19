@@ -21,16 +21,6 @@
                 <HorizontalStackLayout Spacing="6">
                     <ctl:IconActionView x:Name="ImportButton" Glyph="{x:Static local:IconGlyph.ArrowImport}"
                                         Text="导入" Tapped="OnImportClicked" />
-                    <ctl:IconActionView x:Name="DetailButton" Glyph="{x:Static local:IconGlyph.Info}"
-                                        Text="详情" IsEnabled="False" Tapped="OnDetailClicked" />
-                    <ctl:IconActionView x:Name="RenameButton" Glyph="{x:Static local:IconGlyph.Edit}"
-                                        Text="重命名" IsEnabled="False" Tapped="OnRenameClicked" />
-                    <ctl:IconActionView x:Name="DeleteButton" Glyph="{x:Static local:IconGlyph.Delete}"
-                                        Text="删除" Variant="danger" IsEnabled="False" Tapped="OnDeleteClicked" />
-                    <ctl:IconActionView x:Name="EnableButton" Glyph="{x:Static local:IconGlyph.CheckmarkCircle}"
-                                        Text="启用" IsEnabled="False" Tapped="OnEnableClicked" />
-                    <ctl:IconActionView x:Name="DisableButton" Glyph="{x:Static local:IconGlyph.Dismiss}"
-                                        Text="停用" IsEnabled="False" Tapped="OnDisableClicked" />
                     <ctl:IconActionView x:Name="CheckButton" Glyph="{x:Static local:IconGlyph.Shield}"
                                         Text="检查" Tapped="OnCheckClicked" />
                     <ctl:IconActionView x:Name="RefreshButton" Glyph="{x:Static local:IconGlyph.ArrowClockwise}"
@@ -48,6 +38,10 @@
                        TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
                 <ctl:IconActionView Glyph="{x:Static local:IconGlyph.List}" Text="全选"
                                     Tapped="OnSelectAllClicked" />
+                <ctl:IconActionView x:Name="BulkDetailButton" Glyph="{x:Static local:IconGlyph.Info}"
+                                    Text="详情" IsEnabled="False" Tapped="OnDetailClicked" />
+                <ctl:IconActionView x:Name="BulkRenameButton" Glyph="{x:Static local:IconGlyph.Edit}"
+                                    Text="重命名" IsEnabled="False" Tapped="OnRenameClicked" />
                 <ctl:IconActionView Glyph="{x:Static local:IconGlyph.CheckmarkCircle}" Text="启用"
                                     Tapped="OnEnableClicked" />
                 <ctl:IconActionView Glyph="{x:Static local:IconGlyph.Dismiss}" Text="停用"
@@ -60,8 +54,7 @@
         </VerticalStackLayout>
 
         <RefreshView x:Name="Refresher" Grid.Row="2" Refreshing="OnRefreshing">
-            <CollectionView x:Name="ModList" SelectionMode="Single"
-                            SelectionChanged="OnSelectionChanged">
+            <CollectionView x:Name="ModList" SelectionMode="None">
                 <CollectionView.EmptyView>
                     <VerticalStackLayout Padding="24" Spacing="8" VerticalOptions="Center">
                         <Label Text="还没有模组，可用上方「导入」导入模组包"
@@ -75,18 +68,11 @@
                                 StrokeThickness="0"
                                 StrokeShape="RoundRectangle 12"
                                 BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
-                            <VisualStateManager.VisualStateGroups>
-                                <VisualStateGroupList>
-                                    <VisualStateGroup Name="CommonStates">
-                                        <VisualState Name="Normal" />
-                                        <VisualState Name="Selected">
-                                            <VisualState.Setters>
-                                                <Setter Property="BackgroundColor" Value="#3378A9FF" />
-                                            </VisualState.Setters>
-                                        </VisualState>
-                                    </VisualStateGroup>
-                                </VisualStateGroupList>
-                            </VisualStateManager.VisualStateGroups>
+                            <Border.Triggers>
+                                <DataTrigger TargetType="Border" Binding="{Binding IsSelected}" Value="True">
+                                    <Setter Property="BackgroundColor" Value="#3378A9FF" />
+                                </DataTrigger>
+                            </Border.Triggers>
 
                             <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                                 <CheckBox Grid.Column="0" VerticalOptions="Center"
@@ -94,7 +80,11 @@
                                           IsChecked="{Binding IsSelected, Mode=TwoWay}"
                                           CheckedChanged="OnRowChecked" />
 
-                                <VerticalStackLayout Grid.Column="1" Spacing="2" VerticalOptions="Center">
+                                <VerticalStackLayout Grid.Column="1" Spacing="2" VerticalOptions="Center"
+                                                     BackgroundColor="Transparent">
+                                    <VerticalStackLayout.GestureRecognizers>
+                                        <TapGestureRecognizer Tapped="OnRowTapped" />
+                                    </VerticalStackLayout.GestureRecognizers>
                                     <Label Text="{Binding Title}" FontSize="15" FontAttributes="Bold"
                                            LineBreakMode="TailTruncation" />
                                     <Label Text="{Binding FileName}" FontSize="11"
@@ -114,14 +104,9 @@
 
                                 <VerticalStackLayout Grid.Column="2" Spacing="4" VerticalOptions="Center"
                                                      IsVisible="{Binding IsNormalMode}">
-                                    <HorizontalStackLayout Spacing="2" HorizontalOptions="End">
-                                        <Switch VerticalOptions="Center"
-                                                IsToggled="{Binding Enabled, Mode=OneWay}"
-                                                Toggled="OnModToggled" />
-                                        <Button Text="⋯" FontSize="13" Padding="0" CornerRadius="6"
-                                                HeightRequest="28" WidthRequest="36"
-                                                Clicked="OnRowMenuClicked" />
-                                    </HorizontalStackLayout>
+                                    <Switch VerticalOptions="Center"
+                                            IsToggled="{Binding Enabled, Mode=OneWay}"
+                                            Toggled="OnModToggled" />
                                     <HorizontalStackLayout Spacing="4" HorizontalOptions="End">
                                         <Button Text="↑" FontSize="13" Padding="0" CornerRadius="6"
                                                 HeightRequest="28" WidthRequest="36"

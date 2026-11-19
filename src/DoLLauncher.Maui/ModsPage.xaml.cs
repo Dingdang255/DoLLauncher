@@ -9,19 +9,15 @@ namespace DoLLauncher.Maui;
 
 public partial class ModsPage : ContentPage
 {
-    private const string ActionDetail = "查看详情";
-    private const string ActionRename = "重命名";
-    private const string ActionEnable = "启用";
-    private const string ActionDisable = "停用";
-    private const string ActionMoveUp = "提前加载";
-    private const string ActionMoveDown = "延后加载";
-
     private readonly VersionInfo _version;
     private readonly ObservableCollection<ModsRow> _rows = new();
     private readonly List<ModConflict> _conflicts = new();
     private readonly List<ProblemItem> _problems = new();
 
-    private ModsRow? _selectedRow;
+    /// <summary>单击与双击共存：单击延后执行，双击时取消。</summary>
+    private CancellationTokenSource? _tapCts;
+    private ModsRow? _lastTapRow;
+    private long _lastTapAt;
     private bool _loading;
     private bool _importing;
     /// <summary>批量重建列表时置位，避免开关的程序化赋值触发保存。</summary>
@@ -48,6 +44,9 @@ public partial class ModsPage : ContentPage
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
+        _tapCts?.Cancel();
+        _tapCts?.Dispose();
+        _tapCts = null;
         if (AndroidKeyRouter.Handler == HandleHardwareKey) AndroidKeyRouter.Handler = null;
     }
 
@@ -182,7 +181,10 @@ public partial class ModsPage : ContentPage
 
     private void ApplySnapshot(ModSnapshot snapshot)
     {
-        var keepFile = _selectedRow?.Mod.FileName;
+        var keepSelected = _rows.Where(r => r.IsSelected)
+            .Select(r => r.Mod.FileName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         _problems.Clear();
         _problems.AddRange(snapshot.Problems);
         _conflicts.Clear();
@@ -196,24 +198,20 @@ public partial class ModsPage : ContentPage
                 var row = new ModsRow(mod)
                 {
                     IsMultiSelect = _multiSelect,
-                    IsSelected = false,
+                    IsSelected = _multiSelect && keepSelected.Contains(mod.FileName),
                 };
                 if (snapshot.Issues.TryGetValue(mod.FileName, out var issue))
                     row.SetIssue(issue.Text, issue.Red);
                 _rows.Add(row);
             }
             RefreshMoveFlags();
-
-            _selectedRow = _multiSelect
-                ? null
-                : _rows.FirstOrDefault(r => r.Mod.FileName == keepFile);
-            ModList.SelectedItem = _selectedRow;
         }
         finally
         {
             _syncing = false;
         }
-        UpdateToolbar();
+
+        if (_multiSelect && !_rows.Any(r => r.IsSelected)) UpdateToolbar();
     }
 
     private async Task CheckConflictsAsync(int token, List<ModInfo> snapshotMods)
@@ -302,19 +300,16 @@ public partial class ModsPage : ContentPage
 
     private void UpdateToolbar()
     {
-        var selectedCount = GetSelectedRows().Count;
+        var selected = GetSelectedRows();
         var enabled = _rows.Count(r => r.Enabled);
 
         CountLabel.Text = $"共 {_rows.Count} 个 · 启用 {enabled} 个";
-        BulkCountLabel.Text = $"已选 {selectedCount} 个";
+        BulkCountLabel.Text = $"已选 {selected.Count} 个";
         BulkBar.IsVisible = _multiSelect;
 
-        var canAct = !_busy && selectedCount > 0;
-        DetailButton.IsEnabled = !_busy && !_multiSelect && selectedCount == 1;
-        RenameButton.IsEnabled = !_busy && !_multiSelect && selectedCount == 1;
-        DeleteButton.IsEnabled = canAct;
-        EnableButton.IsEnabled = canAct;
-        DisableButton.IsEnabled = canAct;
+        var canAct = !_busy && selected.Count > 0;
+        BulkDetailButton.IsEnabled = canAct && selected.Count == 1;
+        BulkRenameButton.IsEnabled = canAct && selected.Count == 1;
         ImportButton.IsEnabled = !_busy && !_importing;
         CheckButton.IsEnabled = !_busy && !_loading;
         RefreshButton.IsEnabled = !_busy && !_loading;
@@ -322,21 +317,23 @@ public partial class ModsPage : ContentPage
         SelectButton.Text = _multiSelect ? "退出选择" : "选择";
     }
 
-    private List<ModsRow> GetSelectedRows() => _multiSelect
-        ? _rows.Where(r => r.IsSelected).ToList()
-        : _selectedRow == null ? new List<ModsRow>() : new List<ModsRow> { _selectedRow };
-
-    private void OnSelectionChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (_syncing || _multiSelect) return;
-        _selectedRow = e.CurrentSelection.FirstOrDefault() as ModsRow;
-        UpdateToolbar();
-    }
+    private List<ModsRow> GetSelectedRows() => _rows.Where(r => r.IsSelected).ToList();
 
     private void OnRowChecked(object? sender, CheckedChangedEventArgs e)
     {
         if (sender is not CheckBox { BindingContext: ModsRow row }) return;
-        row.IsSelected = e.Value;
+        if (_syncing) return;
+
+        _syncing = true;
+        try
+        {
+            row.IsSelected = e.Value;
+            if (e.Value && !_multiSelect) EnterMultiSelect(select: row, selectOnly: true);
+        }
+        finally
+        {
+            _syncing = false;
+        }
         UpdateToolbar();
     }
 
@@ -347,17 +344,24 @@ public partial class ModsPage : ContentPage
         UpdateToolbar();
     }
 
-    /// <summary>进入多选模式（工具栏按钮与 Ctrl+A 共用）。</summary>
-    private void EnterMultiSelect()
+    /// <summary>进入选择模式（工具栏按钮、Ctrl+A 与单击行共用）。</summary>
+    private void EnterMultiSelect(ModsRow? select = null, bool selectOnly = false)
     {
         _multiSelect = true;
-        _selectedRow = null;
-        ModList.SelectionMode = SelectionMode.None;
-        ModList.SelectedItem = null;
-        foreach (var row in _rows)
+        var wasSyncing = _syncing;
+        _syncing = true;
+        try
         {
-            row.IsSelected = false;
-            row.IsMultiSelect = true;
+            foreach (var row in _rows)
+            {
+                row.IsMultiSelect = true;
+                if (!selectOnly) row.IsSelected = false;
+            }
+            if (select != null) select.IsSelected = true;
+        }
+        finally
+        {
+            _syncing = wasSyncing;
         }
     }
 
@@ -426,40 +430,44 @@ public partial class ModsPage : ContentPage
         }
     }
 
-    private async void OnRowMenuClicked(object? sender, EventArgs e)
+    /// <summary>单击 / 双击的判定窗口（毫秒）。</summary>
+    private const int DoubleTapWindow = 300;
+
+    /// <summary>单击行：进入选择模式并选中该项；再次单击取消 / 复选，选中数为 0 时退出。</summary>
+    private async void OnRowTapped(object? sender, TappedEventArgs e)
     {
-        if (sender is not Button { BindingContext: ModsRow row } || _busy) return;
+        if (sender is not Element { BindingContext: ModsRow row } || _busy) return;
 
-        _selectedRow = row;
-        ModList.SelectedItem = row;
-        UpdateToolbar();
+        var now = Environment.TickCount64;
+        var isDouble = ReferenceEquals(row, _lastTapRow) && now - _lastTapAt < DoubleTapWindow;
+        _lastTapRow = isDouble ? null : row;
+        _lastTapAt = now;
 
-        var action = await DisplayActionSheetAsync($"模组：{row.Title}", "取消", "删除",
-            ActionDetail, ActionRename, ActionEnable, ActionDisable, ActionMoveUp, ActionMoveDown);
-        switch (action)
+        _tapCts?.Cancel();
+        _tapCts?.Dispose();
+        _tapCts = null;
+
+        if (isDouble)
         {
-            case ActionDetail:
-                await OpenDetailAsync(row);
-                break;
-            case ActionRename:
-                await RenameAsync(row);
-                break;
-            case ActionEnable:
-                await SetEnabledAsync(new List<ModsRow> { row }, true);
-                break;
-            case ActionDisable:
-                await SetEnabledAsync(new List<ModsRow> { row }, false);
-                break;
-            case ActionMoveUp:
-                await MoveRowAsync(row, -1);
-                break;
-            case ActionMoveDown:
-                await MoveRowAsync(row, 1);
-                break;
-            case "删除":
-                await DeleteRowsAsync(new List<ModsRow> { row });
-                break;
+            // 双击只在非选择模式下打开详情；选择模式下双击视为无效。
+            if (!_multiSelect) await OpenDetailAsync(row);
+            return;
         }
+
+        var cts = _tapCts = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(260, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (!_multiSelect) EnterMultiSelect(select: row, selectOnly: true);
+        else row.IsSelected = !row.IsSelected;
+
+        UpdateToolbar();
     }
 
     private async Task OpenDetailAsync(ModsRow row)
@@ -471,14 +479,14 @@ public partial class ModsPage : ContentPage
 
     private async void OnDetailClicked(object? sender, EventArgs e)
     {
-        if (_multiSelect || _selectedRow == null) return;
-        await OpenDetailAsync(_selectedRow);
+        if (GetSelectedRows() is not { Count: 1 } rows) return;
+        await OpenDetailAsync(rows[0]);
     }
 
     private async void OnRenameClicked(object? sender, EventArgs e)
     {
-        if (_multiSelect || _selectedRow == null) return;
-        await RenameAsync(_selectedRow);
+        if (GetSelectedRows() is not { Count: 1 } rows) return;
+        await RenameAsync(rows[0]);
     }
 
     private async Task RenameAsync(ModsRow row)
@@ -496,7 +504,6 @@ public partial class ModsPage : ContentPage
         {
             await Task.Run(() => ModService.Rename(_version.FullPath, row.Mod.FileName, input.Trim()));
             LogService.Append($"已重命名：{row.Mod.FileName} → {input.Trim()}");
-            _selectedRow = null;
             await ReloadAsync();
         }
         catch (Exception ex)
@@ -560,8 +567,6 @@ public partial class ModsPage : ContentPage
                 foreach (var file in files) ModService.Delete(_version.FullPath, file);
             });
             LogService.Append($"已删除 {files.Count} 个模组：{string.Join("、", files)}");
-            if (_multiSelect) ExitMultiSelect();
-            _selectedRow = null;
             await ReloadAsync();
         }
         catch (Exception ex)
@@ -579,11 +584,19 @@ public partial class ModsPage : ContentPage
     private void ExitMultiSelect()
     {
         _multiSelect = false;
-        ModList.SelectionMode = SelectionMode.Single;
-        foreach (var row in _rows)
+        var wasSyncing = _syncing;
+        _syncing = true;
+        try
         {
-            row.IsSelected = false;
-            row.IsMultiSelect = false;
+            foreach (var row in _rows)
+            {
+                row.IsSelected = false;
+                row.IsMultiSelect = false;
+            }
+        }
+        finally
+        {
+            _syncing = wasSyncing;
         }
     }
 

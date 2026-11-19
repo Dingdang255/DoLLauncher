@@ -7,9 +7,10 @@ using DoLLauncher.Platform;
 using DoLLauncher.Services;
 using Microsoft.Maui.Dispatching;
 
-namespace DoLLauncher.Maui;
+namespace DoLLauncher.Maui.Controls;
 
-public partial class MarketPage : ContentPage
+/// <summary>下载中心右侧的「模组市场」子面板，由下载中心页面托管。</summary>
+public partial class MarketPane : ContentView
 {
     private static readonly string[] MatchValues = { "contains", "exact" };
     private static readonly string[] ScopeValues = { "all", "title", "author", "description", "tag" };
@@ -20,21 +21,22 @@ public partial class MarketPage : ContentPage
     private readonly List<MarketMod> _all = new();
 
     private MarketCatalog? _catalog;
-    private List<VersionInfo> _versions = new();
     private bool _loading;
     private bool _loaded;
     private bool _suppressPrefs;
+    private bool _filterOpen = true;
     private int _chip;
     private int _filterSeq;
 
+    private VersionInfo? _target;
+
     private IDispatcherTimer? _searchTimer;
 
-    public MarketPage()
+    public MarketPane()
     {
         InitializeComponent();
         MarketList.ItemsSource = _rows;
         _suppressPrefs = true;
-        VersionPicker.ItemDisplayBinding = new Binding(nameof(VersionInfo.DisplayName));
         MatchPicker.ItemsSource = new[] { "部分匹配", "完全匹配" };
         ScopePicker.ItemsSource = new[] { "全部", "标题", "作者", "简介", "标签" };
         SortPicker.ItemsSource = new[] { "默认", "最近更新", "名称" };
@@ -43,56 +45,42 @@ public partial class MarketPage : ContentPage
         StyleChips();
     }
 
-    protected override async void OnAppearing()
+    /// <summary>安装完成后通知宿主刷新版本列表。</summary>
+    public event EventHandler? InstallCompleted;
+
+    /// <summary>页面切入市场面板时调用：首次进入才真正拉取索引。</summary>
+    public async Task ActivateAsync()
     {
-        base.OnAppearing();
-        // 先拿到版本列表，已装标记才有目标可对比。
-        if (_versions.Count == 0) await LoadVersionsAsync();
         if (!_loaded) await LoadMarketAsync();
+        else
+        {
+            await RefreshInstalledStatusAsync();
+            ApplyFilter();
+        }
     }
 
-    protected override void OnDisappearing()
+    /// <summary>页面离开时停止搜索防抖计时器。</summary>
+    public void Deactivate() => _searchTimer?.Stop();
+
+    /// <summary>宿主切换「安装到版本」后重算已装标记。</summary>
+    public async Task SetTargetAsync(VersionInfo? target)
     {
-        _searchTimer?.Stop();
-        base.OnDisappearing();
-    }
-
-    // ---------- 加载 ----------
-
-    private async Task LoadVersionsAsync()
-    {
-        try
+        _target = target;
+        if (_all.Count == 0)
         {
-            _versions = await Task.Run(VersionService.Scan);
-        }
-        catch (Exception ex)
-        {
-            LogService.Error("扫描版本失败", ex);
-            _versions = new List<VersionInfo>();
-        }
-
-        _suppressPrefs = true;
-        try
-        {
-            VersionPicker.ItemsSource = _versions;
-            VersionPicker.SelectedIndex = _versions.Count > 0 ? 0 : -1;
-        }
-        finally
-        {
-            _suppressPrefs = false;
-        }
-
-        if (_versions.Count == 0)
-        {
-            HeaderCountLabel.Text = _all.Count > 0
-                ? $"共 {_all.Count} 个模组 · 请先添加一个版本"
-                : "请先添加一个版本";
+            if (!_loaded) await LoadMarketAsync();
             return;
         }
-
         await RefreshInstalledStatusAsync();
         ApplyFilter();
     }
+
+    public async Task RefreshAsync()
+    {
+        await LoadMarketAsync(forceRefresh: true);
+    }
+
+    // ---------- 加载 ----------
 
     private async Task LoadMarketAsync(bool forceRefresh = false)
     {
@@ -102,7 +90,6 @@ public partial class MarketPage : ContentPage
         MarketList.IsVisible = false;
         LoadingPanel.IsVisible = true;
         LoadingIndicator.IsRunning = true;
-        RefreshItem.IsEnabled = false;
 
         try
         {
@@ -130,7 +117,7 @@ public partial class MarketPage : ContentPage
 
             await RefreshInstalledStatusAsync();
             _loaded = true;
-            HeaderCountLabel.Text = _versions.Count == 0
+            HeaderCountLabel.Text = _target == null
                 ? $"共 {_all.Count} 个模组 · 请先添加一个版本"
                 : $"共 {_all.Count} 个模组";
             LoadingPanel.IsVisible = false;
@@ -151,7 +138,6 @@ public partial class MarketPage : ContentPage
             _loading = false;
             LoadingIndicator.IsRunning = false;
             LoadingPanel.IsVisible = false;
-            RefreshItem.IsEnabled = true;
         }
     }
 
@@ -159,7 +145,7 @@ public partial class MarketPage : ContentPage
     private async Task RefreshInstalledStatusAsync()
     {
         if (_all.Count == 0) return;
-        var target = SelectedTarget;
+        var target = _target;
         var installed = new List<ModInfo>();
         if (target != null)
         {
@@ -181,7 +167,14 @@ public partial class MarketPage : ContentPage
         }
     }
 
-    private VersionInfo? SelectedTarget => VersionPicker.SelectedItem as VersionInfo;
+    // ---------- 折叠 ----------
+
+    private void OnToggleFilterClicked(object? sender, TappedEventArgs e)
+    {
+        _filterOpen = !_filterOpen;
+        FilterBody.IsVisible = _filterOpen;
+        FilterChevron.Rotation = _filterOpen ? 90 : 0;
+    }
 
     // ---------- 筛选 ----------
 
@@ -355,9 +348,8 @@ public partial class MarketPage : ContentPage
 
     // ---------- 事件 ----------
 
-    private async void OnRefreshClicked(object? sender, EventArgs e) => await LoadMarketAsync(forceRefresh: true);
-
-    private async void OnRetryClicked(object? sender, EventArgs e) => await LoadMarketAsync(forceRefresh: true);
+    private async void OnRetryClicked(object? sender, EventArgs e) =>
+        await LoadMarketAsync(forceRefresh: true);
 
     private void OnSearchTextChanged(object? sender, TextChangedEventArgs e)
     {
@@ -387,13 +379,6 @@ public partial class MarketPage : ContentPage
     {
         if (_suppressPrefs) return;
         SavePrefs();
-        ApplyFilter();
-    }
-
-    private async void OnTargetVersionChanged(object? sender, EventArgs e)
-    {
-        if (_suppressPrefs) return;
-        await RefreshInstalledStatusAsync();
         ApplyFilter();
     }
 
@@ -560,10 +545,10 @@ public partial class MarketPage : ContentPage
     {
         if (sender is not Button { BindingContext: MarketRow row }) return;
 
-        var target = SelectedTarget;
+        var target = _target;
         if (target == null)
         {
-            await PlatformServices.Dialogs.InfoAsync("请先添加一个版本。", "模组市场");
+            await PlatformServices.Dialogs.InfoAsync("请先在左侧选择一个安装目标版本。", "模组市场");
             return;
         }
         if (_catalog == null)
@@ -601,6 +586,7 @@ public partial class MarketPage : ContentPage
             try { await DownloadService.FetchMarketAsync(); }
             catch (Exception ex) { LogService.Append("[市场] 刷新缓存失败：" + ex.Message); }
         });
+        InstallCompleted?.Invoke(this, EventArgs.Empty);
         await PlatformServices.Dialogs.InfoAsync($"已安装 {count} 个模组。", "模组市场");
     }
 }

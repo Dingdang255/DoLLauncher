@@ -1,19 +1,35 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             x:Class="DoLLauncher.Maui.DiagnosticsPage"
-             Title="诊断">
-
-    <ContentPage.ToolbarItems>
-        <ToolbarItem x:Name="ExportItem" Text="导出诊断包" Clicked="OnExportClicked" />
-    </ContentPage.ToolbarItems>
+             x:Class="DoLLauncher.Maui.DiagnosticsPage">
 
     <Grid>
 
         <ScrollView>
             <VerticalStackLayout Padding="16,12,16,24" Spacing="12">
 
-                <Label x:Name="HeaderLabel" FontSize="22" FontAttributes="Bold" />
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                    <Label x:Name="HeaderLabel" Grid.Column="0" FontSize="22" FontAttributes="Bold"
+                           VerticalOptions="Center" />
+                    <Button x:Name="ExportButton" Grid.Column="1" Text="导出诊断包" FontSize="13" Padding="16,0"
+                            HeightRequest="36" MinimumHeightRequest="36" CornerRadius="9"
+                            VerticalOptions="Center" Clicked="OnExportClicked"
+                            BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                            TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+                </Grid>
+
+                <!-- 目标版本 -->
+                <Border Padding="14" StrokeThickness="0" StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                        <Label Text="目标版本" FontSize="13" VerticalOptions="Center"
+                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                        <Picker x:Name="VersionPicker" Grid.Column="1" FontSize="13"
+                                VerticalOptions="Center"
+                                ItemDisplayBinding="{Binding DisplayName}"
+                                SelectedIndexChanged="OnVersionChanged" />
+                    </Grid>
+                </Border>
 
                 <!-- 运行环境 -->
                 <Border Padding="14" StrokeThickness="0" StrokeShape="RoundRectangle 12"
@@ -106,4 +122,4 @@
 
     </Grid>
 
-</ContentPage>
+</ContentView>

@@ -149,24 +149,10 @@ public partial class ModDetailPage : ContentPage
     private void UpdateLinks(string homepage)
     {
         HomepageButton.IsVisible = homepage.Length > 0;
-        WikiButton.IsVisible = BuildWikiUrl(homepage).Length > 0;
-    }
-
-    /// <summary>GitHub 仓库主页可推导 wiki 地址；其它站点没有稳定的 wiki 规律，不显示按钮。</summary>
-    private static string BuildWikiUrl(string homepage)
-    {
-        if (string.IsNullOrWhiteSpace(homepage)) return string.Empty;
-        var trimmed = homepage.Trim().TrimEnd('/');
-        if (!trimmed.StartsWith("https://github.com/", StringComparison.OrdinalIgnoreCase))
-            return string.Empty;
-        return trimmed.Split('/').Length >= 5 ? trimmed + "/wiki" : string.Empty;
     }
 
     private async void OnHomepageClicked(object? sender, EventArgs e) =>
         await OpenUrlAsync(_detail?.Homepage);
-
-    private async void OnWikiClicked(object? sender, EventArgs e) =>
-        await OpenUrlAsync(BuildWikiUrl(_detail?.Homepage ?? string.Empty));
 
     private async Task OpenUrlAsync(string? url)
     {
@@ -186,6 +172,5 @@ public partial class ModDetailPage : ContentPage
     {
         BusyOverlay.IsVisible = busy;
         HomepageButton.IsEnabled = !busy;
-        WikiButton.IsEnabled = !busy;
     }
 }

@@ -32,6 +32,15 @@ public class MainActivity : MauiAppCompatActivity
         MainApplication.ApplyUiScale(Resources);
     }
 
+    /// <summary>
+    /// 在 Activity 生成 Resources 之前就套用缩放：之后无论资源被重建多少次
+    /// （主题重应用、前后台切换、系统文件选择器返回等）都会继承缩放后的密度。
+    /// </summary>
+    protected override void AttachBaseContext(Context? @base)
+    {
+        base.AttachBaseContext(MainApplication.CreateScaledContext(@base) ?? @base);
+    }
+
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         // Activity 的 Resources 与应用级是两份，必须在 MAUI 创建窗口前单独套用缩放。

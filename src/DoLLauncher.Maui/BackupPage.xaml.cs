@@ -7,7 +7,7 @@ using Microsoft.Maui.ApplicationModel.DataTransfer;
 
 namespace DoLLauncher.Maui;
 
-public partial class BackupPage : ContentPage
+public partial class BackupPage : ContentView
 {
     private readonly ObservableCollection<BackupEntry> _entries = new();
     private readonly List<BackupEntry> _all = new();
@@ -31,10 +31,10 @@ public partial class BackupPage : ContentPage
         UpdateActionsEnabled();
     }
 
-    protected override void OnAppearing()
+    /// <summary>主界面切换到本面板时调用。</summary>
+    public async Task ActivateAsync()
     {
-        base.OnAppearing();
-        _ = InitializeAsync();
+        await InitializeAsync();
     }
 
     private async Task InitializeAsync()
@@ -91,7 +91,6 @@ public partial class BackupPage : ContentPage
     private void ApplyVersion(VersionInfo? version)
     {
         _version = version;
-        Title = version == null ? "备份" : "备份 · " + version.DisplayName;
         VersionHintLabel.IsVisible = version == null;
         UpdateActionsEnabled();
         if (version == null) MirrorLabel.Text = "未选择版本。";
@@ -388,7 +387,9 @@ public partial class BackupPage : ContentPage
 
     private async void OnCreateSnapshotClicked(object? sender, EventArgs e)
     {
-        var note = await DisplayPromptAsync("快照备注",
+        var page = Navigation.NavigationStack.LastOrDefault();
+        if (page == null) return;
+        var note = await page.DisplayPromptAsync("快照备注",
             "可留空；备注会写进快照 manifest，还原时能看见。",
             "确定", "跳过", string.Empty, maxLength: 100);
         await CreateSnapshotAsync(SnapshotGameCheck.IsChecked, note ?? string.Empty);

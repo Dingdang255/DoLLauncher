@@ -76,12 +76,9 @@
                 </Border>
 
                 <HorizontalStackLayout Spacing="10">
-                    <Button x:Name="HomepageButton" Text="打开主页" IsVisible="False"
+                    <Button x:Name="HomepageButton" Text="打开主页 / WIKI" IsVisible="False"
                             HeightRequest="40" CornerRadius="10" FontSize="13" Padding="16,0"
                             Clicked="OnHomepageClicked" />
-                    <Button x:Name="WikiButton" Text="打开 WIKI" IsVisible="False"
-                            HeightRequest="40" CornerRadius="10" FontSize="13" Padding="16,0"
-                            Clicked="OnWikiClicked" />
                 </HorizontalStackLayout>
 
             </VerticalStackLayout>

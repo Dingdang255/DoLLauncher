@@ -1,4 +1,5 @@
 using Android.App;
+using Android.Content;
 using Android.Content.Res;
 using Android.Runtime;
 using Android.Util;
@@ -27,6 +28,34 @@ public class MainApplication : MauiApplication
     }
 
     protected override MauiApp CreateMauiApp() => MauiProgram.CreateMauiApp();
+
+    /// <summary>
+    /// 在 Activity 绑定基础 Context 时就把密度换成缩放后的配置。
+    /// 运行时改 Resources 只在当前 Resources 实例上生效，主题重应用、切前后台、
+    /// 启动系统选择器后 Resources 一旦重建就会退回系统密度（表现为「切换几次界面后变大」）；
+    /// 从这里派生出的 Resources 都会继承缩放后的密度。
+    /// </summary>
+    public static Context? CreateScaledContext(Context? baseContext)
+    {
+        try
+        {
+            if (baseContext?.Resources?.Configuration is not { } system) return baseContext;
+
+            if (_baseDpi <= 0) _baseDpi = system.DensityDpi > 0 ? system.DensityDpi : 480;
+            if (_baseDpi <= 0) return baseContext;
+
+            var targetDpi = Math.Max(72, (int)Math.Round(_baseDpi * UiScale));
+            if (system.DensityDpi == targetDpi) return baseContext;
+
+            var config = new Configuration(system) { DensityDpi = targetDpi };
+            return baseContext.CreateConfigurationContext(config);
+        }
+        catch (Exception ex)
+        {
+            try { LogService.Error("创建缩放后的 Context 失败，使用系统密度", ex); } catch { }
+            return baseContext;
+        }
+    }
 
     /// <summary>
     /// 修改应用级资源密度：MAUI 的 dp / 字号都按资源密度换算，

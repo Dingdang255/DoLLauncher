@@ -13,7 +13,7 @@ using IOPath = System.IO.Path;
 
 namespace DoLLauncher.Maui;
 
-public partial class StoryPage : ContentPage
+public partial class StoryPage : ContentView
 {
     /// <summary>每层缩进与最大缩进层数，避免深层节点把内容挤出屏幕。</summary>
     private const double IndentStep = 12;
@@ -48,19 +48,13 @@ public partial class StoryPage : ContentPage
         HeaderLabel.Text = version.DisplayName;
         VersionPicker.ItemDisplayBinding = new Binding(nameof(VersionInfo.DisplayName));
         SlotPicker.ItemDisplayBinding = new Binding(nameof(SlotOption.DisplayName));
-        // Android 没有独立的导出菜单，补一个「复制 JSON」到工具栏。
-        ToolbarItems.Add(new ToolbarItem
-        {
-            Text = "复制 JSON",
-            Order = ToolbarItemOrder.Secondary,
-            Command = new Command(async () => await CopyJsonAsync()),
-        });
     }
 
-    protected override void OnAppearing()
-    {
-        base.OnAppearing();
+    private async void OnCopyJsonClicked(object? sender, EventArgs e) => await CopyJsonAsync();
 
+    /// <summary>主界面切换到本面板时调用。</summary>
+    public void Activate()
+    {
         // 从模拟打开的游戏页返回：服务器已被游戏页停掉，模拟无法继续。
         if (_simulating)
         {
@@ -80,10 +74,9 @@ public partial class StoryPage : ContentPage
         }
     }
 
-    protected override void OnDisappearing()
+    /// <summary>切走或离开主界面时调用。</summary>
+    public void Deactivate()
     {
-        base.OnDisappearing();
-
         // 模拟时打开的游戏页会覆盖本页，此时不能取消轮询。
         if (_suppressDisappearCancel)
         {
@@ -1007,7 +1000,12 @@ public partial class StoryPage : ContentPage
     {
         try
         {
-            var target = Navigation.NavigationStack.LastOrDefault() ?? this;
+            var target = Navigation.NavigationStack.LastOrDefault();
+            if (target == null)
+            {
+                await PlatformServices.Dialogs.InfoAsync(message, title);
+                return;
+            }
             await MainThread.InvokeOnMainThreadAsync(async () =>
                 await target.DisplayAlertAsync(title, message, "好"));
         }
@@ -1238,10 +1236,13 @@ public partial class StoryPage : ContentPage
         await Navigation.PushAsync(new ModsPage(_version));
     }
 
-    private async void OnOpenMarketClicked(object? sender, EventArgs e)
+    private void OnOpenMarketClicked(object? sender, EventArgs e)
     {
-        await Navigation.PushAsync(new MarketPage());
+        OpenMarketRequested?.Invoke(this, EventArgs.Empty);
     }
+
+    /// <summary>嵌入主界面时由宿主接管「打开模组市场」。</summary>
+    public event EventHandler? OpenMarketRequested;
 
     // ---------- 杂项 ----------
 

@@ -1,12 +1,11 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:ctl="clr-namespace:DoLLauncher.Maui.Controls"
              xmlns:local="clr-namespace:DoLLauncher.Maui"
-             x:Class="DoLLauncher.Maui.BackupPage"
-             Title="备份">
+             x:Class="DoLLauncher.Maui.BackupPage">
 
-    <ContentPage.Resources>
+    <ContentView.Resources>
         <Style x:Key="ChipButton" TargetType="Button">
             <Setter Property="FontSize" Value="12" />
             <Setter Property="Padding" Value="10,0" />
@@ -39,7 +38,7 @@
             <Setter Property="TextColor"
                     Value="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
         </Style>
-    </ContentPage.Resources>
+    </ContentView.Resources>
 
     <Grid>
 
@@ -276,4 +275,4 @@
 
     </Grid>
 
-</ContentPage>
+</ContentView>

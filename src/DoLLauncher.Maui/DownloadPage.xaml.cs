@@ -1,14 +1,14 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
-using System.IO;
+using DoLLauncher.Maui.Controls;
 using DoLLauncher.Models;
 using DoLLauncher.Platform;
 using DoLLauncher.Services;
 
 namespace DoLLauncher.Maui;
 
-public partial class DownloadPage : ContentPage
+public partial class DownloadPage : ContentView
 {
     private readonly ObservableCollection<DownloadRow> _rows = new();
     private bool _loading;
@@ -34,9 +34,20 @@ public partial class DownloadPage : ContentPage
     private CancellationTokenSource? _retireCts;
     private bool _taskEventsAttached;
 
-    public DownloadPage()
+    private readonly VersionInfo? _preferredTarget;
+    private readonly List<VersionInfo> _versions = new();
+    private bool _marketActive;
+    private bool _optionsExpanded = true;
+    private bool _activatingMarket;
+    private bool _fillingTargets;
+
+    public DownloadPage() : this(false, null) { }
+
+    public DownloadPage(bool startInMarket, VersionInfo? targetVersion = null)
     {
         InitializeComponent();
+        _preferredTarget = targetVersion;
+
         ReleaseList.ItemsSource = _rows;
         TaskList.ItemsSource = DownloadService.DownloadTasks;
 
@@ -54,24 +65,29 @@ public partial class DownloadPage : ContentPage
         }
 
         ApplySourceUi(DownloadService.CurrentGameSource());
-        ShowSegment(true);
+        ShowSegment(!startInMarket);
     }
 
-    protected override void OnAppearing()
+    /// <summary>主界面切换到本面板时调用。</summary>
+    public async Task ActivateAsync()
     {
-        base.OnAppearing();
         AttachTaskEvents();
 
-        // 只自动加载一次，之后靠下拉刷新 / 工具栏刷新。
-        if (_loaded) return;
-        _loaded = true;
-        _ = LoadAsync();
+        // 只自动加载一次，之后靠下拉刷新 / 侧栏刷新。
+        if (!_loaded && !_marketActive)
+        {
+            _loaded = true;
+            await LoadAsync();
+        }
+
+        if (_marketActive) await ActivateMarketAsync();
     }
 
-    protected override void OnDisappearing()
+    /// <summary>切走或离开主界面时调用。</summary>
+    public void Deactivate()
     {
+        MarketContent.Deactivate();
         DetachTaskEvents();
-        base.OnDisappearing();
     }
 
     private async Task LoadAsync(bool silent = false)
@@ -126,39 +142,108 @@ public partial class DownloadPage : ContentPage
         }
     }
 
-    // ---------- 分段与游戏源 ----------
+    // ---------- 子面板 / 侧栏 / 折叠 ----------
 
-    private void OnGameSegmentClicked(object? sender, EventArgs e) => ShowSegment(true);
+    /// <summary>宿主（剧情页等）切到模组市场面板。</summary>
+    public async Task ShowMarketAsync()
+    {
+        ShowSegment(false);
+        await ActivateMarketAsync();
+    }
+
+    private async void OnGameSegmentClicked(object? sender, EventArgs e) => ShowSegment(true);
 
     private async void OnMarketSegmentClicked(object? sender, EventArgs e)
     {
-        await Navigation.PushAsync(new MarketPage());
+        ShowSegment(false);
+        await ActivateMarketAsync();
     }
 
     private void ShowSegment(bool game)
     {
-        GamePane.IsVisible = game;
+        _marketActive = !game;
         GameContent.IsVisible = game;
-        StyleSegmentButton(GameSegmentButton, game);
-        StyleSegmentButton(MarketSegmentButton, !game);
+        MarketContent.IsVisible = !game;
+        TargetPanel.IsVisible = !game;
+        StyleNav(NavGame, game);
+        StyleNav(NavMarket, !game);
     }
 
-    private static void StyleSegmentButton(Button button, bool active)
+    private static void StyleNav(IconActionView nav, bool active)
+        => nav.Variant = active ? "pale" : "muted";
+
+    /// <summary>首次切入市场面板：先补版本列表，再让面板拉索引。</summary>
+    private async Task ActivateMarketAsync()
     {
-        if (active)
+        if (_activatingMarket) return;
+        _activatingMarket = true;
+        try
         {
-            button.SetAppThemeColor(Button.BackgroundColorProperty,
-                Color.FromArgb("#512BD4"), Color.FromArgb("#7B5BD6"));
-            button.TextColor = Colors.White;
+            await LoadTargetVersionsAsync();
+            await MarketContent.ActivateAsync();
         }
-        else
+        finally
         {
-            button.SetAppThemeColor(Button.BackgroundColorProperty,
-                Color.FromArgb("#E0E0E0"), Color.FromArgb("#3C3C3C"));
-            button.SetAppThemeColor(Button.TextColorProperty,
-                Color.FromArgb("#333333"), Color.FromArgb("#E8E8E8"));
+            _activatingMarket = false;
         }
     }
+
+    private async Task LoadTargetVersionsAsync()
+    {
+        List<VersionInfo> list;
+        try
+        {
+            list = await Task.Run(VersionService.Scan);
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("扫描版本失败", ex);
+            return;
+        }
+
+        list = list.Where(v => v.Mode == "http").ToList();
+        var same = list.Count == _versions.Count &&
+                   list.Select(v => v.Folder).SequenceEqual(_versions.Select(v => v.Folder),
+                       StringComparer.OrdinalIgnoreCase);
+        if (same && TargetVersionPicker.ItemsSource != null) return;
+
+        _versions.Clear();
+        _versions.AddRange(list);
+
+        _fillingTargets = true;
+        try
+        {
+            var keep = (TargetVersionPicker.SelectedItem as VersionInfo)?.Folder;
+            TargetVersionPicker.ItemsSource = _versions;
+            var index = keep == null ? -1 : _versions.FindIndex(v =>
+                string.Equals(v.Folder, keep, StringComparison.OrdinalIgnoreCase));
+            if (index < 0 && _preferredTarget != null)
+                index = _versions.FindIndex(v =>
+                    string.Equals(v.Folder, _preferredTarget.Folder, StringComparison.OrdinalIgnoreCase));
+            TargetVersionPicker.SelectedIndex = index >= 0 ? index : (_versions.Count > 0 ? 0 : -1);
+        }
+        finally
+        {
+            _fillingTargets = false;
+        }
+
+        await MarketContent.SetTargetAsync(TargetVersionPicker.SelectedItem as VersionInfo);
+    }
+
+    private async void OnTargetVersionChanged(object? sender, EventArgs e)
+    {
+        if (_fillingTargets) return;
+        await MarketContent.SetTargetAsync(TargetVersionPicker.SelectedItem as VersionInfo);
+    }
+
+    private void OnToggleOptionsClicked(object? sender, TappedEventArgs e)
+    {
+        _optionsExpanded = !_optionsExpanded;
+        OptionsBody.IsVisible = _optionsExpanded;
+        OptionsChevron.Rotation = _optionsExpanded ? 90 : 0;
+    }
+
+    // ---------- 游戏源 ----------
 
     /// <summary>按游戏源形态调整说明与可选安装项：单 HTML 源没有 polyfill。</summary>
     private void ApplySourceUi(GameSource source)
@@ -199,7 +284,11 @@ public partial class DownloadPage : ContentPage
 
     private async void OnRefreshing(object? sender, EventArgs e) => await LoadAsync();
 
-    private async void OnRefreshClicked(object? sender, EventArgs e) => await LoadAsync();
+    private async void OnRefreshClicked(object? sender, EventArgs e)
+    {
+        if (_marketActive) await MarketContent.RefreshAsync();
+        else await LoadAsync();
+    }
 
     private async void OnRetryClicked(object? sender, EventArgs e) => await LoadAsync();
 
@@ -367,6 +456,14 @@ public partial class DownloadPage : ContentPage
 
     // ---------- 下载任务 ----------
 
+    private DownloadTaskVm? SelectedTask => TaskList.SelectedItem as DownloadTaskVm;
+
+    private void OnTaskSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        // 只有仍在进行、可以取消的任务才显示取消按钮（与 WPF 端一致）。
+        CancelTaskButton.IsVisible = SelectedTask?.CanCancel == true;
+    }
+
     private void AttachTaskEvents()
     {
         if (_taskEventsAttached) return;
@@ -406,12 +503,23 @@ public partial class DownloadPage : ContentPage
         if (e.NewItems != null)
             foreach (var task in e.NewItems.OfType<DownloadTaskVm>())
                 task.Finished += OnTaskFinished;
+
+        RefreshCancelButton();
     }
 
     private void OnTaskFinished(object? sender, EventArgs e)
     {
         if (sender is not DownloadTaskVm task) return;
+        RefreshCancelButton();
         _ = RetireTaskAsync(task, _retireCts?.Token ?? CancellationToken.None);
+    }
+
+    /// <summary>取消按钮只在选中「仍可取消」的任务时出现（完成 / 已取消的任务不显示）。</summary>
+    private void RefreshCancelButton()
+    {
+        if (SelectedTask == null || !DownloadService.DownloadTasks.Contains(SelectedTask))
+            TaskList.SelectedItem = null;
+        CancelTaskButton.IsVisible = SelectedTask?.CanCancel == true;
     }
 
     /// <summary>完成或被取消的任务先留 3 秒，再从共享任务列表移除。</summary>
@@ -435,8 +543,11 @@ public partial class DownloadPage : ContentPage
 
     private void OnCancelTaskClicked(object? sender, EventArgs e)
     {
-        if (sender is Button { BindingContext: DownloadTaskVm task })
-            task.Cancel();
+        var task = SelectedTask;
+        if (task is null || !task.CanCancel) return;
+        task.Cancel();
+        TaskList.SelectedItem = null;
+        CancelTaskButton.IsVisible = false;
     }
 
     /// <summary>遮罩上的取消：取消当前所有可取消的下载任务。</summary>
@@ -451,10 +562,10 @@ public partial class DownloadPage : ContentPage
     {
         BusyOverlay.IsVisible = busy;
         Refresher.IsEnabled = !busy;
-        RefreshItem.IsEnabled = !busy;
+        RefreshButton.IsEnabled = !busy;
         GameSourcePicker.IsEnabled = !busy;
-        GameSegmentButton.IsEnabled = !busy;
-        MarketSegmentButton.IsEnabled = !busy;
+        NavGame.IsEnabled = !busy;
+        NavMarket.IsEnabled = !busy;
         foreach (var row in _rows)
             row.CanInstall = !busy && row.Release.HasInstallableAsset;
     }

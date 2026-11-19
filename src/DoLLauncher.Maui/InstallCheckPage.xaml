@@ -121,20 +121,6 @@
                        FontSize="12" IsVisible="False"
                        TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
 
-                <Border x:Name="ProgressPanel" IsVisible="False" Padding="12" StrokeThickness="0"
-                        StrokeShape="RoundRectangle 12"
-                        BackgroundColor="{AppThemeBinding Light=#EDE7FB, Dark=#332B4D}">
-                    <VerticalStackLayout Spacing="6">
-                        <Label x:Name="ProgressTitle" Text="正在安装…" FontSize="12"
-                               FontAttributes="Bold" />
-                        <ProgressBar x:Name="InstallProgress" Progress="0" HeightRequest="6"
-                                     ProgressColor="#512BD4" />
-                        <Label x:Name="ProgressText" Text="" FontSize="11"
-                               LineBreakMode="TailTruncation"
-                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                    </VerticalStackLayout>
-                </Border>
-
             </VerticalStackLayout>
         </ScrollView>
 

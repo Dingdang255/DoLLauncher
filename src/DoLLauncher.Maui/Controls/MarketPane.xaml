@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             x:Class="DoLLauncher.Maui.MarketPage"
-             Title="模组市场">
+             xmlns:local="clr-namespace:DoLLauncher.Maui"
+             x:Class="DoLLauncher.Maui.Controls.MarketPane">
 
-    <ContentPage.Resources>
+    <ContentView.Resources>
         <Style x:Key="ChipButton" TargetType="Button">
             <Setter Property="FontSize" Value="12" />
             <Setter Property="Padding" Value="10,0" />
@@ -27,89 +27,96 @@
             <Setter Property="TextColor"
                     Value="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
         </Style>
-    </ContentPage.Resources>
+    </ContentView.Resources>
 
-    <ContentPage.ToolbarItems>
-        <ToolbarItem x:Name="RefreshItem" Text="刷新" Clicked="OnRefreshClicked" />
-    </ContentPage.ToolbarItems>
+    <Grid RowDefinitions="Auto,*" RowSpacing="8">
 
-    <Grid RowDefinitions="Auto,*" Padding="12,10,12,0" RowSpacing="10">
-
-        <!-- 顶部：安装目标、搜索、筛选 -->
+        <!-- 可折叠的搜索 / 筛选面板 -->
         <Border Grid.Row="0" Padding="12" StrokeThickness="0"
                 StrokeShape="RoundRectangle 12"
                 BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
             <VerticalStackLayout Spacing="8">
 
-                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-                    <Label Grid.Column="0" Text="安装到版本" FontSize="13" VerticalOptions="Center"
-                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                    <Picker x:Name="VersionPicker" Grid.Column="1" FontSize="13"
-                            VerticalOptions="Center"
-                            SelectedIndexChanged="OnTargetVersionChanged" />
-                    <Label x:Name="HeaderCountLabel" Grid.Column="2" Text="" FontSize="12"
-                           VerticalOptions="Center"
-                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                </Grid>
-
-                <SearchBar x:Name="SearchBox" Placeholder="搜索模组名称 / 作者 / 标签"
-                           FontSize="13" TextChanged="OnSearchTextChanged" />
-
-                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
-                    <Label Text="分类" FontSize="12" VerticalOptions="Center"
-                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                    <Picker x:Name="CategoryPicker" Grid.Column="1" FontSize="12"
-                            VerticalOptions="Center"
-                            SelectedIndexChanged="OnFilterChanged" />
-                </Grid>
-
-                <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto"
-                      ColumnSpacing="8" RowSpacing="6">
-                    <Grid Grid.Row="0" Grid.Column="0" ColumnDefinitions="Auto,*" ColumnSpacing="6">
-                        <Label Text="匹配" FontSize="12" VerticalOptions="Center"
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <Grid Grid.Column="0" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8"
+                          VerticalOptions="Center">
+                        <Label Grid.Column="0" Text="模组市场" FontSize="14" FontAttributes="Bold"
+                               VerticalOptions="Center" />
+                        <Label x:Name="HeaderCountLabel" Grid.Column="1" Text="" FontSize="12"
+                               VerticalOptions="Center"
                                TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                        <Picker x:Name="MatchPicker" Grid.Column="1" FontSize="12"
+                    </Grid>
+                    <Grid Grid.Column="1" Padding="8,4" VerticalOptions="Center">
+                        <Grid.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnToggleFilterClicked" />
+                        </Grid.GestureRecognizers>
+                        <Label x:Name="FilterChevron" Text="{x:Static local:IconGlyph.ChevronRight}"
+                               FontFamily="FluentIcons" FontSize="14" Rotation="90"
+                               VerticalOptions="Center"
+                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                    </Grid>
+                </Grid>
+
+                <VerticalStackLayout x:Name="FilterBody" Spacing="8">
+                    <SearchBar x:Name="SearchBox" Placeholder="搜索模组名称 / 作者 / 标签"
+                               FontSize="13" TextChanged="OnSearchTextChanged" />
+
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                        <Label Text="分类" FontSize="12" VerticalOptions="Center"
+                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                        <Picker x:Name="CategoryPicker" Grid.Column="1" FontSize="12"
                                 VerticalOptions="Center"
                                 SelectedIndexChanged="OnFilterChanged" />
                     </Grid>
-                    <Grid Grid.Row="0" Grid.Column="1" ColumnDefinitions="Auto,*" ColumnSpacing="6">
-                        <Label Text="范围" FontSize="12" VerticalOptions="Center"
-                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                        <Picker x:Name="ScopePicker" Grid.Column="1" FontSize="12"
-                                VerticalOptions="Center"
-                                SelectedIndexChanged="OnFilterChanged" />
-                    </Grid>
-                    <Grid Grid.Row="1" Grid.Column="0" ColumnDefinitions="Auto,*" ColumnSpacing="6">
-                        <Label Text="排序" FontSize="12" VerticalOptions="Center"
-                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                        <Picker x:Name="SortPicker" Grid.Column="1" FontSize="12"
-                                VerticalOptions="Center"
-                                SelectedIndexChanged="OnFilterChanged" />
-                    </Grid>
-                    <HorizontalStackLayout Grid.Row="1" Grid.Column="1" Spacing="4" VerticalOptions="Center">
-                        <Label Text="倒序" FontSize="12" VerticalOptions="Center"
-                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                        <Switch x:Name="DescSwitch" VerticalOptions="Center" Toggled="OnSortDescToggled" />
-                    </HorizontalStackLayout>
-                </Grid>
 
-                <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="6">
-                    <Button x:Name="ChipAll" Grid.Column="0" Text="全部模组"
-                            Style="{StaticResource ChipButton}" Clicked="OnChipAllClicked" />
-                    <Button x:Name="ChipUninstalled" Grid.Column="1" Text="未安装"
-                            Style="{StaticResource ChipButton}" Clicked="OnChipUninstalledClicked" />
-                    <Button x:Name="ChipUpdatable" Grid.Column="2" Text="可更新"
-                            Style="{StaticResource ChipButton}" Clicked="OnChipUpdatableClicked" />
-                    <Label x:Name="FilterCountLabel" Grid.Column="4" Text="" FontSize="12"
-                           VerticalOptions="Center" HorizontalOptions="End"
-                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                </Grid>
+                    <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto"
+                          ColumnSpacing="8" RowSpacing="6">
+                        <Grid Grid.Row="0" Grid.Column="0" ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                            <Label Text="匹配" FontSize="12" VerticalOptions="Center"
+                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                            <Picker x:Name="MatchPicker" Grid.Column="1" FontSize="12"
+                                    VerticalOptions="Center"
+                                    SelectedIndexChanged="OnFilterChanged" />
+                        </Grid>
+                        <Grid Grid.Row="0" Grid.Column="1" ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                            <Label Text="范围" FontSize="12" VerticalOptions="Center"
+                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                            <Picker x:Name="ScopePicker" Grid.Column="1" FontSize="12"
+                                    VerticalOptions="Center"
+                                    SelectedIndexChanged="OnFilterChanged" />
+                        </Grid>
+                        <Grid Grid.Row="1" Grid.Column="0" ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                            <Label Text="排序" FontSize="12" VerticalOptions="Center"
+                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                            <Picker x:Name="SortPicker" Grid.Column="1" FontSize="12"
+                                    VerticalOptions="Center"
+                                    SelectedIndexChanged="OnFilterChanged" />
+                        </Grid>
+                        <HorizontalStackLayout Grid.Row="1" Grid.Column="1" Spacing="4" VerticalOptions="Center">
+                            <Label Text="倒序" FontSize="12" VerticalOptions="Center"
+                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                            <Switch x:Name="DescSwitch" VerticalOptions="Center" Toggled="OnSortDescToggled" />
+                        </HorizontalStackLayout>
+                    </Grid>
+
+                    <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="6">
+                        <Button x:Name="ChipAll" Grid.Column="0" Text="全部模组"
+                                Style="{StaticResource ChipButton}" Clicked="OnChipAllClicked" />
+                        <Button x:Name="ChipUninstalled" Grid.Column="1" Text="未安装"
+                                Style="{StaticResource ChipButton}" Clicked="OnChipUninstalledClicked" />
+                        <Button x:Name="ChipUpdatable" Grid.Column="2" Text="可更新"
+                                Style="{StaticResource ChipButton}" Clicked="OnChipUpdatableClicked" />
+                        <Label x:Name="FilterCountLabel" Grid.Column="4" Text="" FontSize="12"
+                               VerticalOptions="Center" HorizontalOptions="End"
+                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                    </Grid>
+                </VerticalStackLayout>
             </VerticalStackLayout>
         </Border>
 
         <!-- 列表 / 加载 / 错误 -->
         <Grid Grid.Row="1">
-            <CollectionView x:Name="MarketList" SelectionMode="None">
+            <CollectionView x:Name="MarketList" SelectionMode="None" ItemSizingStrategy="MeasureAllItems">
                 <CollectionView.EmptyView>
                     <VerticalStackLayout Padding="24" Spacing="8" VerticalOptions="Center">
                         <Label x:Name="EmptyLabel" Text="没有符合条件的模组" FontSize="14"
@@ -125,13 +132,13 @@
                             <VerticalStackLayout Spacing="6">
 
                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                    <VerticalStackLayout Grid.Column="0" Spacing="3">
-                                        <Label Text="{Binding Mod.Title}" FontSize="15"
+                                    <Grid Grid.Column="0" RowDefinitions="Auto,Auto,Auto" RowSpacing="3">
+                                        <Label Grid.Row="0" Text="{Binding Mod.Title}" FontSize="15"
                                                FontAttributes="Bold" LineBreakMode="TailTruncation" />
-                                        <Label Text="{Binding Mod.Subtitle}" FontSize="11"
+                                        <Label Grid.Row="1" Text="{Binding Mod.Subtitle}" FontSize="11"
                                                LineBreakMode="MiddleTruncation"
                                                TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                                        <HorizontalStackLayout Spacing="10">
+                                        <HorizontalStackLayout Grid.Row="2" Spacing="10">
                                             <Label Text="{Binding Mod.BadgeText}" FontSize="11"
                                                    IsVisible="{Binding Mod.Installed}"
                                                    TextColor="{AppThemeBinding Light=#512BD4, Dark=#AC99EA}" />
@@ -139,7 +146,7 @@
                                                    IsVisible="{Binding HasStar}"
                                                    TextColor="{AppThemeBinding Light=#B25B00, Dark=#FFCC80}" />
                                         </HorizontalStackLayout>
-                                    </VerticalStackLayout>
+                                    </Grid>
                                     <Button Grid.Column="1" Text="安装" FontSize="13"
                                             Padding="14,0" HeightRequest="32" MinimumHeightRequest="32"
                                             WidthRequest="62" CornerRadius="8"
@@ -227,4 +234,4 @@
 
     </Grid>
 
-</ContentPage>
+</ContentView>

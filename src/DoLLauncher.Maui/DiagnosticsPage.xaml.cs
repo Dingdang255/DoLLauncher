@@ -5,13 +5,16 @@ using DoLLauncher.Services;
 
 namespace DoLLauncher.Maui;
 
-public partial class DiagnosticsPage : ContentPage
+public partial class DiagnosticsPage : ContentView
 {
     /// <summary>日志只展示末尾的行数与字符数，避免大文件拖慢页面。</summary>
     private const int TailLines = 200;
     private const int TailChars = 20000;
 
-    private readonly VersionInfo _version;
+    private readonly List<VersionInfo> _versions = new();
+    private readonly string? _preferredFolder;
+    private VersionInfo _version;
+    private bool _fillingVersion;
     private bool _loading;
     private bool _loaded;
     private bool _exporting;
@@ -21,13 +24,70 @@ public partial class DiagnosticsPage : ContentPage
     {
         InitializeComponent();
         _version = version;
+        _preferredFolder = version.Folder;
         HeaderLabel.Text = version.DisplayName;
     }
 
-    protected override void OnAppearing()
+    /// <summary>主界面切换到本面板时调用。</summary>
+    public void Activate() => _ = ActivateAsync();
+
+    private async Task ActivateAsync()
     {
-        base.OnAppearing();
-        if (!_loaded) _ = LoadAsync();
+        await LoadVersionsAsync();
+        if (!_loaded) await LoadAsync();
+    }
+
+    private async Task LoadVersionsAsync()
+    {
+        List<VersionInfo> list;
+        try
+        {
+            list = await Task.Run(VersionService.Scan);
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("扫描版本失败", ex);
+            return;
+        }
+
+        list = list.Where(v => v.Mode == "http").ToList();
+        var same = list.Count == _versions.Count &&
+                   list.Select(v => v.Folder).SequenceEqual(_versions.Select(v => v.Folder),
+                       StringComparer.OrdinalIgnoreCase);
+        if (same && VersionPicker.ItemsSource != null) return;
+
+        _versions.Clear();
+        _versions.AddRange(list);
+
+        _fillingVersion = true;
+        try
+        {
+            var keep = (VersionPicker.SelectedItem as VersionInfo)?.Folder ?? _version.Folder;
+            VersionPicker.ItemsSource = _versions;
+            var index = _versions.FindIndex(v =>
+                string.Equals(v.Folder, keep, StringComparison.OrdinalIgnoreCase));
+            if (index < 0) index = _versions.FindIndex(v =>
+                string.Equals(v.Folder, _preferredFolder, StringComparison.OrdinalIgnoreCase));
+            VersionPicker.SelectedIndex = index >= 0 ? index : (_versions.Count > 0 ? 0 : -1);
+        }
+        finally
+        {
+            _fillingVersion = false;
+        }
+    }
+
+    private void OnVersionChanged(object? sender, EventArgs e)
+    {
+        if (_fillingVersion || VersionPicker.SelectedItem is not VersionInfo version) return;
+        if (string.Equals(version.Folder, _version.Folder, StringComparison.OrdinalIgnoreCase)) return;
+
+        _version = version;
+        HeaderLabel.Text = version.DisplayName;
+        _loaded = false;
+        EnvList.Children.Clear();
+        CompatList.Children.Clear();
+        GameLogList.Children.Clear();
+        _ = LoadAsync();
     }
 
     private async Task LoadAsync()
@@ -221,7 +281,7 @@ public partial class DiagnosticsPage : ContentPage
     private void SetBusy(bool busy)
     {
         BusyOverlay.IsVisible = busy;
-        ExportItem.IsEnabled = !busy;
+        ExportButton.IsEnabled = !busy;
         AnalyzeButton.IsEnabled = !busy;
     }
 
