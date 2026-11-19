@@ -1,4 +1,5 @@
 using DoLLauncher.Models;
+using DoLLauncher.Maui.Platform;
 using DoLLauncher.Platform;
 using DoLLauncher.Services;
 using Microsoft.Maui.ApplicationModel.DataTransfer;
@@ -48,6 +49,7 @@ public partial class VersionDetailPage : ContentPage
         StopButton.Opacity = running ? 1 : 0.4;
         LaunchButton.IsEnabled = !_busy;
         HelperButton.IsEnabled = !_busy;
+        ExportButton.IsEnabled = !_busy;
         DeleteButton.IsEnabled = !_busy;
     }
 
@@ -239,6 +241,85 @@ public partial class VersionDetailPage : ContentPage
         finally
         {
             SetBusy(false);
+        }
+    }
+
+    // ---------- 导出版本包 ----------
+
+    private void OnExportClicked(object? sender, EventArgs e)
+    {
+        if (_busy) return;
+        ExportInfoLabel.Text = $"{_version.DisplayName}（{_version.Folder}）· 游戏版本 " +
+            (string.IsNullOrWhiteSpace(_version.GameVersion) ? "未知" : _version.GameVersion);
+        ExportOverlay.IsVisible = true;
+    }
+
+    private void OnExportCancelClicked(object? sender, EventArgs e) => ExportOverlay.IsVisible = false;
+
+    private async void OnExportConfirmClicked(object? sender, EventArgs e)
+    {
+        if (_busy) return;
+        var includeGame = ExportIncludeGameCheck.IsChecked;
+        ExportOverlay.IsVisible = false;
+
+        var note = await DisplayPromptAsync("导出备注",
+            "可留空；备注会写进版本包 manifest，导入时能看见。",
+            "确定", "跳过", "例如：带几个常用模组的整合包", maxLength: 200);
+        note ??= string.Empty;
+
+        var dir = Path.Combine(FileSystem.CacheDirectory, "export");
+        var name = string.IsNullOrWhiteSpace(_version.Folder) ? _version.DisplayName : _version.Folder;
+        var path = Path.Combine(dir, name + ".dolpack");
+
+        SetBusy(true);
+        try
+        {
+            Directory.CreateDirectory(dir);
+            LogService.Append($"[导出] 开始导出 {_version.DisplayName} → {path}");
+            await Task.Run(() => PackService.Export(_version, includeGame, path, note,
+                msg => LogService.Append("[导出] " + msg)));
+            LogService.Append("[导出] 完成：" + path);
+
+            // 优先用系统「保存到文件」；不支持时退回收起面板让用户另存。
+            var result = await SaveFileHelper.SaveAsync(path, Path.GetFileName(path));
+            switch (result)
+            {
+                case SaveFileResult.Saved:
+                    await PlatformServices.Dialogs.InfoAsync("版本包已保存。", "导出版本包");
+                    break;
+                case SaveFileResult.Canceled:
+                    await PlatformServices.Dialogs.InfoAsync(
+                        "已取消保存。\n\n导出的缓存副本仍保留在：\n" + path, "导出版本包");
+                    break;
+                default:
+                    await Share.RequestAsync(new ShareFileRequest
+                    {
+                        Title = "导出版本包",
+                        File = new ShareFile(path),
+                    });
+                    await PlatformServices.Dialogs.InfoAsync(
+                        "已打开系统分享面板，可另存为文件。\n\n缓存位置：\n" + path, "导出版本包");
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("导出版本包失败", ex);
+            TryDeleteExport(path);
+            await PlatformServices.Dialogs.ErrorAsync("导出失败：" + ex.Message, "导出版本包");
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    /// <summary>导出失败时清掉半成品，避免下次导出读到残缺包。</summary>
+    private static void TryDeleteExport(string path)
+    {
+        foreach (var candidate in new[] { path, path + ".tmp" })
+        {
+            try { if (File.Exists(candidate)) File.Delete(candidate); } catch { }
         }
     }
 

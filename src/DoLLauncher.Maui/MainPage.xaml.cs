@@ -115,95 +115,130 @@ public partial class MainPage : ContentPage
 
     private async void OnImportClicked(object? sender, EventArgs e)
     {
-        string? tempZip = null;
+        List<FileResult> picked;
         try
         {
-            var file = await FilePicker.Default.PickAsync(
-                new PickOptions { PickerTitle = "选择版本包（zip / dolpack）" });
-            if (file == null) return;
-
-            SetBusy(true);
-            tempZip = await CopyToCacheAsync(file);
-
-            var inspection = await Task.Run(() => PackService.Inspect(tempZip));
-            if (inspection.IsModPack)
-            {
-                await ImportModPackAsync(file.FileName, tempZip, inspection);
-                return;
-            }
-            if (!inspection.IsGame)
-            {
-                await PlatformServices.Dialogs.ErrorAsync(
-                    "无法识别这个包：需要包含 Degrees of Lewdity.html 的版本包。");
-                return;
-            }
-            if (!await PlatformServices.Dialogs.ConfirmAsync(
-                    $"将「{file.FileName}」导入为新版本？", "导入版本", "开始导入"))
-                return;
-
-            var packPath = tempZip;
-            var result = await Task.Run(() => PackService.Import(packPath, inspection, null,
-                msg => LogService.Append("[导入] " + msg)));
-
-            LogService.Append($"[导入] 完成：{result.NewVersionFolder}");
-            await ReloadAsync();
-            await PlatformServices.Dialogs.InfoAsync($"已导入版本：{result.NewVersionFolder}");
+            var files = await FilePicker.Default.PickMultipleAsync(
+                new PickOptions { PickerTitle = "选择版本包 / 模组包（可多选）" });
+            picked = files?.OfType<FileResult>().ToList() ?? new List<FileResult>();
         }
         catch (Exception ex)
         {
-            LogService.Error("导入版本失败", ex);
-            await PlatformServices.Dialogs.ErrorAsync("导入失败：" + ex.Message);
+            LogService.Error("选择导入文件失败", ex);
+            await PlatformServices.Dialogs.ErrorAsync("无法打开文件选择器：" + ex.Message);
+            return;
+        }
+        if (picked.Count == 0) return;
+
+        if (!await PlatformServices.Dialogs.ConfirmAsync(
+                $"将处理 {picked.Count} 个包：\n版本包会新建版本，模组包会让你选择要导入的版本。\n\n继续吗？",
+                "导入版本 / 模组包", "开始导入"))
+            return;
+
+        SetBusy(true);
+        var imported = 0;
+        var skipped = new List<string>();
+        var failed = new List<string>();
+        try
+        {
+            foreach (var file in picked)
+            {
+                var name = string.IsNullOrWhiteSpace(file.FileName) ? "(未命名)" : file.FileName;
+                string? tempZip = null;
+                try
+                {
+                    tempZip = await CopyToCacheAsync(file);
+                    var inspection = await Task.Run(() => PackService.Inspect(tempZip));
+
+                    if (inspection.IsUnknown)
+                    {
+                        failed.Add($"{name}：不是可识别的版本包或模组包");
+                        continue;
+                    }
+
+                    if (inspection.IsModPack)
+                    {
+                        var target = await PickTargetVersionAsync(name);
+                        if (target == null)
+                        {
+                            skipped.Add($"{name}：未选择目标版本");
+                            continue;
+                        }
+
+                        // 与单文件导入一致：交给 PackService 处理包内顺序与启停状态。
+                        var packPath = tempZip;
+                        var result = await Task.Run(() => PackService.Import(packPath, inspection, target.FullPath,
+                            msg => LogService.Append("[导入模组] " + msg)));
+                        LogService.Append($"[导入模组] {name} → {target.DisplayName}：成功 {result.ModCount} 个");
+                        imported++;
+                        if (result.FailedMods.Count > 0)
+                            skipped.Add($"{name}：{result.FailedMods.Count} 个模组未通过校验");
+                        continue;
+                    }
+
+                    // 版本包：逐个导入为新版本。
+                    var gamePack = tempZip;
+                    var info = await Task.Run(() => PackService.Import(gamePack, inspection, null,
+                        msg => LogService.Append("[导入] " + msg)));
+                    LogService.Append($"[导入] 完成：{info.NewVersionFolder}");
+                    imported++;
+                }
+                catch (Exception ex)
+                {
+                    LogService.Error($"导入 {name} 失败", ex);
+                    failed.Add($"{name}：{ex.Message}");
+                }
+                finally
+                {
+                    if (tempZip != null)
+                    {
+                        try { File.Delete(tempZip); } catch { }
+                    }
+                }
+            }
         }
         finally
         {
             SetBusy(false);
-            if (tempZip != null)
-            {
-                try { File.Delete(tempZip); } catch { }
-            }
         }
+
+        await ReloadAsync();
+        await PlatformServices.Dialogs.InfoAsync(BuildImportSummary(imported, skipped, failed), "导入结果");
     }
 
-    /// <summary>模组包不含游戏本体：先选目标版本，再交给 PackService 走模组导入流程。</summary>
-    private async Task ImportModPackAsync(string displayName, string packPath,
-        PackService.PackInspection inspection)
+    /// <summary>让用户选择模组包要导入到哪个版本；返回 null 表示放弃。</summary>
+    private async Task<VersionInfo?> PickTargetVersionAsync(string displayName)
     {
         var versions = _versions.ToList();
         if (versions.Count == 0)
         {
             await PlatformServices.Dialogs.WarnAsync(
                 "还没有可接收模组的版本，请先导入或下载游戏本体。", "导入模组包");
-            return;
+            return null;
         }
 
         var options = versions.Select((v, i) => $"{i + 1}. {v.DisplayName}").ToArray();
-        var choice = await DisplayActionSheetAsync("这是模组包，导入到哪个版本？",
+        var choice = await DisplayActionSheetAsync($"「{displayName}」是模组包，导入到哪个版本？",
             "取消", null!, options);
-        if (string.IsNullOrEmpty(choice)) return;
+        if (string.IsNullOrEmpty(choice)) return null;
         var index = Array.IndexOf(options, choice);
-        if (index < 0) return;
-        var target = versions[index];
+        return index < 0 ? null : versions[index];
+    }
 
-        if (!await PlatformServices.Dialogs.ConfirmAsync(
-                $"将「{displayName}」导入版本「{target.DisplayName}」？\n包内同名模组会被覆盖。",
-                "导入模组包", "导入"))
-            return;
+    /// <summary>多文件导入的统一汇总：成功 / 跳过（含原因）/ 失败。</summary>
+    private static string BuildImportSummary(int imported, List<string> skipped, List<string> failed)
+    {
+        var text = $"成功 {imported} 个，跳过 {skipped.Count} 个，失败 {failed.Count} 个。";
+        if (skipped.Count > 0) text += "\n\n跳过：\n" + FormatResultList(skipped);
+        if (failed.Count > 0) text += "\n\n失败：\n" + FormatResultList(failed);
+        return text;
+    }
 
-        var result = await Task.Run(() => PackService.Import(packPath, inspection, target.FullPath,
-            msg => LogService.Append("[导入模组] " + msg)));
-        LogService.Append($"[导入模组] {displayName} → {target.DisplayName}：成功 {result.ModCount} 个");
-
-        await ReloadAsync();
-
-        var message = $"已导入 {result.ModCount} 个模组到「{target.DisplayName}」。";
-        if (result.FailedMods.Count > 0)
-        {
-            message += "\n\n跳过：" + string.Join("\n",
-                result.FailedMods.Take(5).Select(f => "· " + f));
-            if (result.FailedMods.Count > 5)
-                message += $"\n…另有 {result.FailedMods.Count - 5} 个";
-        }
-        await PlatformServices.Dialogs.InfoAsync(message, "导入模组包");
+    private static string FormatResultList(List<string> items)
+    {
+        const int max = 6;
+        var text = string.Join("\n", items.Take(max).Select(s => "· " + s));
+        return items.Count > max ? text + $"\n…另有 {items.Count - max} 个" : text;
     }
 
     private void SetBusy(bool busy)

@@ -1,6 +1,8 @@
-﻿using Android.App;
+using Android.App;
+using Android.Content;
 using Android.Content.PM;
 using Android.OS;
+using DoLLauncher.Maui.Platform;
 
 namespace DoLLauncher.Maui;
 
@@ -16,4 +18,13 @@ public class MainActivity : MauiAppCompatActivity
         base.OnBackPressed();
     }
 #pragma warning restore CS0612
+
+    // MAUI 的组件（文件选择等）依赖基类处理结果，先交给基类，再处理本工程自己的 SAF 保存请求
+#pragma warning disable CS0618, CS0672
+    protected override void OnActivityResult(int requestCode, Result resultCode, Intent? data)
+    {
+        base.OnActivityResult(requestCode, resultCode, data);
+        SaveFileHelper.HandleResult(requestCode, resultCode, data);
+    }
+#pragma warning restore CS0618, CS0672
 }

@@ -92,6 +92,12 @@
                                 BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
                                 TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
 
+                        <Button x:Name="ExportButton" Text="导出版本包"
+                                HeightRequest="42" CornerRadius="10" FontSize="14"
+                                Clicked="OnExportClicked"
+                                BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                                TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+
                         <Button x:Name="DeleteButton" Text="删除版本"
                                 HeightRequest="42" CornerRadius="10" FontSize="14"
                                 Clicked="OnDeleteClicked"
@@ -112,6 +118,37 @@
 
             </VerticalStackLayout>
         </ScrollView>
+
+        <!-- 导出选项 -->
+        <Grid x:Name="ExportOverlay" IsVisible="False" BackgroundColor="#80000000">
+            <Border Padding="18" Margin="24" StrokeThickness="0" StrokeShape="RoundRectangle 14"
+                    VerticalOptions="Center"
+                    BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#2A2A2A}">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="导出为版本包" FontSize="16" FontAttributes="Bold" />
+                    <Label x:Name="ExportInfoLabel" FontSize="11" LineBreakMode="WordWrap"
+                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+
+                    <HorizontalStackLayout Spacing="4">
+                        <CheckBox x:Name="ExportIncludeGameCheck" IsChecked="True" />
+                        <Label Text="包含游戏本体与版本文件" FontSize="13"
+                               VerticalOptions="Center" />
+                    </HorizontalStackLayout>
+                    <Label Text="不勾选时只打包模组清单，导入到已有版本即可使用。导出后会让你选择保存位置。"
+                           FontSize="11" LineBreakMode="WordWrap"
+                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="10" Margin="0,4,0,0">
+                        <Button Grid.Column="0" Text="取消" HeightRequest="40" CornerRadius="9"
+                                FontSize="14" Clicked="OnExportCancelClicked"
+                                BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                                TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+                        <Button Grid.Column="1" Text="导出" HeightRequest="40" CornerRadius="9"
+                                FontSize="14" Clicked="OnExportConfirmClicked" />
+                    </Grid>
+                </VerticalStackLayout>
+            </Border>
+        </Grid>
 
         <Grid x:Name="BusyOverlay" IsVisible="False" BackgroundColor="#80000000">
             <ActivityIndicator IsRunning="True" Color="White"
