@@ -15,8 +15,6 @@ public partial class NetworkSettingsPage : ContentPage
 
     private static readonly string[] ApiValues = { "auto", "github", "ghproxy" };
     private static readonly string[] ApiNames = { "自动（直连失败走镜像）", "GitHub 直连", "GH-Proxy 镜像" };
-    private static readonly string[] GameValues = { "i18n", "neo" };
-    private static readonly string[] GameNames = { "汉化整包 i18n", "Neo 单文件" };
 
     private LauncherConfig _config = new();
     private bool _loading;
@@ -26,7 +24,6 @@ public partial class NetworkSettingsPage : ContentPage
         InitializeComponent();
         ModDownloadPicker.ItemsSource = DownloadNames;
         ApiSourcePicker.ItemsSource = ApiNames;
-        GameSourcePicker.ItemsSource = GameNames;
     }
 
     protected override void OnAppearing()
@@ -45,8 +42,6 @@ public partial class NetworkSettingsPage : ContentPage
                 SettingsStore.IndexOf(DownloadValues, _config.General.ModDownloadSource, 0);
             ApiSourcePicker.SelectedIndex =
                 SettingsStore.IndexOf(ApiValues, _config.General.GithubApiSource, 0);
-            GameSourcePicker.SelectedIndex =
-                SettingsStore.IndexOf(GameValues, _config.General.GameSource, 0);
         }
         finally
         {
@@ -72,15 +67,5 @@ public partial class NetworkSettingsPage : ContentPage
 
         _config.General.GithubApiSource = value;
         await SettingsStore.SaveAsync(_config, "GitHub 接口源 = " + ApiNames[ApiSourcePicker.SelectedIndex]);
-    }
-
-    private async void OnGameSourceChanged(object? sender, EventArgs e)
-    {
-        if (_loading || GameSourcePicker.SelectedIndex < 0) return;
-        var value = GameValues[GameSourcePicker.SelectedIndex];
-        if (SettingsStore.Same(_config.General.GameSource, value)) return;
-
-        _config.General.GameSource = value;
-        await SettingsStore.SaveAsync(_config, "游戏本体下载源 = " + GameNames[GameSourcePicker.SelectedIndex]);
     }
 }

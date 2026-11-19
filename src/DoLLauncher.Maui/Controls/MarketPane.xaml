@@ -141,7 +141,7 @@
                                         <HorizontalStackLayout Grid.Row="2" Spacing="10">
                                             <Label Text="{Binding Mod.BadgeText}" FontSize="11"
                                                    IsVisible="{Binding Mod.Installed}"
-                                                   TextColor="{AppThemeBinding Light=#512BD4, Dark=#AC99EA}" />
+                                                   TextColor="{DynamicResource AccentColor}" />
                                             <Label Text="{Binding StarText}" FontSize="11"
                                                    IsVisible="{Binding HasStar}"
                                                    TextColor="{AppThemeBinding Light=#B25B00, Dark=#FFCC80}" />
@@ -152,8 +152,8 @@
                                             WidthRequest="62" CornerRadius="8"
                                             VerticalOptions="Start"
                                             Clicked="OnInstallClicked"
-                                            BackgroundColor="{AppThemeBinding Light=#512BD4, Dark=#7B5BD6}"
-                                            TextColor="White" />
+                                            BackgroundColor="{DynamicResource AccentColor}"
+                                            TextColor="{DynamicResource AccentOnColor}" />
                                 </Grid>
 
                                 <Label Text="{Binding Mod.Description}" FontSize="11" MaxLines="3"

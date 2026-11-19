@@ -42,14 +42,12 @@
                                     Text="详情" IsEnabled="False" Tapped="OnDetailClicked" />
                 <ctl:IconActionView x:Name="BulkRenameButton" Glyph="{x:Static local:IconGlyph.Edit}"
                                     Text="重命名" IsEnabled="False" Tapped="OnRenameClicked" />
-                <ctl:IconActionView Glyph="{x:Static local:IconGlyph.CheckmarkCircle}" Text="启用"
-                                    Tapped="OnEnableClicked" />
-                <ctl:IconActionView Glyph="{x:Static local:IconGlyph.Dismiss}" Text="停用"
-                                    Tapped="OnDisableClicked" />
-                <ctl:IconActionView Glyph="{x:Static local:IconGlyph.Delete}" Text="删除" Variant="danger"
-                                    Tapped="OnDeleteClicked" />
-                <ctl:IconActionView Glyph="{x:Static local:IconGlyph.Dismiss}" Text="取消"
-                                    Tapped="OnSelectClicked" />
+                <ctl:IconActionView x:Name="BulkEnableButton" Glyph="{x:Static local:IconGlyph.CheckmarkCircle}"
+                                    Text="启用" IsEnabled="False" Tapped="OnEnableClicked" />
+                <ctl:IconActionView x:Name="BulkDisableButton" Glyph="{x:Static local:IconGlyph.Dismiss}"
+                                    Text="停用" IsEnabled="False" Tapped="OnDisableClicked" />
+                <ctl:IconActionView x:Name="BulkDeleteButton" Glyph="{x:Static local:IconGlyph.Delete}"
+                                    Text="删除" Variant="danger" IsEnabled="False" Tapped="OnDeleteClicked" />
             </HorizontalStackLayout>
         </VerticalStackLayout>
 
@@ -86,12 +84,30 @@
                                         <TapGestureRecognizer Tapped="OnRowTapped" />
                                     </VerticalStackLayout.GestureRecognizers>
                                     <Label Text="{Binding Title}" FontSize="15" FontAttributes="Bold"
-                                           LineBreakMode="TailTruncation" />
+                                           LineBreakMode="TailTruncation">
+                                        <Label.Triggers>
+                                            <DataTrigger TargetType="Label" Binding="{Binding IsNormalMode}" Value="True">
+                                                <Setter Property="FontSize" Value="17" />
+                                            </DataTrigger>
+                                        </Label.Triggers>
+                                    </Label>
                                     <Label Text="{Binding FileName}" FontSize="11"
                                            LineBreakMode="MiddleTruncation"
-                                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}">
+                                        <Label.Triggers>
+                                            <DataTrigger TargetType="Label" Binding="{Binding IsNormalMode}" Value="True">
+                                                <Setter Property="FontSize" Value="12" />
+                                            </DataTrigger>
+                                        </Label.Triggers>
+                                    </Label>
                                     <Label Text="{Binding StateText}" FontSize="11"
-                                           TextColor="{Binding StateColor}" />
+                                           TextColor="{Binding StateColor}">
+                                        <Label.Triggers>
+                                            <DataTrigger TargetType="Label" Binding="{Binding IsNormalMode}" Value="True">
+                                                <Setter Property="FontSize" Value="12" />
+                                            </DataTrigger>
+                                        </Label.Triggers>
+                                    </Label>
                                     <Label Text="{Binding IssueText}" FontSize="11"
                                            IsVisible="{Binding HasIssue}"
                                            LineBreakMode="CharacterWrap"

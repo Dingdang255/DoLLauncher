@@ -52,7 +52,7 @@ public partial class ModsPage : ContentPage
         if (AndroidKeyRouter.Handler == HandleHardwareKey) AndroidKeyRouter.Handler = null;
     }
 
-    /// <summary>外接键盘：Ctrl+A 进入多选并全选，Delete 删除选中（沿用现有二次确认）。</summary>
+    /// <summary>外接键盘：Ctrl+A 切换全选 / 取消全选，Delete 删除选中（沿用现有二次确认）。</summary>
     private bool HandleHardwareKey(Android.Views.KeyEvent e)
     {
         if (_busy) return false;
@@ -61,8 +61,7 @@ public partial class ModsPage : ContentPage
         {
             if (_rows.Count == 0) return false;
             if (!_multiSelect) EnterMultiSelect();
-            foreach (var row in _rows) row.IsSelected = true;
-            UpdateToolbar();
+            ToggleSelectAll();
             return true;
         }
 
@@ -313,6 +312,9 @@ public partial class ModsPage : ContentPage
         var canAct = !_busy && selected.Count > 0;
         BulkDetailButton.IsEnabled = canAct && selected.Count == 1;
         BulkRenameButton.IsEnabled = canAct && selected.Count == 1;
+        BulkEnableButton.IsEnabled = canAct;
+        BulkDisableButton.IsEnabled = canAct;
+        BulkDeleteButton.IsEnabled = canAct;
         ImportButton.IsEnabled = !_busy && !_importing;
         CheckButton.IsEnabled = !_busy && !_loading;
         RefreshButton.IsEnabled = !_busy && !_loading;
@@ -382,7 +384,10 @@ public partial class ModsPage : ContentPage
         }
     }
 
-    private void OnSelectAllClicked(object? sender, EventArgs e)
+    private void OnSelectAllClicked(object? sender, EventArgs e) => ToggleSelectAll();
+
+    /// <summary>全选与取消全选共用：全部已选时清空，否则全选。</summary>
+    private void ToggleSelectAll()
     {
         var all = _rows.Count > 0 && _rows.All(r => r.IsSelected);
         foreach (var row in _rows) row.IsSelected = !all;

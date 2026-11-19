@@ -12,11 +12,11 @@
                     <Label Text="DoL 启动器（Android）" Style="{StaticResource SettingsItemTitle}" />
                     <Label Style="{StaticResource SettingsHint}"
                            Text="面向 Degrees of Lewdity 的版本 / 模组 / 存档管理工具；本端为 .NET MAUI 移植版本，与 Windows 桌面端共用同一套核心服务。" />
-                    <Grid ColumnDefinitions="*,Auto" Margin="0,6,0,0">
-                        <Label Grid.Column="0" Text="应用版本" FontSize="13" VerticalOptions="Center" />
-                        <Label x:Name="AppVersionLabel" Grid.Column="1" FontSize="12"
+                    <HorizontalStackLayout Spacing="6" Margin="0,6,0,0">
+                        <Label Text="应用版本" FontSize="13" VerticalOptions="Center" />
+                        <Label x:Name="AppVersionLabel" FontSize="12"
                                Style="{StaticResource SettingsHint}" VerticalOptions="Center" />
-                    </Grid>
+                    </HorizontalStackLayout>
                 </VerticalStackLayout>
             </Border>
 

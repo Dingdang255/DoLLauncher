@@ -1,4 +1,3 @@
-using System.Text;
 using DoLLauncher.Models;
 using DoLLauncher.Services;
 
@@ -29,7 +28,7 @@ public partial class VersionInfoPage : ContentPage
         {
             AutoUpdateSwitch.IsToggled = _config.General.AutoCheckUpdate;
             VersionLabel.Text = BuildInfo.Display;
-            CreditsLabel.Text = BuildCreditsText();
+            LoadCredits();
         }
         finally
         {
@@ -37,34 +36,129 @@ public partial class VersionInfoPage : ContentPage
         }
     }
 
-    private static string BuildCreditsText()
+    /// <summary>致谢列表：圆形首字头像 + 姓名 / 职位 + 平台链接。</summary>
+    private void LoadCredits()
     {
+        CreditsList.Children.Clear();
         try
         {
-            var credits = CreditsService.Load();
-            if (credits.Entries.Count == 0) return "（credits.json 里还没有致谢条目）";
-
-            var text = new StringBuilder();
-            foreach (var entry in credits.Entries)
-            {
-                var role = (entry.Role ?? string.Empty).Trim();
-                var name = (entry.Name ?? string.Empty).Trim();
-                var line = role.Length == 0 ? name : $"{role}  {name}";
-                text.AppendLine(line.Trim());
-
-                var links = new[]
-                {
-                    entry.Bilibili, entry.Github, entry.Website,
-                }.Where(l => !string.IsNullOrWhiteSpace(l)).Select(l => l!.Trim()).ToArray();
-                if (links.Length > 0) text.AppendLine("  " + string.Join(" · ", links));
-            }
-            return text.ToString().TrimEnd();
+            var entries = CreditsService.Load().Entries;
+            CreditsEmptyLabel.IsVisible = entries.Count == 0;
+            foreach (var entry in entries)
+                CreditsList.Children.Add(BuildCreditRow(entry));
         }
         catch (Exception ex)
         {
             LogService.Error("加载致谢名单失败", ex);
-            return "致谢名单读取失败：" + ex.Message;
+            CreditsEmptyLabel.Text = "致谢名单读取失败：" + ex.Message;
+            CreditsEmptyLabel.IsVisible = true;
         }
+    }
+
+    private static View BuildCreditRow(CreditEntry entry)
+    {
+        var avatar = new Border
+        {
+            WidthRequest = 36,
+            HeightRequest = 36,
+            StrokeThickness = 0,
+            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 18 },
+            VerticalOptions = LayoutOptions.Center,
+        };
+        avatar.SetDynamicResource(Border.BackgroundColorProperty, "AccentPaleColor");
+
+        var initial = new Label
+        {
+            Text = (entry.Name ?? string.Empty).Trim() is { Length: > 0 } name ? name[..1].ToUpperInvariant() : "?",
+            FontSize = 15,
+            FontAttributes = FontAttributes.Bold,
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Center,
+        };
+        initial.SetDynamicResource(Label.TextColorProperty, "AccentColor");
+        avatar.Content = initial;
+
+        var nameLabel = new Label
+        {
+            Text = (entry.Name ?? string.Empty).Trim(),
+            FontSize = 13,
+            FontAttributes = FontAttributes.Bold,
+            LineBreakMode = LineBreakMode.TailTruncation,
+        };
+
+        var roleText = (entry.Role ?? string.Empty).Trim();
+        var roleLabel = new Label
+        {
+            Text = roleText,
+            FontSize = 11,
+            IsVisible = roleText.Length > 0,
+            LineBreakMode = LineBreakMode.TailTruncation,
+        };
+        roleLabel.SetAppThemeColor(Label.TextColorProperty,
+            Color.FromArgb("#808080"), Color.FromArgb("#A0A0A0"));
+
+        var textColumn = new VerticalStackLayout
+        {
+            Spacing = 1,
+            VerticalOptions = LayoutOptions.Center,
+            Children = { nameLabel, roleLabel },
+        };
+
+        var links = new HorizontalStackLayout { Spacing = 6, VerticalOptions = LayoutOptions.Center };
+        AddLink(links, "哔哩哔哩", entry.Bilibili);
+        AddLink(links, "GitHub", entry.Github);
+        AddLink(links, "网站", entry.Website);
+
+        var header = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(GridLength.Auto),
+                new ColumnDefinition(GridLength.Star),
+            },
+            ColumnSpacing = 10,
+        };
+        header.Add(avatar, 0);
+        header.Add(textColumn, 1);
+
+        if (links.Children.Count == 0) return header;
+
+        var row = new VerticalStackLayout { Spacing = 6, Children = { header, links } };
+        return row;
+    }
+
+    private static void AddLink(Layout host, string label, string? url)
+    {
+        var text = (url ?? string.Empty).Trim();
+        if (text.Length == 0) return;
+        if (!Uri.TryCreate(text, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            return;
+
+        var button = new Button
+        {
+            Text = label,
+            FontSize = 10,
+            Padding = new Thickness(10, 0),
+            HeightRequest = 26,
+            MinimumHeightRequest = 26,
+            CornerRadius = 7,
+            HorizontalOptions = LayoutOptions.Start,
+        };
+        button.SetDynamicResource(Button.BackgroundColorProperty, "AccentPaleColor");
+        button.SetDynamicResource(Button.TextColorProperty, "AccentColor");
+        button.Clicked += async (_, _) =>
+        {
+            try
+            {
+                await Launcher.Default.OpenAsync(uri);
+            }
+            catch (Exception ex)
+            {
+                LogService.Error("打开致谢链接失败", ex);
+            }
+        };
+        host.Add(button);
     }
 
     private async void OnAutoUpdateToggled(object? sender, ToggledEventArgs e)

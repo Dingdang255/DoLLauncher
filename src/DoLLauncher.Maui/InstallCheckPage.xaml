@@ -38,9 +38,9 @@
                                                 <Border Padding="5,1" StrokeThickness="0"
                                                         StrokeShape="RoundRectangle 4"
                                                         VerticalOptions="Center"
-                                                        BackgroundColor="{AppThemeBinding Light=#E1D8F9, Dark=#3B2E63}">
+                                                        BackgroundColor="{DynamicResource AccentPaleColor}">
                                                     <Label Text="{Binding SourceText}" FontSize="10"
-                                                           TextColor="{AppThemeBinding Light=#512BD4, Dark=#C4B5F5}" />
+                                                           TextColor="{DynamicResource AccentColor}" />
                                                 </Border>
                                             </HorizontalStackLayout>
                                             <Label Text="{Binding Detail}" FontSize="11"
@@ -137,7 +137,7 @@
             <Button x:Name="StartButton" Grid.Column="2" Text="开始安装" FontSize="13"
                     HeightRequest="38" MinimumHeightRequest="38" WidthRequest="104"
                     CornerRadius="9" Clicked="OnStartClicked"
-                    BackgroundColor="{AppThemeBinding Light=#512BD4, Dark=#7B5BD6}"
+                    BackgroundColor="{DynamicResource AccentColor}"
                     TextColor="White" />
         </Grid>
 

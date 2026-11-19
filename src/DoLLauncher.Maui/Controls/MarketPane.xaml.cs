@@ -278,9 +278,9 @@ public partial class MarketPane : ContentView
     {
         if (active)
         {
-            button.SetAppThemeColor(Button.BackgroundColorProperty,
-                Color.FromArgb("#512BD4"), Color.FromArgb("#7B5BD6"));
-            button.TextColor = Colors.White;
+            // 跟随设置里的主题色，而不是固定紫色。
+            button.SetDynamicResource(Button.BackgroundColorProperty, "AccentColor");
+            button.SetDynamicResource(Button.TextColorProperty, "AccentOnColor");
         }
         else
         {

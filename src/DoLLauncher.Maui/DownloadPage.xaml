@@ -50,7 +50,7 @@
                                 <Label Text="{Binding Name}" FontSize="11" FontAttributes="Bold"
                                        LineBreakMode="TailTruncation" />
                                 <ProgressBar Progress="{Binding Progress, Mode=OneWay}"
-                                             HeightRequest="4" ProgressColor="#512BD4" />
+                                             HeightRequest="4" ProgressColor="{DynamicResource AccentColor}" />
                                 <Label Text="{Binding InfoText}" FontSize="9"
                                        LineBreakMode="TailTruncation"
                                        TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />

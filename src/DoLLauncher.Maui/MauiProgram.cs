@@ -37,30 +37,7 @@ public static class MauiProgram
 			if (handler.PlatformView is not Android.Widget.EditText edit) return;
 			try
 			{
-				var ctx = edit.Context!;
-				var res = ctx.Resources!;
-				var dark = (res.Configuration!.UiMode & Android.Content.Res.UiMode.NightMask)
-					== Android.Content.Res.UiMode.NightYes;
-				var density = res.DisplayMetrics?.Density ?? 1f;
-
-				var background = new Android.Graphics.Drawables.GradientDrawable();
-				background.SetCornerRadius(8 * density);
-				background.SetColor(Android.Graphics.Color.ParseColor(dark ? "#2A2A2A" : "#F2F2F2"));
-				background.SetStroke((int)Math.Max(1, density),
-					Android.Graphics.Color.ParseColor(dark ? "#4A4A4A" : "#DCDCDC"));
-				edit.Background = background;
-
-				var padH = (int)(10 * density);
-				var padV = (int)(8 * density);
-				edit.SetPadding(padH, padV, padH, padV);
-				edit.SetTextColor(Android.Graphics.Color.ParseColor(dark ? "#E8E8E8" : "#333333"));
-
-				var chevron = CreateChevron(ctx, dark);
-				if (chevron != null)
-				{
-					edit.SetCompoundDrawablesRelativeWithIntrinsicBounds(null, null, chevron, null);
-					edit.CompoundDrawablePadding = (int)(6 * density);
-				}
+				ApplyPickerChrome(edit);
 			}
 			catch (Exception ex)
 			{
@@ -105,6 +82,67 @@ public static class MauiProgram
 	}
 
 #if ANDROID
+	/// <summary>按当前系统深浅色重新给一个 Picker 刷底色、描边与箭头。</summary>
+	internal static void ApplyPickerChrome(Android.Widget.EditText edit)
+	{
+		var ctx = edit.Context!;
+		var res = ctx.Resources!;
+		var dark = (res.Configuration!.UiMode & Android.Content.Res.UiMode.NightMask)
+			== Android.Content.Res.UiMode.NightYes;
+		var density = res.DisplayMetrics?.Density ?? 1f;
+
+		var background = new Android.Graphics.Drawables.GradientDrawable();
+		background.SetCornerRadius(8 * density);
+		background.SetColor(Android.Graphics.Color.ParseColor(dark ? "#2A2A2A" : "#F2F2F2"));
+		background.SetStroke((int)Math.Max(1, density),
+			Android.Graphics.Color.ParseColor(dark ? "#4A4A4A" : "#DCDCDC"));
+		edit.Background = background;
+
+		var padH = (int)(10 * density);
+		var padV = (int)(8 * density);
+		edit.SetPadding(padH, padV, padH, padV);
+		edit.SetTextColor(Android.Graphics.Color.ParseColor(dark ? "#E8E8E8" : "#333333"));
+
+		var chevron = CreateChevron(ctx, dark);
+		if (chevron != null)
+		{
+			edit.SetCompoundDrawablesRelativeWithIntrinsicBounds(null, null, chevron, null);
+			edit.CompoundDrawablePadding = (int)(6 * density);
+		}
+	}
+
+	/// <summary>
+	/// 应用内切换深浅色后，已创建的 Picker 不会自动重跑映射，
+	/// 这里遍历当前窗口的可视树逐个刷新，避免停留在旧配色。
+	/// </summary>
+	internal static void RefreshPickers()
+	{
+		try
+		{
+			var windows = Application.Current?.Windows;
+			if (windows == null) return;
+			foreach (var window in windows)
+			{
+				if (window.Page is IVisualTreeElement root) RefreshNode(root);
+			}
+		}
+		catch (Exception ex)
+		{
+			LogService.Error("刷新 Picker 主题失败", ex);
+		}
+
+		static void RefreshNode(IVisualTreeElement node)
+		{
+			if (node is Picker picker)
+			{
+				try { picker.Handler?.UpdateValue("DoLPickerChrome"); }
+				catch { /* 单个控件失败不影响其它控件 */ }
+			}
+			foreach (var child in node.GetVisualChildren())
+				RefreshNode(child);
+		}
+	}
+
 	/// <summary>画一个与 WPF 下拉框一致的小箭头。</summary>
 	private static Android.Graphics.Drawables.Drawable? CreateChevron(Android.Content.Context ctx, bool dark)
 	{

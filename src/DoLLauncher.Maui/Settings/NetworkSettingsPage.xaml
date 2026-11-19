@@ -27,16 +27,6 @@
                 </VerticalStackLayout>
             </Border>
 
-            <Border Style="{StaticResource SettingsCard}">
-                <VerticalStackLayout Spacing="4">
-                    <Label Text="游戏本体下载源" Style="{StaticResource SettingsItemTitle}" />
-                    <Label Style="{StaticResource SettingsHint}"
-                           Text="下载中心使用的游戏本体来源：汉化整包 zip，或 ModLoader Neo 单文件 HTML。" />
-                    <Picker x:Name="GameSourcePicker" FontSize="12" Margin="0,6,0,0"
-                            SelectedIndexChanged="OnGameSourceChanged" />
-                </VerticalStackLayout>
-            </Border>
-
             <Label Style="{StaticResource SettingsHint}"
                    Text="修改后立即写入配置；已开始的下载不受影响。" />
 
