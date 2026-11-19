@@ -1,6 +1,7 @@
 using Android.App;
 using Android.Content;
 using Android.Content.PM;
+using Android.Content.Res;
 using Android.OS;
 using Android.Views;
 using DoLLauncher.Maui.Platform;
@@ -8,7 +9,9 @@ using DoLLauncher.Services;
 
 namespace DoLLauncher.Maui;
 
-[Activity(Theme = "@style/Maui.SplashTheme", MainLauncher = true, LaunchMode = LaunchMode.SingleTop, ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.Orientation | ConfigChanges.UiMode | ConfigChanges.ScreenLayout | ConfigChanges.SmallestScreenSize | ConfigChanges.Density)]
+[Activity(Theme = "@style/Maui.SplashTheme", MainLauncher = true, LaunchMode = LaunchMode.SingleTop,
+    ScreenOrientation = Android.Content.PM.ScreenOrientation.Landscape,
+    ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.Orientation | ConfigChanges.UiMode | ConfigChanges.ScreenLayout | ConfigChanges.SmallestScreenSize | ConfigChanges.Density)]
 // 从文件管理器「分享」或直接打开 zip / 版本包时进入导入流程
 [IntentFilter(new[] { Intent.ActionSend }, Categories = new[] { Intent.CategoryDefault },
     DataMimeType = "application/zip")]
@@ -22,12 +25,22 @@ public class MainActivity : MauiAppCompatActivity
 {
     private const int NotificationPermissionCode = 47002;
 
+    // 主题 / 深色模式等配置变化后重新套用界面缩放，避免系统重置资源密度。
+    public override void OnConfigurationChanged(Configuration newConfig)
+    {
+        base.OnConfigurationChanged(newConfig);
+        MainApplication.ApplyUiScale(Resources);
+    }
+
     protected override void OnCreate(Bundle? savedInstanceState)
     {
+        // Activity 的 Resources 与应用级是两份，必须在 MAUI 创建窗口前单独套用缩放。
+        MainApplication.ApplyUiScale(Resources);
+
         base.OnCreate(savedInstanceState);
 
-        // 启动器采用横向布局（左侧导航 + 右侧内容），与桌面端窗口比例一致。
-        RequestedOrientation = ScreenOrientation.Landscape;
+        // MAUI 创建窗口时可能重置 Activity 资源密度，首次布局前再套用一次。
+        MainApplication.ApplyUiScale(Resources);
 
         // 启动即请求通知权限（Android 13+）；被拒绝时只影响通知展示，前台服务仍可运行。
         RequestNotificationPermission();
