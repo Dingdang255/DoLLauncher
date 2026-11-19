@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="DoLLauncher.Maui.Settings.NetworkSettingsPage"
+             Title="网络下载">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="16,12" Spacing="14">
+
+            <Border Style="{StaticResource SettingsCard}">
+                <VerticalStackLayout Spacing="4">
+                    <Label Text="模组下载源" Style="{StaticResource SettingsItemTitle}" />
+                    <Label Style="{StaticResource SettingsHint}"
+                           Text="只影响 Release 资产包的下载地址（游戏本体与模组都走这里）；选用的镜像失败时会自动回退到 GitHub 直连。" />
+                    <Picker x:Name="ModDownloadPicker" FontSize="12" Margin="0,6,0,0"
+                            SelectedIndexChanged="OnModDownloadChanged" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Style="{StaticResource SettingsCard}">
+                <VerticalStackLayout Spacing="4">
+                    <Label Text="GitHub 接口源" Style="{StaticResource SettingsItemTitle}" />
+                    <Label Style="{StaticResource SettingsHint}"
+                           Text="版本列表、模组版本、README 等都走 GitHub API；直连被限流时可切到 GH-Proxy 镜像。" />
+                    <Picker x:Name="ApiSourcePicker" FontSize="12" Margin="0,6,0,0"
+                            SelectedIndexChanged="OnApiSourceChanged" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Style="{StaticResource SettingsCard}">
+                <VerticalStackLayout Spacing="4">
+                    <Label Text="游戏本体下载源" Style="{StaticResource SettingsItemTitle}" />
+                    <Label Style="{StaticResource SettingsHint}"
+                           Text="下载中心使用的游戏本体来源：汉化整包 zip，或 ModLoader Neo 单文件 HTML。" />
+                    <Picker x:Name="GameSourcePicker" FontSize="12" Margin="0,6,0,0"
+                            SelectedIndexChanged="OnGameSourceChanged" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Label Style="{StaticResource SettingsHint}"
+                   Text="修改后立即写入配置；已开始的下载不受影响。" />
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

@@ -12,6 +12,14 @@
     <Color x:Key="SecondaryDarkText">#9880e5</Color>
     <Color x:Key="Tertiary">#2B0B98</Color>
 
+    <!-- 主题强调色：运行时由 Settings.ThemeAccent 按配置改写，页面用 DynamicResource 引用 -->
+    <Color x:Key="AccentColor">#FF1370F3</Color>
+    <Color x:Key="AccentHoverColor">#FF2B7FF5</Color>
+    <Color x:Key="AccentSoftColor">#FFD5E6FD</Color>
+    <Color x:Key="AccentPaleColor">#FFEAF3FF</Color>
+    <Color x:Key="AccentStrongColor">#FF1370F3</Color>
+    <Color x:Key="AccentOnColor">#FFFFFFFF</Color>
+
     <Color x:Key="White">White</Color>
     <Color x:Key="Black">Black</Color>
     <Color x:Key="Magenta">#D600AA</Color>

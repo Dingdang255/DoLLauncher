@@ -5,146 +5,212 @@
              Title="设置">
 
     <ScrollView>
-        <VerticalStackLayout Padding="16,12" Spacing="14">
+        <VerticalStackLayout Padding="16,12" Spacing="12">
 
-            <!-- 外观 -->
-            <Border StrokeThickness="0" StrokeShape="RoundRectangle 12" Padding="14"
-                    BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
-                <VerticalStackLayout Spacing="12">
-                    <Label Text="外观" FontSize="13" FontAttributes="Bold"
-                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+            <Label Text="选择一个分类查看相关设置。" Style="{StaticResource SettingsHint}" Margin="2,0,0,2" />
 
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                        <VerticalStackLayout Grid.Column="0" Spacing="2" VerticalOptions="Center">
-                            <Label Text="主题模式" FontSize="15" />
-                            <Label Text="跟随系统，或强制使用亮色 / 深色" FontSize="11"
-                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                        </VerticalStackLayout>
-                        <Picker x:Name="ThemePicker" Grid.Column="1" WidthRequest="150"
-                                VerticalOptions="Center" SelectedIndexChanged="OnThemeChanged" />
-                    </Grid>
-                </VerticalStackLayout>
+            <!-- 网络下载 -->
+            <Border Style="{StaticResource SettingsCard}">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnCategoryTapped" CommandParameter="网络下载" />
+                </Border.GestureRecognizers>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                    <Border Grid.Column="0" WidthRequest="34" HeightRequest="34" StrokeThickness="0"
+                            StrokeShape="RoundRectangle 9" BackgroundColor="{DynamicResource AccentPaleColor}">
+                        <Label Text="网" FontSize="14" FontAttributes="Bold"
+                               TextColor="{DynamicResource AccentColor}"
+                               HorizontalOptions="Center" VerticalOptions="Center" />
+                    </Border>
+                    <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
+                        <Label Text="网络下载" Style="{StaticResource SettingsItemTitle}" />
+                        <Label Style="{StaticResource SettingsHint}"
+                               Text="模组下载源、GitHub 接口源与游戏本体来源：选择下载和访问接口时走的线路。" />
+                    </VerticalStackLayout>
+                    <Label Grid.Column="2" Text="›" FontSize="22" VerticalOptions="Center"
+                           TextColor="{AppThemeBinding Light=#B0B0B0, Dark=#808080}" />
+                </Grid>
             </Border>
 
-            <!-- 日志 -->
-            <Border StrokeThickness="0" StrokeShape="RoundRectangle 12" Padding="14"
-                    BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
-                <VerticalStackLayout Spacing="12">
-                    <Label Text="日志" FontSize="13" FontAttributes="Bold"
-                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+            <!-- 数据与索引 -->
+            <Border Style="{StaticResource SettingsCard}">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnCategoryTapped" CommandParameter="数据与索引" />
+                </Border.GestureRecognizers>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                    <Border Grid.Column="0" WidthRequest="34" HeightRequest="34" StrokeThickness="0"
+                            StrokeShape="RoundRectangle 9" BackgroundColor="{DynamicResource AccentPaleColor}">
+                        <Label Text="数" FontSize="14" FontAttributes="Bold"
+                               TextColor="{DynamicResource AccentColor}"
+                               HorizontalOptions="Center" VerticalOptions="Center" />
+                    </Border>
+                    <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
+                        <Label Text="数据与索引" Style="{StaticResource SettingsItemTitle}" />
+                        <Label Style="{StaticResource SettingsHint}"
+                               Text="模组市场索引源、启动时预取索引，以及是否把补全的作者 / 主页写回模组包。" />
+                    </VerticalStackLayout>
+                    <Label Grid.Column="2" Text="›" FontSize="22" VerticalOptions="Center"
+                           TextColor="{AppThemeBinding Light=#B0B0B0, Dark=#808080}" />
+                </Grid>
+            </Border>
 
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                        <VerticalStackLayout Grid.Column="0" Spacing="2" VerticalOptions="Center">
-                            <Label Text="日志详细度" FontSize="15" />
-                            <Label Text="详细模式会在错误日志里附带完整堆栈" FontSize="11"
-                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                        </VerticalStackLayout>
-                        <Picker x:Name="LogPicker" Grid.Column="1" WidthRequest="150"
-                                VerticalOptions="Center" SelectedIndexChanged="OnLogChanged" />
-                    </Grid>
-                </VerticalStackLayout>
+            <!-- 问题检查 -->
+            <Border Style="{StaticResource SettingsCard}">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnCategoryTapped" CommandParameter="问题检查" />
+                </Border.GestureRecognizers>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                    <Border Grid.Column="0" WidthRequest="34" HeightRequest="34" StrokeThickness="0"
+                            StrokeShape="RoundRectangle 9" BackgroundColor="{DynamicResource AccentPaleColor}">
+                        <Label Text="查" FontSize="14" FontAttributes="Bold"
+                               TextColor="{DynamicResource AccentColor}"
+                               HorizontalOptions="Center" VerticalOptions="Center" />
+                    </Border>
+                    <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
+                        <Label Text="问题检查" Style="{StaticResource SettingsItemTitle}" />
+                        <Label Style="{StaticResource SettingsHint}"
+                               Text="游戏版本差异告警阈值：决定「可能存在问题」里版本不匹配的敏感度。" />
+                    </VerticalStackLayout>
+                    <Label Grid.Column="2" Text="›" FontSize="22" VerticalOptions="Center"
+                           TextColor="{AppThemeBinding Light=#B0B0B0, Dark=#808080}" />
+                </Grid>
             </Border>
 
             <!-- 游戏 -->
-            <Border StrokeThickness="0" StrokeShape="RoundRectangle 12" Padding="14"
-                    BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
-                <VerticalStackLayout Spacing="14">
-                    <Label Text="游戏" FontSize="13" FontAttributes="Bold"
-                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                        <VerticalStackLayout Grid.Column="0" Spacing="2" VerticalOptions="Center">
-                            <Label Text="关闭页面后" FontSize="15" />
-                            <Label Text="退出游戏页面时是否先确认停止服务器" FontSize="11"
-                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                        </VerticalStackLayout>
-                        <Picker x:Name="ClosePicker" Grid.Column="1" WidthRequest="150"
-                                VerticalOptions="Center" SelectedIndexChanged="OnCloseChanged" />
-                    </Grid>
-
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                        <VerticalStackLayout Grid.Column="0" Spacing="2" VerticalOptions="Center">
-                            <Label Text="游戏本体下载源" FontSize="15" />
-                            <Label Text="下载中心使用的游戏本体来源" FontSize="11"
-                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                        </VerticalStackLayout>
-                        <Picker x:Name="SourcePicker" Grid.Column="1" WidthRequest="150"
-                                VerticalOptions="Center" SelectedIndexChanged="OnSourceChanged" />
-                    </Grid>
-                </VerticalStackLayout>
+            <Border Style="{StaticResource SettingsCard}">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnCategoryTapped" CommandParameter="游戏" />
+                </Border.GestureRecognizers>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                    <Border Grid.Column="0" WidthRequest="34" HeightRequest="34" StrokeThickness="0"
+                            StrokeShape="RoundRectangle 9" BackgroundColor="{DynamicResource AccentPaleColor}">
+                        <Label Text="游" FontSize="14" FontAttributes="Bold"
+                               TextColor="{DynamicResource AccentColor}"
+                               HorizontalOptions="Center" VerticalOptions="Center" />
+                    </Border>
+                    <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
+                        <Label Text="游戏" Style="{StaticResource SettingsItemTitle}" />
+                        <Label Style="{StaticResource SettingsHint}"
+                               Text="关闭页面后的处理与关页检测（心跳、超时、宽限、防抖）时间参数。" />
+                    </VerticalStackLayout>
+                    <Label Grid.Column="2" Text="›" FontSize="22" VerticalOptions="Center"
+                           TextColor="{AppThemeBinding Light=#B0B0B0, Dark=#808080}" />
+                </Grid>
             </Border>
 
-            <!-- 模组市场 -->
-            <Border StrokeThickness="0" StrokeShape="RoundRectangle 12" Padding="14"
-                    BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
-                <VerticalStackLayout Spacing="12">
-                    <Label Text="模组市场" FontSize="13" FontAttributes="Bold"
-                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+            <!-- 界面与外观 -->
+            <Border Style="{StaticResource SettingsCard}">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnCategoryTapped" CommandParameter="界面与外观" />
+                </Border.GestureRecognizers>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                    <Border Grid.Column="0" WidthRequest="34" HeightRequest="34" StrokeThickness="0"
+                            StrokeShape="RoundRectangle 9" BackgroundColor="{DynamicResource AccentPaleColor}">
+                        <Label Text="界" FontSize="14" FontAttributes="Bold"
+                               TextColor="{DynamicResource AccentColor}"
+                               HorizontalOptions="Center" VerticalOptions="Center" />
+                    </Border>
+                    <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
+                        <Label Text="界面与外观" Style="{StaticResource SettingsItemTitle}" />
+                        <Label Style="{StaticResource SettingsHint}"
+                               Text="主题、主题色、玩家头像、启动器副标题与界面过渡动画，修改后立即生效。" />
+                    </VerticalStackLayout>
+                    <Label Grid.Column="2" Text="›" FontSize="22" VerticalOptions="Center"
+                           TextColor="{AppThemeBinding Light=#B0B0B0, Dark=#808080}" />
+                </Grid>
+            </Border>
 
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                        <VerticalStackLayout Grid.Column="0" Spacing="2" VerticalOptions="Center">
-                            <Label Text="模组市场索引源" FontSize="15" />
-                            <Label Text="只影响市场索引的拉取地址，与模组包下载无关" FontSize="11"
-                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                        </VerticalStackLayout>
-                        <Picker x:Name="MarketSourcePicker" Grid.Column="1" WidthRequest="170"
-                                FontSize="12" VerticalOptions="Center"
-                                SelectedIndexChanged="OnMarketSourceChanged" />
-                    </Grid>
+            <!-- 日志与诊断 -->
+            <Border Style="{StaticResource SettingsCard}">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnCategoryTapped" CommandParameter="日志与诊断" />
+                </Border.GestureRecognizers>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                    <Border Grid.Column="0" WidthRequest="34" HeightRequest="34" StrokeThickness="0"
+                            StrokeShape="RoundRectangle 9" BackgroundColor="{DynamicResource AccentPaleColor}">
+                        <Label Text="日" FontSize="14" FontAttributes="Bold"
+                               TextColor="{DynamicResource AccentColor}"
+                               HorizontalOptions="Center" VerticalOptions="Center" />
+                    </Border>
+                    <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
+                        <Label Text="日志与诊断" Style="{StaticResource SettingsItemTitle}" />
+                        <Label Style="{StaticResource SettingsHint}"
+                               Text="日志详细度、游戏日志保留 / 上限 / 超限策略、上报队列与清空 Mod 缓存。" />
+                    </VerticalStackLayout>
+                    <Label Grid.Column="2" Text="›" FontSize="22" VerticalOptions="Center"
+                           TextColor="{AppThemeBinding Light=#B0B0B0, Dark=#808080}" />
+                </Grid>
+            </Border>
 
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                        <VerticalStackLayout Grid.Column="0" Spacing="2" VerticalOptions="Center">
-                            <Label Text="模组下载源" FontSize="15" />
-                            <Label Text="Release 资产包的下载线路，失败会自动回退" FontSize="11"
-                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                        </VerticalStackLayout>
-                        <Picker x:Name="ModDownloadPicker" Grid.Column="1" WidthRequest="170"
-                                FontSize="12" VerticalOptions="Center"
-                                SelectedIndexChanged="OnModDownloadChanged" />
-                    </Grid>
-
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                        <VerticalStackLayout Grid.Column="0" Spacing="2" VerticalOptions="Center">
-                            <Label Text="GitHub 接口源" FontSize="15" />
-                            <Label Text="版本列表、README 等走的 API 线路" FontSize="11"
-                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                        </VerticalStackLayout>
-                        <Picker x:Name="ApiSourcePicker" Grid.Column="1" WidthRequest="170"
-                                FontSize="12" VerticalOptions="Center"
-                                SelectedIndexChanged="OnApiSourceChanged" />
-                    </Grid>
-
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                        <VerticalStackLayout Grid.Column="0" Spacing="2" VerticalOptions="Center">
-                            <Label Text="启动时预取索引" FontSize="15" />
-                            <Label Text="启动时在后台拉取游戏本体与市场索引" FontSize="11"
-                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                        </VerticalStackLayout>
-                        <Switch x:Name="PrefetchSwitch" Grid.Column="1" VerticalOptions="Center"
-                                Toggled="OnPrefetchToggled" />
-                    </Grid>
-                </VerticalStackLayout>
+            <!-- 版本信息 -->
+            <Border Style="{StaticResource SettingsCard}">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnCategoryTapped" CommandParameter="版本信息" />
+                </Border.GestureRecognizers>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                    <Border Grid.Column="0" WidthRequest="34" HeightRequest="34" StrokeThickness="0"
+                            StrokeShape="RoundRectangle 9" BackgroundColor="{DynamicResource AccentPaleColor}">
+                        <Label Text="版" FontSize="14" FontAttributes="Bold"
+                               TextColor="{DynamicResource AccentColor}"
+                               HorizontalOptions="Center" VerticalOptions="Center" />
+                    </Border>
+                    <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
+                        <Label Text="版本信息" Style="{StaticResource SettingsItemTitle}" />
+                        <Label Style="{StaticResource SettingsHint}"
+                               Text="启动器版本、提交与构建时间、自动检测更新开关与致谢名单。" />
+                    </VerticalStackLayout>
+                    <Label Grid.Column="2" Text="›" FontSize="22" VerticalOptions="Center"
+                           TextColor="{AppThemeBinding Light=#B0B0B0, Dark=#808080}" />
+                </Grid>
             </Border>
 
             <!-- 关于 -->
-            <Border StrokeThickness="0" StrokeShape="RoundRectangle 12" Padding="14"
-                    BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
-                <VerticalStackLayout Spacing="12">
-                    <Label Text="关于" FontSize="13" FontAttributes="Bold"
-                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-
-                    <VerticalStackLayout Spacing="3">
-                        <Label Text="启动器根目录" FontSize="15" />
-                        <Label x:Name="RootLabel" FontSize="12"
-                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+            <Border Style="{StaticResource SettingsCard}">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnCategoryTapped" CommandParameter="关于" />
+                </Border.GestureRecognizers>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                    <Border Grid.Column="0" WidthRequest="34" HeightRequest="34" StrokeThickness="0"
+                            StrokeShape="RoundRectangle 9" BackgroundColor="{DynamicResource AccentPaleColor}">
+                        <Label Text="关" FontSize="14" FontAttributes="Bold"
+                               TextColor="{DynamicResource AccentColor}"
+                               HorizontalOptions="Center" VerticalOptions="Center" />
+                    </Border>
+                    <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
+                        <Label Text="关于" Style="{StaticResource SettingsItemTitle}" />
+                        <Label Style="{StaticResource SettingsHint}"
+                               Text="应用信息、应用根目录、项目主页与反馈入口。" />
                     </VerticalStackLayout>
+                    <Label Grid.Column="2" Text="›" FontSize="22" VerticalOptions="Center"
+                           TextColor="{AppThemeBinding Light=#B0B0B0, Dark=#808080}" />
+                </Grid>
+            </Border>
 
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                        <Label Grid.Column="0" Text="应用版本" FontSize="15" VerticalOptions="Center" />
-                        <Label x:Name="VersionLabel" Grid.Column="1" FontSize="13"
-                               VerticalOptions="Center"
-                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+            <!-- 运行记录 -->
+            <Border Style="{StaticResource SettingsCard}" Margin="0,4,0,0">
+                <VerticalStackLayout Spacing="8">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <VerticalStackLayout Grid.Column="0" Spacing="2">
+                            <VerticalStackLayout.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnToggleLog" />
+                            </VerticalStackLayout.GestureRecognizers>
+                            <Label Text="运行记录" Style="{StaticResource SettingsItemTitle}" />
+                            <Label Text="最近 200 行启动器日志，展开后可清屏。" Style="{StaticResource SettingsHint}" />
+                        </VerticalStackLayout>
+                        <HorizontalStackLayout Grid.Column="1" Spacing="8" VerticalOptions="Center">
+                            <Button Text="清屏" FontSize="12" Padding="8,2" CornerRadius="8"
+                                    HeightRequest="30" Clicked="OnClearLog"
+                                    BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                                    TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+                            <Button x:Name="LogToggleButton" Text="展开" FontSize="12" Padding="8,2"
+                                    CornerRadius="8" HeightRequest="30" Clicked="OnToggleLogClicked"
+                                    BackgroundColor="{DynamicResource AccentPaleColor}"
+                                    TextColor="{DynamicResource AccentColor}" />
+                        </HorizontalStackLayout>
                     </Grid>
+
+                    <Editor x:Name="LogEditor" IsVisible="False" IsReadOnly="True"
+                            HeightRequest="180" FontSize="11" AutoSize="Disabled"
+                            BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#1F1F1F}" />
                 </VerticalStackLayout>
             </Border>
 

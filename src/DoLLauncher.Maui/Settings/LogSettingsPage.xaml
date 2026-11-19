@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="DoLLauncher.Maui.Settings.LogSettingsPage"
+             Title="日志与诊断">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="16,12" Spacing="14">
+
+            <Border Style="{StaticResource SettingsCard}">
+                <VerticalStackLayout Spacing="4">
+                    <Label Text="日志详细度" Style="{StaticResource SettingsItemTitle}" />
+                    <Label Style="{StaticResource SettingsHint}"
+                           Text="详细模式会在错误日志里附带完整堆栈、内部异常与调用位置，日志体积更大。" />
+                    <Picker x:Name="VerbosityPicker" FontSize="12" Margin="0,6,0,0"
+                            SelectedIndexChanged="OnVerbosityChanged" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Style="{StaticResource SettingsCard}">
+                <VerticalStackLayout Spacing="4">
+                    <Label Text="游戏日志" Style="{StaticResource SettingsItemTitle}" />
+                    <Label Style="{StaticResource SettingsHint}"
+                           Text="游戏页面控制台日志（版本目录 logs/game-*.log）的保留与截断策略，对所有版本生效。" />
+
+                    <Label Text="保留份数" Style="{StaticResource SettingsHint}" Margin="0,8,0,0" />
+                    <Picker x:Name="KeepPicker" FontSize="12" Margin="0,4,0,0"
+                            SelectedIndexChanged="OnKeepChanged" />
+
+                    <Label Text="单份上限" Style="{StaticResource SettingsHint}" Margin="0,10,0,0" />
+                    <Picker x:Name="MaxMbPicker" FontSize="12" Margin="0,4,0,0"
+                            SelectedIndexChanged="OnMaxMbChanged" />
+
+                    <Label Text="超限后" Style="{StaticResource SettingsHint}" Margin="0,10,0,0" />
+                    <Picker x:Name="OverflowPicker" FontSize="12" Margin="0,4,0,0"
+                            SelectedIndexChanged="OnOverflowChanged" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Style="{StaticResource SettingsCard}">
+                <VerticalStackLayout Spacing="4">
+                    <Label Text="页面日志上报" Style="{StaticResource SettingsItemTitle}" />
+                    <Label Style="{StaticResource SettingsHint}"
+                           Text="游戏页面把日志批量上报给启动器的队列与合并参数。" />
+
+                    <Label Text="上报队列上限" Style="{StaticResource SettingsHint}" Margin="0,8,0,0" />
+                    <Grid ColumnDefinitions="*,56" ColumnSpacing="8">
+                        <Slider x:Name="QueueSlider" Grid.Column="0" Minimum="1" Maximum="64"
+                                ValueChanged="OnUploadChanged" DragCompleted="OnUploadDragCompleted" />
+                        <Label x:Name="QueueText" Grid.Column="1" Style="{StaticResource SettingsHint}"
+                               VerticalOptions="Center" />
+                    </Grid>
+
+                    <Label Text="上报合并间隔" Style="{StaticResource SettingsHint}" Margin="0,8,0,0" />
+                    <Grid ColumnDefinitions="*,56" ColumnSpacing="8">
+                        <Slider x:Name="FlushSlider" Grid.Column="0" Minimum="200" Maximum="5000"
+                                ValueChanged="OnUploadChanged" DragCompleted="OnUploadDragCompleted" />
+                        <Label x:Name="FlushText" Grid.Column="1" Style="{StaticResource SettingsHint}"
+                               VerticalOptions="Center" />
+                    </Grid>
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Style="{StaticResource SettingsCard}">
+                <VerticalStackLayout Spacing="4">
+                    <Label Text="存储维护" Style="{StaticResource SettingsItemTitle}" />
+                    <Label Style="{StaticResource SettingsHint}"
+                           Text="将清除 Mod 缓存与 Mod 本地设置，保留 saves/details 存档；下次启动该版本时自动执行并重新加载页面。建议先关闭正在运行的游戏页面。" />
+                    <Button Text="清空 Mod 缓存（保留存档）" FontSize="13" Margin="0,8,0,0"
+                            CornerRadius="8" HeightRequest="42" Clicked="OnClearCache"
+                            BackgroundColor="{AppThemeBinding Light=#D93B3B, Dark=#A32B2B}"
+                            TextColor="White" />
+                </VerticalStackLayout>
+            </Border>
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

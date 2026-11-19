@@ -9,13 +9,22 @@ public partial class App : Application
 	{
 		InitializeComponent();
 		// 启动时按配置应用主题（此时 Application.Current 可能尚未就绪，直接作用于实例）
-		UserAppTheme = ToTheme(AppConfig.Load().General.ThemeMode);
+		var general = AppConfig.Load().General;
+		UserAppTheme = ToTheme(general.ThemeMode);
+		Settings.ThemeAccent.Apply(Resources, general.ThemeAccentColor, general.ThemeAccentSaturation);
+
+		// 跟随系统时，Android 亮 / 暗切换需要重新派生强调色
+		RequestedThemeChanged += (_, _) =>
+		{
+			if (UserAppTheme == AppTheme.Unspecified) Settings.ThemeAccent.Apply();
+		};
 	}
 
 	/// <summary>把配置里的主题模式应用到 MAUI；设置页切换时调用。</summary>
 	internal static void ApplyTheme(string? mode)
 	{
 		if (Current != null) Current.UserAppTheme = ToTheme(mode);
+		Settings.ThemeAccent.Apply();
 	}
 
 	private static AppTheme ToTheme(string? mode) => mode switch
@@ -27,6 +36,9 @@ public partial class App : Application
 
 	protected override Window CreateWindow(IActivationState? activationState)
 	{
+		// 此时 Application.Current 已就绪，按实际深浅色再校准一次强调色
+		Settings.ThemeAccent.Apply();
+
 		var window = new Window(new NavigationPage(new MainPage()));
 		// 前后台切换只记录；应用真正退出时清掉所有本地服务器，避免残留监听
 		window.Stopped += (_, _) => LogService.Append("应用进入后台");

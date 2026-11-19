@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="DoLLauncher.Maui.Settings.VersionInfoPage"
+             Title="版本信息">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="16,12" Spacing="14">
+
+            <Border Style="{StaticResource SettingsCard}">
+                <VerticalStackLayout Spacing="4">
+                    <Label Text="启动器版本" Style="{StaticResource SettingsItemTitle}" />
+                    <Label x:Name="VersionLabel" Style="{StaticResource SettingsHint}" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Style="{StaticResource SettingsCard}">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                    <VerticalStackLayout Grid.Column="0" Spacing="4" VerticalOptions="Center">
+                        <Label Text="启动时自动检测更新" Style="{StaticResource SettingsItemTitle}" />
+                        <Label Style="{StaticResource SettingsHint}"
+                               Text="启动后在后台检查 GitHub 最新 Release，有更新时提醒；网络异常时只写入日志。当前仅保存配置，检查逻辑随后续版本接入。" />
+                    </VerticalStackLayout>
+                    <Switch x:Name="AutoUpdateSwitch" Grid.Column="1" VerticalOptions="Center"
+                            Toggled="OnAutoUpdateToggled" />
+                </Grid>
+            </Border>
+
+            <Border Style="{StaticResource SettingsCard}">
+                <VerticalStackLayout Spacing="4">
+                    <Label Text="致谢名单" Style="{StaticResource SettingsItemTitle}" />
+                    <Label Style="{StaticResource SettingsHint}"
+                           Text="名单来自 credits.json；没有可用名单时显示为空。" />
+                    <Label x:Name="CreditsLabel" FontSize="12" Margin="0,6,0,0" LineBreakMode="WordWrap"
+                           TextColor="{AppThemeBinding Light=#555555, Dark=#C8C8C8}" />
+                </VerticalStackLayout>
+            </Border>
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

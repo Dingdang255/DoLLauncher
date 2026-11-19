@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="DoLLauncher.Maui.Settings.DataIndexSettingsPage"
+             Title="数据与索引">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="16,12" Spacing="14">
+
+            <Border Style="{StaticResource SettingsCard}">
+                <VerticalStackLayout Spacing="4">
+                    <Label Text="模组市场索引源" Style="{StaticResource SettingsItemTitle}" />
+                    <Label Style="{StaticResource SettingsHint}"
+                           Text="只影响模组市场索引的拉取地址，与模组包下载无关；改完后刷新市场列表生效。" />
+                    <Picker x:Name="MarketSourcePicker" FontSize="12" Margin="0,6,0,0"
+                            SelectedIndexChanged="OnMarketSourceChanged" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Style="{StaticResource SettingsCard}">
+                <VerticalStackLayout Spacing="4">
+                    <Label Text="启动时预取索引" Style="{StaticResource SettingsItemTitle}" />
+                    <Label Style="{StaticResource SettingsHint}"
+                           Text="游戏本体与模组市场索引在启动时于后台异步拉取，不阻塞界面；选择「不预取」则进下载中心再加载。" />
+                    <Picker x:Name="PrefetchPicker" FontSize="12" Margin="0,6,0,0"
+                            SelectedIndexChanged="OnPrefetchChanged" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Style="{StaticResource SettingsCard}">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                    <VerticalStackLayout Grid.Column="0" Spacing="4" VerticalOptions="Center">
+                        <Label Text="把补全的作者 / 主页写回模组包" Style="{StaticResource SettingsItemTitle}" />
+                        <Label Style="{StaticResource SettingsHint}"
+                               Text="只在模组 boot.json 缺少对应字段时补写；已有的 author / homepage 不会被覆盖。" />
+                    </VerticalStackLayout>
+                    <Switch x:Name="WriteMetaSwitch" Grid.Column="1" VerticalOptions="Center"
+                            Toggled="OnWriteMetaToggled" />
+                </Grid>
+            </Border>
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

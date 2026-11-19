@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="DoLLauncher.Maui.Settings.ProblemSettingsPage"
+             Title="问题检查">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="16,12" Spacing="14">
+
+            <Border Style="{StaticResource SettingsCard}">
+                <VerticalStackLayout Spacing="4">
+                    <Label Text="版本差异告警阈值" Style="{StaticResource SettingsItemTitle}" />
+                    <Label Style="{StaticResource SettingsHint}"
+                           Text="比较模组声明的目标游戏版本与当前版本的第三段（z）：等于所选值显示橙色提醒，超过则显示红色警告。缺少前置、模组重复与模组冲突始终按红色处理。" />
+                    <Picker x:Name="GapPicker" FontSize="12" Margin="0,6,0,0"
+                            SelectedIndexChanged="OnGapChanged" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Label Style="{StaticResource SettingsHint}"
+                   Text="阈值越大，越少出现版本不匹配提醒；改动后重新进入版本详情即可看到新的检查结果。" />
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

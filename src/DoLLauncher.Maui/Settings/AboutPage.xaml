@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="DoLLauncher.Maui.Settings.AboutPage"
+             Title="关于">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="16,12" Spacing="14">
+
+            <Border Style="{StaticResource SettingsCard}">
+                <VerticalStackLayout Spacing="4">
+                    <Label Text="DoL 启动器（Android）" Style="{StaticResource SettingsItemTitle}" />
+                    <Label Style="{StaticResource SettingsHint}"
+                           Text="面向 Degrees of Lewdity 的版本 / 模组 / 存档管理工具；本端为 .NET MAUI 移植版本，与 Windows 桌面端共用同一套核心服务。" />
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,6,0,0">
+                        <Label Grid.Column="0" Text="应用版本" FontSize="13" VerticalOptions="Center" />
+                        <Label x:Name="AppVersionLabel" Grid.Column="1" FontSize="12"
+                               Style="{StaticResource SettingsHint}" VerticalOptions="Center" />
+                    </Grid>
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Style="{StaticResource SettingsCard}">
+                <VerticalStackLayout Spacing="4">
+                    <Label Text="应用根目录" Style="{StaticResource SettingsItemTitle}" />
+                    <Label Style="{StaticResource SettingsHint}"
+                           Text="配置、版本、日志与备份都保存在这个私有目录下。" />
+                    <Label x:Name="RootLabel" FontSize="12" Margin="0,6,0,0"
+                           LineBreakMode="CharacterWrap"
+                           TextColor="{AppThemeBinding Light=#555555, Dark=#C8C8C8}" />
+                    <Button Text="复制路径" FontSize="12" Padding="10,4" CornerRadius="8"
+                            HeightRequest="34" HorizontalOptions="Start" Margin="0,6,0,0"
+                            Clicked="OnCopyRoot"
+                            BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                            TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Style="{StaticResource SettingsCard}">
+                <VerticalStackLayout Spacing="4">
+                    <Label Text="项目与反馈" Style="{StaticResource SettingsItemTitle}" />
+                    <Label Style="{StaticResource SettingsHint}"
+                           Text="链接来自 credits.json。遇到问题或有建议时，可跳转到 GitHub Issue 模板选择页；提交前建议附上诊断页导出的诊断包。" />
+                    <Label x:Name="LinkStatusLabel" Style="{StaticResource SettingsHint}" Margin="0,6,0,0" />
+                    <HorizontalStackLayout Spacing="10" Margin="0,4,0,0">
+                        <Button x:Name="ProjectHomeButton" Text="项目主页" FontSize="12"
+                                Padding="10,4" CornerRadius="8" HeightRequest="34"
+                                Clicked="OnProjectHome"
+                                BackgroundColor="{DynamicResource AccentColor}"
+                                TextColor="{DynamicResource AccentOnColor}" />
+                        <Button x:Name="FeedbackButton" Text="打开反馈页" FontSize="12"
+                                Padding="10,4" CornerRadius="8" HeightRequest="34"
+                                Clicked="OnFeedback"
+                                BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                                TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+                    </HorizontalStackLayout>
+                </VerticalStackLayout>
+            </Border>
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

@@ -9,6 +9,33 @@
                 <ResourceDictionary Source="Resources/Styles/Colors.xaml" />
                 <ResourceDictionary Source="Resources/Styles/Styles.xaml" />
             </ResourceDictionary.MergedDictionaries>
+
+            <!-- 设置页统一卡片 / 标题 / 说明样式 -->
+            <Style x:Key="SettingsCard" TargetType="Border">
+                <Setter Property="StrokeThickness" Value="0" />
+                <Setter Property="StrokeShape">
+                    <Setter.Value>
+                        <RoundRectangle CornerRadius="12" />
+                    </Setter.Value>
+                </Setter>
+                <Setter Property="Padding" Value="14" />
+                <Setter Property="BackgroundColor"
+                        Value="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}" />
+            </Style>
+
+            <Style x:Key="SettingsItemTitle" TargetType="Label">
+                <Setter Property="FontSize" Value="15" />
+                <Setter Property="FontAttributes" Value="Bold" />
+                <Setter Property="TextColor"
+                        Value="{AppThemeBinding Light=#202020, Dark=#F0F0F0}" />
+            </Style>
+
+            <Style x:Key="SettingsHint" TargetType="Label">
+                <Setter Property="FontSize" Value="11" />
+                <Setter Property="LineBreakMode" Value="WordWrap" />
+                <Setter Property="TextColor"
+                        Value="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

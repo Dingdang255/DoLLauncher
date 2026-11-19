@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="DoLLauncher.Maui.Settings.GameSettingsPage"
+             Title="游戏">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="16,12" Spacing="14">
+
+            <Border Style="{StaticResource SettingsCard}">
+                <VerticalStackLayout Spacing="4">
+                    <Label Text="关闭页面后" Style="{StaticResource SettingsItemTitle}" />
+                    <Label Style="{StaticResource SettingsHint}"
+                           Text="退出游戏页面时直接停止本地服务器，或先询问是否保留后台服务。" />
+                    <Picker x:Name="ClosePicker" FontSize="12" Margin="0,6,0,0"
+                            SelectedIndexChanged="OnCloseChanged" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Style="{StaticResource SettingsCard}">
+                <VerticalStackLayout Spacing="4">
+                    <Label Text="关页检测时间参数" Style="{StaticResource SettingsItemTitle}" />
+                    <Label Style="{StaticResource SettingsHint}"
+                           Text="心跳由页面脚本定时上报。时间越大越不容易把加载中的游戏误判为关闭，但真正关页后停服也会更慢。修改下次打开页面生效。" />
+
+                    <Label Text="页面心跳间隔" Style="{StaticResource SettingsHint}" Margin="0,8,0,0" />
+                    <Grid ColumnDefinitions="*,56" ColumnSpacing="8">
+                        <Slider x:Name="HeartbeatSlider" Grid.Column="0" Minimum="1" Maximum="30"
+                                ValueChanged="OnTimingChanged" DragCompleted="OnTimingDragCompleted" />
+                        <Label x:Name="HeartbeatText" Grid.Column="1" Style="{StaticResource SettingsHint}"
+                               VerticalOptions="Center" />
+                    </Grid>
+
+                    <Label Text="心跳超时判定" Style="{StaticResource SettingsHint}" Margin="0,8,0,0" />
+                    <Grid ColumnDefinitions="*,56" ColumnSpacing="8">
+                        <Slider x:Name="TimeoutSlider" Grid.Column="0" Minimum="5" Maximum="180"
+                                ValueChanged="OnTimingChanged" DragCompleted="OnTimingDragCompleted" />
+                        <Label x:Name="TimeoutText" Grid.Column="1" Style="{StaticResource SettingsHint}"
+                               VerticalOptions="Center" />
+                    </Grid>
+
+                    <Label Text="首次心跳宽限" Style="{StaticResource SettingsHint}" Margin="0,8,0,0" />
+                    <Grid ColumnDefinitions="*,56" ColumnSpacing="8">
+                        <Slider x:Name="GraceSlider" Grid.Column="0" Minimum="5" Maximum="600"
+                                ValueChanged="OnTimingChanged" DragCompleted="OnTimingDragCompleted" />
+                        <Label x:Name="GraceText" Grid.Column="1" Style="{StaticResource SettingsHint}"
+                               VerticalOptions="Center" />
+                    </Grid>
+
+                    <Label Text="关闭防抖" Style="{StaticResource SettingsHint}" Margin="0,8,0,0" />
+                    <Grid ColumnDefinitions="*,56" ColumnSpacing="8">
+                        <Slider x:Name="DebounceSlider" Grid.Column="0" Minimum="0" Maximum="60"
+                                ValueChanged="OnTimingChanged" DragCompleted="OnTimingDragCompleted" />
+                        <Label x:Name="DebounceText" Grid.Column="1" Style="{StaticResource SettingsHint}"
+                               VerticalOptions="Center" />
+                    </Grid>
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Style="{StaticResource SettingsCard}">
+                <VerticalStackLayout Spacing="4">
+                    <Label Text="游戏页面承载" Style="{StaticResource SettingsItemTitle}" />
+                    <Label Style="{StaticResource SettingsHint}"
+                           Text="移动端固定使用应用内 WebView，无法像桌面端那样切换独立 Profile 或系统浏览器；关页检测与存档落盘都在 WebView 内完成。" />
+                </VerticalStackLayout>
+            </Border>
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>
