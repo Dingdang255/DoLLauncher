@@ -35,9 +35,8 @@
             <Setter Property="HeightRequest" Value="38" />
             <Setter Property="CornerRadius" Value="8" />
             <Setter Property="Padding" Value="0" />
-            <Setter Property="BackgroundColor"
-                    Value="{AppThemeBinding Light=#2F6FDB, Dark=#3B82F6}" />
-            <Setter Property="TextColor" Value="White" />
+            <Setter Property="BackgroundColor" Value="{DynamicResource AccentColor}" />
+            <Setter Property="TextColor" Value="{DynamicResource AccentOnColor}" />
         </Style>
     </ContentView.Resources>
 
@@ -82,7 +81,7 @@
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                             <HorizontalStackLayout Spacing="6">
                                 <Switch x:Name="SuccessOnlySwitch" VerticalOptions="Center"
-                                        OnColor="{AppThemeBinding Light=#2F6FDB, Dark=#3B82F6}"
+                                        OnColor="{DynamicResource AccentColor}"
                                         Toggled="OnSuccessOnlyToggled" />
                                 <Label Text="仅成功" FontSize="12" VerticalOptions="Center" />
                             </HorizontalStackLayout>
