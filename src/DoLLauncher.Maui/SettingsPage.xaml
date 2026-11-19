@@ -74,6 +74,58 @@
                 </VerticalStackLayout>
             </Border>
 
+            <!-- 模组市场 -->
+            <Border StrokeThickness="0" StrokeShape="RoundRectangle 12" Padding="14"
+                    BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                <VerticalStackLayout Spacing="12">
+                    <Label Text="模组市场" FontSize="13" FontAttributes="Bold"
+                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                        <VerticalStackLayout Grid.Column="0" Spacing="2" VerticalOptions="Center">
+                            <Label Text="模组市场索引源" FontSize="15" />
+                            <Label Text="只影响市场索引的拉取地址，与模组包下载无关" FontSize="11"
+                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                        </VerticalStackLayout>
+                        <Picker x:Name="MarketSourcePicker" Grid.Column="1" WidthRequest="170"
+                                FontSize="12" VerticalOptions="Center"
+                                SelectedIndexChanged="OnMarketSourceChanged" />
+                    </Grid>
+
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                        <VerticalStackLayout Grid.Column="0" Spacing="2" VerticalOptions="Center">
+                            <Label Text="模组下载源" FontSize="15" />
+                            <Label Text="Release 资产包的下载线路，失败会自动回退" FontSize="11"
+                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                        </VerticalStackLayout>
+                        <Picker x:Name="ModDownloadPicker" Grid.Column="1" WidthRequest="170"
+                                FontSize="12" VerticalOptions="Center"
+                                SelectedIndexChanged="OnModDownloadChanged" />
+                    </Grid>
+
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                        <VerticalStackLayout Grid.Column="0" Spacing="2" VerticalOptions="Center">
+                            <Label Text="GitHub 接口源" FontSize="15" />
+                            <Label Text="版本列表、README 等走的 API 线路" FontSize="11"
+                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                        </VerticalStackLayout>
+                        <Picker x:Name="ApiSourcePicker" Grid.Column="1" WidthRequest="170"
+                                FontSize="12" VerticalOptions="Center"
+                                SelectedIndexChanged="OnApiSourceChanged" />
+                    </Grid>
+
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                        <VerticalStackLayout Grid.Column="0" Spacing="2" VerticalOptions="Center">
+                            <Label Text="启动时预取索引" FontSize="15" />
+                            <Label Text="启动时在后台拉取游戏本体与市场索引" FontSize="11"
+                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                        </VerticalStackLayout>
+                        <Switch x:Name="PrefetchSwitch" Grid.Column="1" VerticalOptions="Center"
+                                Toggled="OnPrefetchToggled" />
+                    </Grid>
+                </VerticalStackLayout>
+            </Border>
+
             <!-- 关于 -->
             <Border StrokeThickness="0" StrokeShape="RoundRectangle 12" Padding="14"
                     BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">

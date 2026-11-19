@@ -20,7 +20,7 @@
                     Clicked="OnMarketSegmentClicked" />
         </Grid>
 
-        <!-- Release 列表 / 模组市场占位（星号行始终有可滚动空间） -->
+        <!-- Release 列表（星号行始终有可滚动空间） -->
         <Grid Grid.Row="1">
             <Grid x:Name="GameContent">
                 <RefreshView x:Name="Refresher" Refreshing="OnRefreshing">
@@ -152,16 +152,6 @@
                 </VerticalStackLayout>
             </Grid>
 
-            <!-- 模组市场占位 -->
-            <VerticalStackLayout x:Name="MarketPlaceholder" IsVisible="False" Padding="24" Spacing="8"
-                                 VerticalOptions="Center">
-                <Label Text="模组市场" FontSize="18" FontAttributes="Bold" HorizontalOptions="Center" />
-                <Label Text="下一阶段开放" FontSize="13" HorizontalTextAlignment="Center"
-                       TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                <Label Text="当前可以在「模组」页导入本地模组包。"
-                       FontSize="12" HorizontalTextAlignment="Center"
-                       TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-            </VerticalStackLayout>
         </Grid>
 
         <!-- 下载任务 -->

@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="DoLLauncher.Maui.InstallCheckPage"
+             Title="安装前检查">
+
+    <Grid RowDefinitions="*,Auto" Padding="16,12,16,12" RowSpacing="12">
+
+        <ScrollView Grid.Row="0">
+            <VerticalStackLayout Spacing="14">
+
+                <VerticalStackLayout Spacing="4">
+                    <Label x:Name="TitleLabel" FontSize="18" FontAttributes="Bold" />
+                    <Label x:Name="SubtitleLabel" FontSize="12"
+                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                </VerticalStackLayout>
+
+                <!-- 需要补装的前置 -->
+                <Border x:Name="DepsSection" Padding="12" StrokeThickness="0"
+                        StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="8">
+                        <Label Text="需要补装的前置" FontSize="13" FontAttributes="Bold" />
+                        <Label Text="默认已勾选；取消勾选就只安装主模组，前置需要你自己补。"
+                               FontSize="11"
+                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                        <VerticalStackLayout x:Name="DepsList" Spacing="10">
+                            <BindableLayout.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                                        <CheckBox VerticalOptions="Start"
+                                                  IsChecked="{Binding Selected, Mode=TwoWay}" />
+                                        <VerticalStackLayout Grid.Column="1" Spacing="3">
+                                            <HorizontalStackLayout Spacing="6">
+                                                <Label Text="{Binding Title}" FontSize="13"
+                                                       FontAttributes="Bold"
+                                                       LineBreakMode="CharacterWrap" />
+                                                <Border Padding="5,1" StrokeThickness="0"
+                                                        StrokeShape="RoundRectangle 4"
+                                                        VerticalOptions="Center"
+                                                        BackgroundColor="{AppThemeBinding Light=#E1D8F9, Dark=#3B2E63}">
+                                                    <Label Text="{Binding SourceText}" FontSize="10"
+                                                           TextColor="{AppThemeBinding Light=#512BD4, Dark=#C4B5F5}" />
+                                                </Border>
+                                            </HorizontalStackLayout>
+                                            <Label Text="{Binding Detail}" FontSize="11"
+                                                   LineBreakMode="CharacterWrap"
+                                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                        </VerticalStackLayout>
+                                    </Grid>
+                                </DataTemplate>
+                            </BindableLayout.ItemTemplate>
+                        </VerticalStackLayout>
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- 已满足的前置（只读勾选） -->
+                <Border x:Name="SatisfiedSection" Padding="12" StrokeThickness="0"
+                        StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="6">
+                        <Label Text="已满足的前置" FontSize="13" FontAttributes="Bold" />
+                        <VerticalStackLayout x:Name="SatisfiedList" Spacing="4">
+                            <BindableLayout.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="4">
+                                        <CheckBox IsChecked="True" IsEnabled="False"
+                                                  VerticalOptions="Center" />
+                                        <Label Grid.Column="1" Text="{Binding}" FontSize="11"
+                                               VerticalOptions="Center"
+                                               LineBreakMode="CharacterWrap"
+                                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </BindableLayout.ItemTemplate>
+                        </VerticalStackLayout>
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- 可能冲突 -->
+                <Border x:Name="ConflictSection" Padding="12" StrokeThickness="0"
+                        StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="8">
+                        <Label Text="可能冲突（本地已装模组）" FontSize="13" FontAttributes="Bold" />
+                        <VerticalStackLayout x:Name="ConflictList" Spacing="8">
+                            <BindableLayout.ItemTemplate>
+                                <DataTemplate>
+                                    <VerticalStackLayout Spacing="3">
+                                        <Label Text="{Binding Title}" FontSize="12" FontAttributes="Bold"
+                                               LineBreakMode="CharacterWrap" TextColor="#C62828" />
+                                        <Label Text="{Binding Detail}" FontSize="11"
+                                               LineBreakMode="CharacterWrap"
+                                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                    </VerticalStackLayout>
+                                </DataTemplate>
+                            </BindableLayout.ItemTemplate>
+                        </VerticalStackLayout>
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- 提示 -->
+                <Border x:Name="NotesSection" Padding="12" StrokeThickness="0"
+                        StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="6">
+                        <Label Text="提示" FontSize="13" FontAttributes="Bold" />
+                        <VerticalStackLayout x:Name="NotesList" Spacing="4">
+                            <BindableLayout.ItemTemplate>
+                                <DataTemplate>
+                                    <Label Text="{Binding}" FontSize="11" LineBreakMode="CharacterWrap"
+                                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                </DataTemplate>
+                            </BindableLayout.ItemTemplate>
+                        </VerticalStackLayout>
+                    </VerticalStackLayout>
+                </Border>
+
+                <Label x:Name="EmptyLabel"
+                       Text="没有发现缺失前置，也没有与本地已装模组冲突。"
+                       FontSize="12" IsVisible="False"
+                       TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+
+                <Border x:Name="ProgressPanel" IsVisible="False" Padding="12" StrokeThickness="0"
+                        StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#EDE7FB, Dark=#332B4D}">
+                    <VerticalStackLayout Spacing="6">
+                        <Label x:Name="ProgressTitle" Text="正在安装…" FontSize="12"
+                               FontAttributes="Bold" />
+                        <ProgressBar x:Name="InstallProgress" Progress="0" HeightRequest="6"
+                                     ProgressColor="#512BD4" />
+                        <Label x:Name="ProgressText" Text="" FontSize="11"
+                               LineBreakMode="TailTruncation"
+                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                    </VerticalStackLayout>
+                </Border>
+
+            </VerticalStackLayout>
+        </ScrollView>
+
+        <!-- 底部操作 -->
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+            <Label x:Name="FootHint" FontSize="10" VerticalOptions="Center"
+                   LineBreakMode="WordWrap"
+                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+            <Button x:Name="CancelButton" Grid.Column="1" Text="取消" FontSize="13"
+                    HeightRequest="38" MinimumHeightRequest="38" WidthRequest="76"
+                    CornerRadius="9" Clicked="OnCancelClicked"
+                    BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                    TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+            <Button x:Name="StartButton" Grid.Column="2" Text="开始安装" FontSize="13"
+                    HeightRequest="38" MinimumHeightRequest="38" WidthRequest="104"
+                    CornerRadius="9" Clicked="OnStartClicked"
+                    BackgroundColor="{AppThemeBinding Light=#512BD4, Dark=#7B5BD6}"
+                    TextColor="White" />
+        </Grid>
+
+    </Grid>
+
+</ContentPage>

@@ -130,13 +130,15 @@ public partial class DownloadPage : ContentPage
 
     private void OnGameSegmentClicked(object? sender, EventArgs e) => ShowSegment(true);
 
-    private void OnMarketSegmentClicked(object? sender, EventArgs e) => ShowSegment(false);
+    private async void OnMarketSegmentClicked(object? sender, EventArgs e)
+    {
+        await Navigation.PushAsync(new MarketPage());
+    }
 
     private void ShowSegment(bool game)
     {
         GamePane.IsVisible = game;
         GameContent.IsVisible = game;
-        MarketPlaceholder.IsVisible = !game;
         StyleSegmentButton(GameSegmentButton, game);
         StyleSegmentButton(MarketSegmentButton, !game);
     }
