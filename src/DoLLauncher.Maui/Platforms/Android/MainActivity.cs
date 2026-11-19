@@ -30,6 +30,33 @@ public class MainActivity : MauiAppCompatActivity
     {
         base.OnConfigurationChanged(newConfig);
         MainApplication.ApplyUiScale(Resources);
+        ApplySystemBars();
+    }
+
+    /// <summary>状态栏 / 导航栏跟随应用深浅色，避免留在默认紫色或纯黑。</summary>
+    internal static void ApplySystemBars()
+    {
+        try
+        {
+            if (Microsoft.Maui.ApplicationModel.Platform.CurrentActivity is not Activity activity) return;
+            var window = activity.Window;
+            if (window?.DecorView == null) return;
+
+            var dark = (activity.Resources?.Configuration?.UiMode & UiMode.NightMask) == UiMode.NightYes;
+            var background = Android.Graphics.Color.ParseColor(dark ? "#1C1C1E" : "#F5F5F5");
+#pragma warning disable CA1422 // 新系统上会被边缘化处理，老系统仍需要显式着色
+            window.SetStatusBarColor(background);
+            window.SetNavigationBarColor(background);
+#pragma warning restore CA1422
+
+            var controller = new AndroidX.Core.View.WindowInsetsControllerCompat(window, window.DecorView);
+            controller.AppearanceLightStatusBars = !dark;
+            controller.AppearanceLightNavigationBars = !dark;
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("设置系统栏配色失败", ex);
+        }
     }
 
     /// <summary>
@@ -50,6 +77,7 @@ public class MainActivity : MauiAppCompatActivity
 
         // MAUI 创建窗口时可能重置 Activity 资源密度，首次布局前再套用一次。
         MainApplication.ApplyUiScale(Resources);
+        ApplySystemBars();
 
         // 启动即请求通知权限（Android 13+）；被拒绝时只影响通知展示，前台服务仍可运行。
         RequestNotificationPermission();

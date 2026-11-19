@@ -41,6 +41,8 @@ public partial class MainPage : ContentPage
             return;
         }
         _loading = true;
+        SetRefreshBusy(true);
+        var started = DateTime.UtcNow;
         try
         {
             var list = await Task.Run(VersionService.Scan);
@@ -56,9 +58,20 @@ public partial class MainPage : ContentPage
         }
         finally
         {
+            // 扫描太快时给个最短可见时间，否则用户会觉得按钮没反应。
+            var elapsed = (DateTime.UtcNow - started).TotalMilliseconds;
+            if (elapsed < 450) await Task.Delay((int)(450 - elapsed));
             _loading = false;
+            SetRefreshBusy(false);
             Refresher.IsRefreshing = false;
         }
+    }
+
+    private void SetRefreshBusy(bool busy)
+    {
+        RefreshButton.IsVisible = !busy;
+        RefreshSpinner.IsVisible = busy;
+        RefreshSpinner.IsRunning = busy;
     }
 
     private async void OnRefreshing(object? sender, EventArgs e) => await ReloadAsync();

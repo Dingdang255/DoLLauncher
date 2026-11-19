@@ -64,19 +64,34 @@ public partial class VersionInfoPage : ContentPage
             StrokeThickness = 0,
             StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 18 },
             VerticalOptions = LayoutOptions.Center,
+            BackgroundColor = Colors.Transparent,
         };
         avatar.SetDynamicResource(Border.BackgroundColorProperty, "AccentPaleColor");
 
-        var initial = new Label
+        var avatarSource = ResolveAvatarSource(entry.Avatar);
+        if (avatarSource != null)
         {
-            Text = (entry.Name ?? string.Empty).Trim() is { Length: > 0 } name ? name[..1].ToUpperInvariant() : "?",
-            FontSize = 15,
-            FontAttributes = FontAttributes.Bold,
-            HorizontalOptions = LayoutOptions.Center,
-            VerticalOptions = LayoutOptions.Center,
-        };
-        initial.SetDynamicResource(Label.TextColorProperty, "AccentColor");
-        avatar.Content = initial;
+            avatar.Content = new Image
+            {
+                Source = avatarSource,
+                Aspect = Aspect.AspectFill,
+                HorizontalOptions = LayoutOptions.Fill,
+                VerticalOptions = LayoutOptions.Fill,
+            };
+        }
+        else
+        {
+            var initial = new Label
+            {
+                Text = (entry.Name ?? string.Empty).Trim() is { Length: > 0 } name ? name[..1].ToUpperInvariant() : "?",
+                FontSize = 15,
+                FontAttributes = FontAttributes.Bold,
+                HorizontalOptions = LayoutOptions.Center,
+                VerticalOptions = LayoutOptions.Center,
+            };
+            initial.SetDynamicResource(Label.TextColorProperty, "AccentColor");
+            avatar.Content = initial;
+        }
 
         var nameLabel = new Label
         {
@@ -104,27 +119,57 @@ public partial class VersionInfoPage : ContentPage
             Children = { nameLabel, roleLabel },
         };
 
-        var links = new HorizontalStackLayout { Spacing = 6, VerticalOptions = LayoutOptions.Center };
+        // 与 WPF 一致：头像 | 姓名/职位 | 链接按钮，全在同一行。
+        var links = new HorizontalStackLayout
+        {
+            Spacing = 6,
+            VerticalOptions = LayoutOptions.Center,
+            HorizontalOptions = LayoutOptions.Start,
+        };
         AddLink(links, "哔哩哔哩", entry.Bilibili);
         AddLink(links, "GitHub", entry.Github);
         AddLink(links, "网站", entry.Website);
 
-        var header = new Grid
+        var row = new Grid
         {
             ColumnDefinitions =
             {
+                new ColumnDefinition(GridLength.Auto),
                 new ColumnDefinition(GridLength.Auto),
                 new ColumnDefinition(GridLength.Star),
             },
             ColumnSpacing = 10,
         };
-        header.Add(avatar, 0);
-        header.Add(textColumn, 1);
-
-        if (links.Children.Count == 0) return header;
-
-        var row = new VerticalStackLayout { Spacing = 6, Children = { header, links } };
+        row.Add(avatar, 0);
+        row.Add(textColumn, 1);
+        row.Add(links, 2);
         return row;
+    }
+
+    /// <summary>头像可以是 Assets/ 下的内置图片、绝对路径或 http(s) 地址。</summary>
+    private static ImageSource? ResolveAvatarSource(string? path)
+    {
+        var text = (path ?? string.Empty).Trim();
+        if (text.Length == 0) return null;
+
+        if (Uri.TryCreate(text, UriKind.Absolute, out var uri) &&
+            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+        {
+            return new UriImageSource { Uri = uri, CachingEnabled = true };
+        }
+
+        var normalized = text.Replace('\\', '/');
+        var fileName = normalized[(normalized.LastIndexOf('/') + 1)..];
+        if (normalized.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("/Assets/", StringComparison.OrdinalIgnoreCase))
+        {
+            // WPF 端打包在 Assets 里的图片，在 Android 端已复制到 Resources/Images；
+            // Android 图片资源名不允许连字符，统一去掉。
+            var resource = new string(fileName.Where(c => char.IsLetterOrDigit(c) || c == '_' || c == '.').ToArray());
+            return resource.Length > 0 ? ImageSource.FromFile(resource) : null;
+        }
+
+        return File.Exists(text) ? ImageSource.FromFile(text) : null;
     }
 
     private static void AddLink(Layout host, string label, string? url)
@@ -139,10 +184,10 @@ public partial class VersionInfoPage : ContentPage
         {
             Text = label,
             FontSize = 10,
-            Padding = new Thickness(10, 0),
-            HeightRequest = 26,
-            MinimumHeightRequest = 26,
-            CornerRadius = 7,
+            Padding = new Thickness(9, 0),
+            HeightRequest = 24,
+            MinimumHeightRequest = 24,
+            CornerRadius = 6,
             HorizontalOptions = LayoutOptions.Start,
         };
         button.SetDynamicResource(Button.BackgroundColorProperty, "AccentPaleColor");

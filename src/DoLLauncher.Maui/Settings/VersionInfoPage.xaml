@@ -44,11 +44,9 @@
             <Border Style="{StaticResource SettingsCard}">
                 <VerticalStackLayout Spacing="4">
                     <Label Text="致谢名单" Style="{StaticResource SettingsItemTitle}" />
-                    <Label Style="{StaticResource SettingsHint}"
-                           Text="名单来自 credits.json；点击右侧链接可打开对应主页。" />
                     <Label x:Name="CreditsEmptyLabel" Style="{StaticResource SettingsHint}"
                            Text="（credits.json 里还没有致谢条目）" IsVisible="False" Margin="0,6,0,0" />
-                    <VerticalStackLayout x:Name="CreditsList" Spacing="12" Margin="0,8,0,0" />
+                    <VerticalStackLayout x:Name="CreditsList" Spacing="12" Margin="0,10,0,0" />
                 </VerticalStackLayout>
             </Border>
 

@@ -69,8 +69,15 @@
                         <Label x:Name="VersionCountLabel" FontSize="12" VerticalOptions="Center"
                                TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
                     </HorizontalStackLayout>
-                    <ctl:IconActionView Grid.Column="1" Glyph="{x:Static local:IconGlyph.ArrowClockwise}"
-                                        Variant="pale" IsCompact="True" Tapped="OnRefreshClicked" />
+                    <Grid Grid.Column="1" WidthRequest="46" HeightRequest="40">
+                        <ctl:IconActionView x:Name="RefreshButton" Glyph="{x:Static local:IconGlyph.ArrowClockwise}"
+                                            Variant="pale" IsCompact="True" Tapped="OnRefreshClicked"
+                                            HorizontalOptions="Center" VerticalOptions="Center" />
+                        <ActivityIndicator x:Name="RefreshSpinner" IsVisible="False" IsRunning="False"
+                                           WidthRequest="24" HeightRequest="24"
+                                           Color="{DynamicResource AccentColor}"
+                                           HorizontalOptions="Center" VerticalOptions="Center" />
+                    </Grid>
                     <ctl:IconActionView Grid.Column="2" Glyph="{x:Static local:IconGlyph.ArrowImport}"
                                         Text="导入" Variant="primary" Tapped="OnImportClicked" />
                 </Grid>

@@ -39,26 +39,14 @@ public partial class App : Application
 		// 美化包的主色 / 深色背景优先于用户设置
 		AndroidSkinStore.Refresh();
 		RefreshPickerTheme();
-	}
-
-	/// <summary>页面内容从下方 14px 淡入上移，缓冲原生标题栏的突然出现 / 消失。</summary>
-	private static void AnimatePageEnter(Page? page)
-	{
-		if (page is not ContentPage { Content: VisualElement content }) return;
-		content.Opacity = 0;
-		content.TranslationY = 14;
-		_ = Task.WhenAll(
-			content.FadeToAsync(1, 140, Easing.CubicOut),
-			content.TranslateToAsync(0, 0, 170, Easing.CubicOut));
+		MainActivity.ApplySystemBars();
 	}
 
 	/// <summary>等平台把深浅色配置刷新完，再统一重刷 Picker 的原生底色。</summary>
 	private static void RefreshPickerTheme()
 	{
 #if ANDROID
-		var dispatcher = Current?.Dispatcher;
-		if (dispatcher == null) return;
-		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(80), MauiProgram.RefreshPickers);
+		MauiProgram.RefreshPickers();
 #endif
 	}
 
@@ -75,11 +63,7 @@ public partial class App : Application
 		Settings.ThemeAccent.Apply();
 		AndroidSkinStore.Refresh();
 
-		var navigation = new NavigationPage(new MainPage());
-		// 原生标题栏出现 / 消失是瞬时的，给页面内容补一个轻微上移淡入，过渡更自然。
-		navigation.Pushed += (_, e) => AnimatePageEnter(e.Page);
-		navigation.Popped += (_, _) => AnimatePageEnter(navigation.CurrentPage);
-		var window = new Window(navigation);
+		var window = new Window(new NavigationPage(new MainPage()));
 		// 启动后后台检查更新（AutoCheckUpdate 开启且今日未跳过时）
 		window.Created += (_, _) =>
 		{

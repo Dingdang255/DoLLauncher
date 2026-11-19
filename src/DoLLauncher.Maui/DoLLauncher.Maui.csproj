@@ -29,11 +29,11 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<!-- 应用图标 -->
-		<MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#512BD4" />
+		<!-- 应用图标：使用 DoL 角色头像，暖色底 -->
+		<MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.png" Color="#F7EFE2" />
 
 		<!-- 启动屏 -->
-		<MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#512BD4" BaseSize="128,128" />
+		<MauiSplashScreen Include="Resources\Splash\splash.png" Color="#F7EFE2" BaseSize="128,128" />
 
 		<!-- 图片 -->
 		<MauiImage Include="Resources\Images\*" />
