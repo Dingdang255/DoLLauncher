@@ -2,10 +2,10 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="DoLLauncher.Maui.GamePage"
-             Title="游戏">
+             Title="游戏"
+             BackgroundColor="Black">
 
-    <Grid RowDefinitions="*">
-        <WebView x:Name="GameView" Navigated="OnNavigated" />
-    </Grid>
+    <!-- 游戏画面由 GameSurface 常驻 WebView 覆盖在窗口上层，这里只承载错误提示。 -->
+    <Grid x:Name="RootGrid" RowDefinitions="*" />
 
 </ContentPage>

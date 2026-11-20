@@ -47,7 +47,8 @@ public partial class MainPage : ContentPage
         {
             var list = await Task.Run(VersionService.Scan);
             _versions.Clear();
-            foreach (var item in list.Where(v => v.Mode == "http"))
+            // 与 WPF 一致：file:// 伪版本也常驻列表，方便找回旧数据
+            foreach (var item in list)
                 _versions.Add(new MainVersionRow(item));
             VersionCountLabel.Text = $"{_versions.Count} 个版本";
         }
@@ -250,6 +251,7 @@ public partial class MainPage : ContentPage
     protected override void OnAppearing()
     {
         base.OnAppearing();
+        BackRouter.Handler = HandleBack;
         // 删除 / 导入版本后回到列表，重新扫描一次。
         _ = InitializeAsync();
         // 冷启动 / 其它页面期间收到的分享文件，等主界面出现后处理。
@@ -262,8 +264,49 @@ public partial class MainPage : ContentPage
 
     protected override void OnDisappearing()
     {
+        if (BackRouter.Handler == HandleBack) BackRouter.Handler = null;
         Deactivate(_activePanel);
         base.OnDisappearing();
+    }
+
+    /// <summary>
+    /// 主界面返回键：有版本还在运行时先确认退出（对应 WPF 关闭窗口时的提示）；
+    /// 没有运行中的版本或上面还有二级页时交回默认处理。
+    /// </summary>
+    private bool HandleBack()
+    {
+        if (Navigation.NavigationStack.Count > 1) return false;
+
+        var running = ServerManager.RunningFolders;
+        if (running.Count == 0) return false;
+
+        _ = ConfirmExitAsync(running);
+        return true;
+    }
+
+    private async Task ConfirmExitAsync(IReadOnlyCollection<string> folders)
+    {
+        var names = folders.Select(folder =>
+        {
+            var row = _versions.FirstOrDefault(v => v.Version.Folder == folder);
+            if (row == null) return Path.GetFileName(folder.TrimEnd('\\', '/'));
+            return row.Version.GameVersion != null
+                ? $"DoL {row.Version.GameVersion}"
+                : row.Version.DisplayName;
+        }).ToList();
+
+        var detail = string.Join("、", names.Take(5)) +
+                     (names.Count > 5 ? $"，另有 {names.Count - 5} 个" : string.Empty);
+        var ok = await PlatformServices.Dialogs.ConfirmAsync(
+            $"{names.Count} 个游戏版本还在运行：{detail}\n\n" +
+            "退出会一并停止本地服务器，这些游戏的页面将无法继续使用。",
+            "退出 DoL 启动器", "仍然退出", danger: true);
+        if (!ok) return;
+
+        GameSurface.DisposeSession();
+        ServerManager.StopAll();
+        LauncherStatusService.Sync();
+        Microsoft.Maui.ApplicationModel.Platform.CurrentActivity?.Finish();
     }
 
     /// <summary>主界面左上角头像跟随设置里的玩家头像。</summary>
@@ -411,6 +454,7 @@ public sealed class MainVersionRow
 
     public VersionInfo Version { get; }
     public string DisplayName => Version.DisplayName;
+    public bool CanManageMods => !Version.IsFileMode;
 
     public string Subtitle => Version.IsFileMode
         ? "file:// 模式 · 与所有本地网页共享浏览器数据"

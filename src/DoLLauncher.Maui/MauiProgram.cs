@@ -26,8 +26,9 @@ public static class MauiProgram
 				fonts.AddFont("FluentSystemIcons-Regular.ttf", "FluentIcons");
 			});
 
-		// 启动器根目录：应用私有目录下的 DoL，目录结构与 Windows 保持一致
-		var root = Path.Combine(FileSystem.AppDataDirectory, "DoL");
+		// 启动器根目录：外部应用目录（/storage/emulated/0/Android/data/<包名>/files/DoL），
+		// 文件管理器拿到存储权限后可以直接浏览；首次升级时把旧的内部目录整体迁过去。
+		var root = ResolveRoot();
 		PlatformServices.Initialize(new AndroidPlatformBundle(root));
 		LogService.Configure(AppConfig.Load().General.LogVerbosity);
 		LogService.Append("DoL 启动器（Android）启动，根目录：" + Paths.Root);
@@ -189,4 +190,65 @@ public static class MauiProgram
 		}
 	}
 #endif
+
+	/// <summary>
+	/// 解析启动器根目录。优先用外部媒体目录 Android/media/&lt;包名&gt;/DoL：
+	/// 它不像 Android/data 那样被系统限制，文件管理器有存储权限就能直接读写；
+	/// 首次升级时把内部目录或旧的 Android/data 目录整体迁移过去，失败则继续用旧目录。
+	/// </summary>
+	private static string ResolveRoot()
+	{
+		var legacyRoots = new List<string> { Path.Combine(FileSystem.AppDataDirectory, "DoL") };
+
+#if ANDROID
+		var context = Android.App.Application.Context;
+#pragma warning disable CA1422 // Android/media 在 Android 11+ 依然可用，且不受 Android/data 的限制
+		var mediaRoot = context.GetExternalMediaDirs()?.FirstOrDefault()?.AbsolutePath;
+#pragma warning restore CA1422
+
+		var filesRoot = context.GetExternalFilesDir(null)?.AbsolutePath;
+		if (!string.IsNullOrWhiteSpace(filesRoot))
+			legacyRoots.Add(Path.Combine(filesRoot, "DoL"));
+
+		if (!string.IsNullOrWhiteSpace(mediaRoot))
+		{
+			var root = Path.Combine(mediaRoot, "DoL");
+			if (File.Exists(Path.Combine(root, ".storage-migrated"))) return root;
+			if (File.Exists(Path.Combine(root, "launcher-versions.json"))) return root;
+
+			var legacy = legacyRoots.FirstOrDefault(Directory.Exists);
+			if (legacy == null) return root;
+
+			try
+			{
+				CopyDirectory(legacy, root);
+				File.WriteAllText(Path.Combine(root, ".storage-migrated"),
+					DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+				Directory.Delete(legacy, recursive: true);
+				return root;
+			}
+			catch
+			{
+				// 迁移失败：继续留在旧目录，下次启动重试
+				return legacy;
+			}
+		}
+#endif
+		return legacyRoots.FirstOrDefault(Directory.Exists) ?? legacyRoots[0];
+	}
+
+	private static void CopyDirectory(string source, string target)
+	{
+		Directory.CreateDirectory(target);
+		foreach (var dir in Directory.GetDirectories(source, "*", SearchOption.AllDirectories))
+		{
+			var relative = Path.GetRelativePath(source, dir);
+			Directory.CreateDirectory(Path.Combine(target, relative));
+		}
+		foreach (var file in Directory.GetFiles(source, "*", SearchOption.AllDirectories))
+		{
+			var relative = Path.GetRelativePath(source, file);
+			File.Copy(file, Path.Combine(target, relative), overwrite: true);
+		}
+	}
 }

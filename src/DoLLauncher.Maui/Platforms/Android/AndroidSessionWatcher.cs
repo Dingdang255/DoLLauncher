@@ -137,6 +137,7 @@ internal static class AndroidSessionWatcher
                 }
             }
 
+            GameSurface.CloseFor(folder);
             ServerManager.Stop(folder);
             LauncherStatusService.Sync();
             RefreshVersionState(folder);

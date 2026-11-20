@@ -64,6 +64,7 @@
                     <DataTemplate>
                         <Border x:Name="RowBorder" Padding="12" Margin="0,0,0,10"
                                 StrokeThickness="0"
+                                StyleClass="card mod-row"
                                 StrokeShape="RoundRectangle 12"
                                 BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
                             <Border.Triggers>

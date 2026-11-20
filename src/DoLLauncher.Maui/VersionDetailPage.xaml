@@ -47,7 +47,7 @@
                             </Grid>
 
                             <BoxView HeightRequest="1" Opacity="0.15" />
-                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
                                 <VerticalStackLayout Grid.Column="0" Spacing="3">
                                     <Label Text="版本目录" FontSize="13"
                                            TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
@@ -55,7 +55,11 @@
                                            LineBreakMode="CharacterWrap"
                                            TextColor="{AppThemeBinding Light=#4A4A4A, Dark=#C8C8C8}" />
                                 </VerticalStackLayout>
-                                <ctl:IconActionView Grid.Column="1" Glyph="{x:Static local:IconGlyph.Copy}"
+                                <ctl:IconActionView Grid.Column="1" Glyph="{x:Static local:IconGlyph.FolderOpen}"
+                                                    Text="打开" IsCompact="True"
+                                                    VerticalOptions="Start"
+                                                    Tapped="OnOpenFolderClicked" />
+                                <ctl:IconActionView Grid.Column="2" Glyph="{x:Static local:IconGlyph.Copy}"
                                                     Text="复制" IsCompact="True"
                                                     VerticalOptions="Start"
                                                     Tapped="OnCopyPathClicked" />

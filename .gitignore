@@ -10,9 +10,15 @@ _dist/
 # IDE / 用户配置
 .vs/
 .vscode/
+.trae/
 *.user
 *.suo
 
 # 日志与临时文件
 *.log
 .tmp/
+
+# Release 签名文件（本地保管，不入库）
+keys/
+*.keystore
+generatePass.ps1

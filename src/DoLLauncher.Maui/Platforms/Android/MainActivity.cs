@@ -25,12 +25,64 @@ public class MainActivity : MauiAppCompatActivity
 {
     private const int NotificationPermissionCode = 47002;
 
+    private Resources? _scaledResources;
+
+    /// <summary>
+    /// 始终返回缩放后的 Resources。仅靠 UpdateConfiguration 在部分系统上不会影响已创建的视图，
+    /// 这里直接换掉 Activity 的资源来源，保证 MAUI 首次布局就拿到 0.6x 密度。
+    /// </summary>
+    public override Resources? Resources
+    {
+        get
+        {
+            if (_scaledResources != null) return _scaledResources;
+
+            try
+            {
+                var scaled = MainApplication.CreateScaledContext(BaseContext ?? this);
+                _scaledResources = scaled?.Resources ?? base.Resources;
+            }
+            catch
+            {
+                _scaledResources = base.Resources;
+            }
+            return _scaledResources;
+        }
+    }
+
     // 主题 / 深色模式等配置变化后重新套用界面缩放，避免系统重置资源密度。
     public override void OnConfigurationChanged(Configuration newConfig)
     {
+        _scaledResources = null;
         base.OnConfigurationChanged(newConfig);
         MainApplication.ApplyUiScale(Resources);
+        MainApplication.ResetMauiDensityCache(this);
         ApplySystemBars();
+    }
+
+    protected override void OnResume()
+    {
+        base.OnResume();
+        // 从游戏页 / 系统设置返回后资源可能被系统重建，重新套用缩放并刷新 MAUI 的密度缓存。
+        _scaledResources = null;
+        MainApplication.ApplyUiScale(Resources);
+        MainApplication.ResetMauiDensityCache(this);
+    }
+
+    /// <summary>记录实际生效的密度，便于排查「界面没有按 0.6x 缩放」的问题。</summary>
+    private void LogScaleDiagnostics()
+    {
+        try
+        {
+            var density = Resources?.DisplayMetrics?.Density ?? 0;
+            var systemDensity = Android.Content.Res.Resources.System?.DisplayMetrics?.Density ?? 0;
+            var hundredDp = Microsoft.Maui.Platform.ContextExtensions.ToPixels(this, 100d);
+            LogService.Append($"[缩放诊断] Activity 密度 {density:0.00}，系统密度 {systemDensity:0.00}，100dp = {hundredDp:0}px");
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("记录缩放诊断失败", ex);
+        }
     }
 
     /// <summary>状态栏 / 导航栏跟随应用深浅色，避免留在默认紫色或纯黑。</summary>
@@ -71,12 +123,16 @@ public class MainActivity : MauiAppCompatActivity
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         // Activity 的 Resources 与应用级是两份，必须在 MAUI 创建窗口前单独套用缩放。
+        _scaledResources = null;
         MainApplication.ApplyUiScale(Resources);
 
         base.OnCreate(savedInstanceState);
 
         // MAUI 创建窗口时可能重置 Activity 资源密度，首次布局前再套用一次。
         MainApplication.ApplyUiScale(Resources);
+        // MAUI 会缓存第一次换算用到的密度，这里强制改回缩放后的 Activity 资源。
+        MainApplication.ResetMauiDensityCache(this);
+        LogScaleDiagnostics();
         ApplySystemBars();
 
         // 启动即请求通知权限（Android 13+）；被拒绝时只影响通知展示，前台服务仍可运行。

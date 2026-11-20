@@ -9,56 +9,18 @@ public partial class GamePage : ContentPage
 {
     private readonly VersionInfo _version;
     private readonly bool _fileMode;
+    private readonly string _sourceUrl;
     private bool _closing;
-    private bool _fileWarningShown;
-    private bool _noticeShown;
+    private bool _needsRecreate;
+    private View? _errorLayer;
 
     public GamePage(VersionInfo version, string url)
     {
         InitializeComponent();
         _version = version;
+        _sourceUrl = url;
         Title = version.DisplayName;
         _fileMode = url.StartsWith("file:", StringComparison.OrdinalIgnoreCase);
-
-        if (_fileMode)
-        {
-            // Android WebView 对 file:// 限制较多，MauiProgram 已放开文件访问；
-            // 文件不存在时直接在页面上说明，避免出现一片空白。
-            var exists = TryGetLocalPath(url, out var path) && File.Exists(path);
-            if (exists)
-            {
-                GameView.Source = url;
-                LogService.Append($"游戏页面使用 file:// 地址：{url}（已开启 WebView 文件访问）");
-            }
-            else
-            {
-                LogService.Error($"file:// 游戏文件不存在：{url}");
-                ShowFileModeNotice("这个版本登记的 file:// 游戏文件不存在。" +
-                                   "请检查版本目录是否完整，建议改为 http 版本（导入 zip 版本包或重新下载）。");
-            }
-        }
-        else
-        {
-            GameView.Source = url;
-        }
-    }
-
-    private void OnNavigated(object? sender, WebNavigatedEventArgs e)
-    {
-        if (e.Result != WebNavigationResult.Success)
-        {
-            LogService.Error($"游戏页面加载失败：{e.Result} {e.Url}");
-            if (_fileMode)
-            {
-                ShowFileModeNotice($"file:// 页面加载失败（{e.Result}）。" +
-                                   "请把这个版本转为 http 版本后重试（导入 zip 版本包或重新下载）。");
-            }
-            return;
-        }
-
-        // 页面真正加载完成后重新登记：重置宽限期，让游戏初始化阶段的长时间
-        // 主线程占用不会被误判成「页面已关闭」。
-        if (!_fileMode) AndroidSessionWatcher.Track(_version.Folder);
     }
 
     protected override void OnAppearing()
@@ -66,65 +28,139 @@ public partial class GamePage : ContentPage
         base.OnAppearing();
         BackRouter.Handler = HandleBack;
 
-        if (_fileMode)
-        {
-            if (!_fileWarningShown)
-            {
-                _fileWarningShown = true;
-                LogService.Append("file:// 版本已尝试用 WebView 打开，若页面空白请转为 http 版本。");
-                _ = PlatformServices.Dialogs.WarnAsync(
-                    "这个版本是 file:// 模式。Android WebView 对本地文件的限制较多，" +
-                    "若页面空白或资源缺失，请转为 http 版本（导入 zip 版本包或重新下载）。",
-                    "文件模式提示");
-            }
-            return;
-        }
+        // 游戏默认竖屏并允许旋转，返回启动器时恢复横屏锁定
+        AppOrientation.EnterGame();
 
-        // file:// 没有本地服务器，也就没有心跳，不需要登记关页检测。
-        AndroidSessionWatcher.Track(_version.Folder);
+        EnterSurface();
+        // 游戏页不参与心跳关页检测：WebView 就在本进程里，存活状态由渲染进程回调直接告知；
+        // 而游戏初始化会长时间占用主线程，心跳脚本跟不上，按心跳判定会误判成「页面已关闭」。
     }
 
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
         if (BackRouter.Handler == HandleBack) BackRouter.Handler = null;
-        AndroidSessionWatcher.Untrack(_version.Folder);
-        // 这里不能直接停服：页面被对话框或其它页面短暂遮挡时也会触发 OnDisappearing，
-        // 停服交给返回键关闭流程（CloseAsync）与关页检测处理。
+        AppOrientation.ExitGame();
+        if (GameFullscreen.IsActive) GameFullscreen.Hide();
+
+        // 关键：只隐藏画面，不销毁 WebView。回到启动器后游戏仍在运行，
+        // 再次进入还是同一局（对应 WPF 端游戏页在独立浏览器窗口里常驻）。
+        GameSurface.Hide();
     }
 
-    /// <summary>返回键：先回退网页历史，再按关页策略退出。</summary>
+    /// <summary>把常驻 WebView 挂到窗口并回调到当前页面；同版本直接复用已有会话。</summary>
+    private void EnterSurface()
+    {
+        var activity = Microsoft.Maui.ApplicationModel.Platform.CurrentActivity;
+        if (activity == null)
+        {
+            ShowErrorLayer("无法打开游戏", "启动器窗口尚未就绪，请返回后重试。", null);
+            return;
+        }
+
+        var url = _sourceUrl;
+        if (_fileMode)
+        {
+            if (!TryGetLocalPath(url, out var path) || !File.Exists(path))
+            {
+                LogService.Error($"file:// 游戏文件不存在：{url}");
+                ShowErrorLayer("无法打开游戏文件",
+                    "这个版本登记的 file:// 游戏文件不存在。" +
+                    "请检查版本目录是否完整，建议改为 http 版本（导入 zip 版本包或重新下载）。", null);
+                return;
+            }
+
+            var mapped = GameAssetHost.MapFileUrl(url);
+            if (mapped != null)
+            {
+                url = mapped;
+                LogService.Append($"游戏页面使用本地资源映射：{mapped}（原始：{url}）");
+            }
+            else
+            {
+                LogService.Append($"游戏页面使用 file:// 地址：{_sourceUrl}（资源映射失败，可能空白）");
+            }
+        }
+
+        GameSurface.OpenExternal = u => _ = OpenExternalAsync(u);
+        GameSurface.Error = message => ShowErrorLayer("游戏页面加载失败",
+            message + (_fileMode ? "\n若为 file:// 版本，建议转为 http 版本后再试。" : string.Empty),
+            _sourceUrl);
+        GameSurface.Ready = OnPageReady;
+        GameSurface.CloseRequested = () => _ = CloseAsync();
+
+        try
+        {
+            var reused = GameSurface.Enter(activity, _version.Folder, url, _fileMode);
+            if (reused) LogService.Append($"复用后台运行中的游戏页面：{_version.DisplayName}");
+            HideErrorLayer();
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("打开游戏页面失败", ex);
+            ShowErrorLayer("无法打开游戏", ex.Message, _sourceUrl);
+        }
+    }
+
+    private void OnPageReady()
+    {
+        HideErrorLayer();
+        _needsRecreate = false;
+    }
+
+    /// <summary>返回键：先退出全屏，再回退网页历史，最后回到启动器并让游戏继续在后台运行。</summary>
     private bool HandleBack()
     {
-        if (GameView.CanGoBack)
+        if (GameFullscreen.IsActive)
         {
-            GameView.GoBack();
+            GameFullscreen.Hide();
+            return true;
+        }
+        if (GameSurface.View?.CanGoBack() == true)
+        {
+            GameSurface.View.GoBack();
             return true;
         }
         if (_closing) return true;
 
         _closing = true;
-        _ = CloseAsync();
+        _ = ExitToLauncherAsync();
         return true;
     }
 
+    /// <summary>返回启动器：仅隐藏画面，不停服务器、不销毁 WebView。</summary>
+    private async Task ExitToLauncherAsync()
+    {
+        try
+        {
+            GameSurface.Hide();
+            if (Navigation.NavigationStack.Count > 1) await Navigation.PopAsync();
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("返回启动器失败", ex);
+        }
+        finally
+        {
+            _closing = false;
+        }
+    }
+
+    /// <summary>页面自己请求关闭游戏（DoL.close）：真正停服并销毁游戏会话。</summary>
     private async Task CloseAsync()
     {
         try
         {
-            // 配置为「询问」时先确认，取消则留在游戏页面。
-            if (string.Equals(AppConfig.Load().General.ClosePageBehavior, "ask", StringComparison.OrdinalIgnoreCase))
+            if (!await PlatformServices.Dialogs.ConfirmAsync("关闭游戏并停止本地服务器？", "关闭游戏", "关闭"))
             {
-                if (!await PlatformServices.Dialogs.ConfirmAsync("关闭游戏并停止本地服务器？"))
-                {
-                    _closing = false;
-                    return;
-                }
+                _closing = false;
+                return;
             }
 
+            GameSurface.DisposeSession();
             ServerManager.Stop(_version.Folder);
             LauncherStatusService.Sync();
-            await Navigation.PopAsync();
+            if (Navigation.NavigationStack.Count > 1) await Navigation.PopAsync();
         }
         catch (Exception ex)
         {
@@ -147,38 +183,116 @@ public partial class GamePage : ContentPage
         }
     }
 
-    /// <summary>用页面内的说明替代空白 WebView，说明为什么打不开以及怎么处理。</summary>
-    private void ShowFileModeNotice(string message)
+    private static async Task OpenExternalAsync(string url)
     {
-        if (_noticeShown) return;
-        _noticeShown = true;
-        GameView.IsVisible = false;
-        var layout = new VerticalStackLayout
+        try
         {
-            Padding = new Thickness(24),
-            Spacing = 12,
-            VerticalOptions = LayoutOptions.Center,
-        };
-        var title = new Label
+            await Launcher.Default.OpenAsync(url);
+        }
+        catch (Exception ex)
         {
-            Text = "无法以 file:// 方式打开游戏",
-            FontSize = 18,
-            FontAttributes = FontAttributes.Bold,
-            HorizontalTextAlignment = TextAlignment.Center,
-        };
-        var detail = new Label
-        {
-            Text = message,
-            FontSize = 13,
-            HorizontalTextAlignment = TextAlignment.Center,
-            LineBreakMode = LineBreakMode.CharacterWrap,
-        };
-        detail.SetAppThemeColor(Label.TextColorProperty,
-            Color.FromArgb("#606060"), Color.FromArgb("#B0B0B0"));
-        layout.Children.Add(title);
-        layout.Children.Add(detail);
+            LogService.Error($"打开外部链接失败：{url}", ex);
+        }
+    }
 
-        if (Content is Grid grid) grid.Children.Add(layout);
-        else Content = layout;
+    /// <summary>用页面内的错误层替代黑屏 WebView，提供重试与浏览器打开。</summary>
+    private void ShowErrorLayer(string title, string message, string? openUrl)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            _needsRecreate = message.Contains("渲染进程", StringComparison.Ordinal);
+
+            // 先藏起覆盖层，否则错误提示会被 WebView 挡住。
+            GameSurface.Hide();
+            HideErrorLayer();
+
+            var layout = new VerticalStackLayout
+            {
+                Padding = new Thickness(24),
+                Spacing = 12,
+                VerticalOptions = LayoutOptions.Center,
+            };
+
+            var titleLabel = new Label
+            {
+                Text = title,
+                FontSize = 18,
+                FontAttributes = FontAttributes.Bold,
+                HorizontalTextAlignment = TextAlignment.Center,
+            };
+            titleLabel.SetAppThemeColor(Label.TextColorProperty,
+                Color.FromArgb("#212121"), Color.FromArgb("#E8E8E8"));
+
+            var detail = new Label
+            {
+                Text = message,
+                FontSize = 13,
+                HorizontalTextAlignment = TextAlignment.Center,
+                LineBreakMode = LineBreakMode.CharacterWrap,
+            };
+            detail.SetAppThemeColor(Label.TextColorProperty,
+                Color.FromArgb("#606060"), Color.FromArgb("#B0B0B0"));
+
+            var buttons = new HorizontalStackLayout
+            {
+                Spacing = 10,
+                HorizontalOptions = LayoutOptions.Center,
+            };
+
+            var retry = CreateButton("重试");
+            retry.Clicked += (_, _) =>
+            {
+                if (_needsRecreate)
+                {
+                    // 渲染进程已退出后 Reload 无法恢复，必须销毁旧 WebView 再新建
+                    GameSurface.DisposeSession();
+                    EnterSurface();
+                    return;
+                }
+
+                HideErrorLayer();
+                GameSurface.Show();
+                GameSurface.View?.Reload();
+            };
+            buttons.Children.Add(retry);
+
+            if (!string.IsNullOrWhiteSpace(openUrl) &&
+                (openUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase) ||
+                 openUrl.StartsWith("file:", StringComparison.OrdinalIgnoreCase)))
+            {
+                var open = CreateButton("用浏览器打开");
+                open.Clicked += (_, _) => PlatformServices.Links.OpenUrl(openUrl);
+                buttons.Children.Add(open);
+            }
+
+            layout.Children.Add(titleLabel);
+            layout.Children.Add(detail);
+            layout.Children.Add(buttons);
+
+            _errorLayer = layout;
+            RootGrid.Children.Add(layout);
+        });
+    }
+
+    private static Button CreateButton(string text)
+    {
+        var button = new Button
+        {
+            Text = text,
+            FontSize = 13,
+            Padding = new Thickness(14, 6),
+            CornerRadius = 8,
+            HeightRequest = 40,
+        };
+        button.SetDynamicResource(Button.BackgroundColorProperty, "AccentColor");
+        button.SetDynamicResource(Button.TextColorProperty, "AccentOnColor");
+        return button;
+    }
+
+    private void HideErrorLayer()
+    {
+        if (_errorLayer == null) return;
+        RootGrid.Children.Remove(_errorLayer);
+        _errorLayer = null;
     }
 }

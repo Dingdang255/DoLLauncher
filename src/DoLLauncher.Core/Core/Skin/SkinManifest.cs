@@ -41,6 +41,34 @@ public sealed class SkinManifest
 
     /// <summary>额外变量（等价于 CSS 里 :root 的 --变量），可覆盖调色板或供样式表引用。</summary>
     [JsonPropertyName("variables")] public Dictionary<string, string> Variables { get; set; } = new();
+
+    /// <summary>
+    /// Android 专属配置（可空）。WPF 端忽略该字段；旧包没有该段时行为不变。
+    /// </summary>
+    [JsonPropertyName("android")] public AndroidSkinOptions? Android { get; set; }
+
+    /// <summary>
+    /// 实际使用的样式表相对路径：<see cref="AndroidSkinOptions.StyleSheet"/> 优先，
+    /// 其次顶层 <see cref="StyleSheet"/>；都为空时返回空串（由平台自动查找 skin.css）。
+    /// </summary>
+    public string PreferredStyleSheet
+    {
+        get
+        {
+            var android = (Android?.StyleSheet ?? string.Empty).Trim();
+            return android.Length > 0 ? android : (StyleSheet ?? string.Empty).Trim();
+        }
+    }
+}
+
+/// <summary>Android 专属的美化包配置：可单独提供样式表与变量覆盖。</summary>
+public sealed class AndroidSkinOptions
+{
+    /// <summary>Android 端使用的样式表路径（相对包内）；为空时回退到顶层 styleSheet。</summary>
+    [JsonPropertyName("styleSheet")] public string StyleSheet { get; set; } = string.Empty;
+
+    /// <summary>Android 端额外的变量（优先级高于顶层 variables 与 CSS :root）。</summary>
+    [JsonPropertyName("variables")] public Dictionary<string, string> Variables { get; set; } = new();
 }
 
 /// <summary>美化包格式校验规则（平台无关）。</summary>
@@ -68,13 +96,45 @@ public static class SkinRules
                      (manifest.WindowBackgroundImage, "windowBackgroundImage"),
                      (manifest.DialogBackgroundImage, "dialogBackgroundImage"),
                      (manifest.StyleSheet, "styleSheet"),
+                     (manifest.Android?.StyleSheet ?? string.Empty, "android.styleSheet"),
                  })
         {
             if (string.IsNullOrWhiteSpace(path)) continue;
             if (!IsSafeRelativePath(path!)) return (false, $"{label} 必须是包内的相对路径，且不能包含 ..。");
         }
 
+        if (HasInvalidVariables(manifest.Variables, "variables", out var topError)) return (false, topError);
+        if (HasInvalidVariables(manifest.Android?.Variables, "android.variables", out var androidError))
+            return (false, androidError);
+
         return (true, string.Empty);
+    }
+
+    /// <summary>变量表大小 / 键值长度上限校验，避免恶意或超长内容拖慢解析。</summary>
+    private static bool HasInvalidVariables(Dictionary<string, string>? variables, string label, out string reason)
+    {
+        reason = string.Empty;
+        if (variables == null || variables.Count == 0) return false;
+        if (variables.Count > 200)
+        {
+            reason = $"{label} 变量数量超过上限 200。";
+            return true;
+        }
+
+        foreach (var pair in variables)
+        {
+            if ((pair.Key ?? string.Empty).Trim().Length > 64)
+            {
+                reason = $"{label} 中的变量名过长（上限 64 字符）。";
+                return true;
+            }
+            if ((pair.Value ?? string.Empty).Length > 200)
+            {
+                reason = $"{label} 中的变量值过长（上限 200 字符）：{pair.Key}";
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>相对路径安全校验：不允许绝对路径与越界片段。</summary>

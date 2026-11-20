@@ -28,11 +28,18 @@
                     <Label x:Name="RootLabel" FontSize="12" Margin="0,6,0,0"
                            LineBreakMode="CharacterWrap"
                            TextColor="{AppThemeBinding Light=#555555, Dark=#C8C8C8}" />
-                    <Button Text="复制路径" FontSize="12" Padding="10,4" CornerRadius="8"
-                            HeightRequest="34" HorizontalOptions="Start" Margin="0,6,0,0"
-                            Clicked="OnCopyRoot"
-                            BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
-                            TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+                    <HorizontalStackLayout Spacing="8" Margin="0,6,0,0">
+                        <Button Text="复制路径" FontSize="12" Padding="10,4" CornerRadius="8"
+                                HeightRequest="34" HorizontalOptions="Start"
+                                Clicked="OnCopyRoot"
+                                BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                                TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+                        <Button Text="打开文件夹" FontSize="12" Padding="10,4" CornerRadius="8"
+                                HeightRequest="34" HorizontalOptions="Start"
+                                Clicked="OnOpenRoot"
+                                BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                                TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+                    </HorizontalStackLayout>
                 </VerticalStackLayout>
             </Border>
 

@@ -109,6 +109,9 @@ public sealed class GeneralSettings
     /// <summary>关闭游戏页面后的处理：close（直接停服）/ ask（询问）。</summary>
     [JsonPropertyName("closePageBehavior")] public string ClosePageBehavior { get; set; } = "close";
 
+    /// <summary>进入游戏后的默认屏幕方向：portrait（竖屏）/ landscape（横屏）；进入后仍会解锁传感器。</summary>
+    [JsonPropertyName("gameOrientation")] public string GameOrientation { get; set; } = "portrait";
+
     /// <summary>左上角启动器名称下方的副标题；空字符串表示使用默认文案「版本 · 模组 · 存档」。</summary>
     [JsonPropertyName("subtitle")] public string Subtitle { get; set; } = string.Empty;
 

@@ -194,10 +194,23 @@ public partial class VersionDetailPage : ContentPage
                 return;
             }
 
+            // 游戏还在后台运行：直接回到同一个游戏页，进度不丢。
+            if (GameSurface.HasSession(_version.Folder) && ServerManager.IsRunning(_version.Folder))
+            {
+                var running = ServerManager.EnsureStarted(_version);
+                await Navigation.PushAsync(new GamePage(_version, running.GameUrl));
+                return;
+            }
+
             // 每次启动前重新核对；有问题时由用户决定是否仍然启动。
             var problems = await Task.Run(CollectProblems);
             ApplyProblems(problems);
             if (problems.Count > 0 && !await ConfirmLaunchAsync(problems)) return;
+
+            if (!await ConfirmHeavyModsAsync()) return;
+
+            // 服务器已停但旧画面还在：先销毁，避免复用一个已经断开的页面。
+            GameSurface.CloseFor(_version.Folder);
 
             await TryAutoBackupAsync();
 
@@ -249,11 +262,75 @@ public partial class VersionDetailPage : ContentPage
         return await PlatformServices.Dialogs.ConfirmAsync(message, "可能存在问题", "仍然启动");
     }
 
+    // Android WebView 渲染进程的 JS 堆上限约 256MB，超大模组在加载阶段就会把游戏撑崩。
+    // 实测 50MB 的模组必崩，30MB 以内的组合（汉化 + 图片包 + 小模组）可以稳定运行。
+    private const long HeavyModSingleBytes = 20L * 1024 * 1024;
+    private const long HeavyModTotalBytes = 40L * 1024 * 1024;
+
+    /// <summary>
+    /// 启动前检查启用模组的体积。Android 的 WebView 内存上限远小于桌面浏览器，
+    /// 体积过大的模组会让渲染进程内存耗尽，表现出来就是游戏打不开。
+    /// </summary>
+    private async Task<bool> ConfirmHeavyModsAsync()
+    {
+        if (!OperatingSystem.IsAndroid()) return true;
+
+        var sized = ModService.Load(_version.FullPath)
+            .Where(m => m.Enabled)
+            .Select(m => (Mod: m, Size: SafeLength(m.FilePath)))
+            .OrderByDescending(x => x.Size)
+            .ToList();
+        if (sized.Count == 0) return true;
+
+        var total = sized.Sum(x => x.Size);
+        if (total < HeavyModTotalBytes && sized[0].Size < HeavyModSingleBytes) return true;
+
+        // 优先列出单个就超标的模组；只是总量超标时取最大的几个。
+        var heavy = sized.Where(x => x.Size >= HeavyModSingleBytes).ToList();
+        if (heavy.Count == 0) heavy = sized.Take(3).ToList();
+
+        var lines = heavy.Take(5)
+            .Select(x => $"· {x.Mod.FileName}（{x.Size / 1024d / 1024d:0.0} MB）");
+        var message = "检测到体积较大的模组：\n" + string.Join("\n", lines) +
+                      "\n\nAndroid WebView 的内存上限约 256MB，加载这些模组后渲染进程可能因内存耗尽而退出（游戏白屏或闪退）。\n" +
+                      "是否暂时禁用它们再启动？";
+
+        var choice = await DisplayActionSheetAsync(message, "取消", null!,
+            "禁用这些模组并启动", "仍然启动");
+
+        if (choice == "禁用这些模组并启动")
+        {
+            var names = heavy.Select(x => x.Mod.FileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var mods = ModService.Load(_version.FullPath);
+            foreach (var mod in mods)
+            {
+                if (names.Contains(mod.FileName)) mod.Enabled = false;
+            }
+            ModService.Save(_version.FullPath, mods);
+            LogService.Append($"检测到大体积模组，已禁用：{string.Join(", ", names)}");
+            return true;
+        }
+
+        if (choice == "仍然启动")
+        {
+            LogService.Append($"继续带大体积模组启动：{string.Join(", ", heavy.Select(x => x.Mod.FileName))}");
+            return true;
+        }
+
+        return false;
+    }
+
+    private static long SafeLength(string path)
+    {
+        try { return new FileInfo(path).Length; } catch { return 0; }
+    }
+
     private async void OnStopClicked(object? sender, EventArgs e)
     {
         if (_busy) return;
         try
         {
+            GameSurface.CloseFor(_version.Folder);
             ServerManager.Stop(_version.Folder);
             LauncherStatusService.Sync();
             LogService.Append($"已停止：{_version.DisplayName}");
@@ -420,7 +497,11 @@ public partial class VersionDetailPage : ContentPage
         SetBusy(true);
         try
         {
+            GameSurface.CloseFor(_version.Folder);
             ServerManager.Stop(_version.Folder);
+            // 与 WPF 删除流程一致：留下该端口的待清理标记，下次任何版本占用这个端口时
+            // 先清空旧 origin 的 IndexedDB / localStorage / 缓存，避免新版本读到旧存档。
+            BrowserDataCleaner.CleanVersion(_version, msg => LogService.Append(msg));
             LauncherStatusService.Sync();
             try
             {
@@ -457,6 +538,16 @@ public partial class VersionDetailPage : ContentPage
             LogService.Error("复制版本目录失败", ex);
             await PlatformServices.Dialogs.ErrorAsync("复制失败：" + ex.Message);
         }
+    }
+
+    /// <summary>用系统「打开方式」选择器打开版本目录（需文件管理器自行具备存储权限）。</summary>
+    private async void OnOpenFolderClicked(object? sender, EventArgs e)
+    {
+        if (AndroidFolderOpener.TryOpen(_version.FullPath)) return;
+        await PlatformServices.Dialogs.InfoAsync(
+            "没有应用能打开这个文件夹。\n\n" +
+            "可以先用「复制」拿到路径，再到具备存储权限的文件管理器（如 MT 管理器）里打开。",
+            "打开文件夹");
     }
 
     private void SetBusy(bool busy)

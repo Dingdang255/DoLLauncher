@@ -44,6 +44,20 @@ public sealed class StaticServer : ILocalServer
     private static readonly object ScriptSync = new();
 
     /// <summary>
+    /// ModLoader 连续 3 次启动失败会写入安全模式标记（localStorage），之后所有模组（含汉化）都被禁用且不会自行恢复。
+    /// ModLoader 会把 autoOn 转成 forceOn 持久保存，所以两个键都要在游戏脚本执行前清掉，并重置启动计数。
+    /// </summary>
+    private const string SafeModeResetScript =
+        "<script>(function(){try{" +
+        "var a=localStorage.getItem('ModLoadSwitch_safeModeAutoOn');" +
+        "var f=localStorage.getItem('ModLoadSwitch_safeModeForceOn');" +
+        "if(a!==null)localStorage.removeItem('ModLoadSwitch_safeModeAutoOn');" +
+        "if(f!==null)localStorage.removeItem('ModLoadSwitch_safeModeForceOn');" +
+        "localStorage.setItem('ModLoadSwitch_startBeginCount','0');" +
+        "if(a!==null||f!==null)console.log('[DoLLauncher] cleared ModLoader safe mode flag');" +
+        "}catch(e){}})();</script>";
+
+    /// <summary>
     /// 按当前设置生成注入脚本（心跳间隔、队列上限、flush 间隔变化时重建）。
     /// 存档库桥接脚本放在最前面，让导入尽早开始；日志采集与悬浮球随后。
     /// 生成后统一转成纯 ASCII，注入到任何编码的页面都不会被破坏。
@@ -1078,8 +1092,8 @@ public sealed class StaticServer : ILocalServer
         var bom = source.Length >= 3 && source[0] == 0xEF && source[1] == 0xBB && source[2] == 0xBF ? 3 : 0;
         var offset = FindInsertOffset(source, bom);
         var script = PageScriptBytes();
-        // 清缓存标记是同步脚本：必须早于游戏脚本执行
-        var prefixText = clearCaches ? "<script>window.__DOL_CLEAR_CACHES__=true;</script>" : "";
+        // 同步前缀脚本：必须先于游戏与 ModLoader 脚本执行
+        var prefixText = SafeModeResetScript + (clearCaches ? "<script>window.__DOL_CLEAR_CACHES__=true;</script>" : "");
         var prefix = prefixText.Length == 0 ? Array.Empty<byte>() : Encoding.UTF8.GetBytes(prefixText);
 
         var result = new byte[source.Length + prefix.Length + script.Length];
@@ -1103,7 +1117,7 @@ public sealed class StaticServer : ILocalServer
         if (insert < 0) insert = IndexOfTagText(text, "html");
         if (insert < 0) insert = IndexOfTagText(text, "!doctype");
         if (insert < 0) insert = 0;
-        var prefix = clearCaches ? "<script>window.__DOL_CLEAR_CACHES__=true;</script>" : "";
+        var prefix = SafeModeResetScript + (clearCaches ? "<script>window.__DOL_CLEAR_CACHES__=true;</script>" : "");
         return text.Insert(insert, prefix + PageScriptText());
     }
 

@@ -352,6 +352,22 @@ public partial class AppearanceSettingsPage : ContentPage
     {
         SkinStatusLabel.Text = AndroidSkinStore.StatusText;
 
+        // CSS 解析 / 应用告警：可展开查看前 10 条
+        var warnings = AndroidSkinStore.CssWarnings;
+        SkinWarningButton.IsVisible = warnings.Count > 0;
+        SkinWarningButton.Text = SkinWarningList.IsVisible
+            ? "收起警告"
+            : $"查看警告（{warnings.Count}）";
+        if (warnings.Count > 0)
+        {
+            var lines = warnings.Take(10).Select((item, index) => $"{index + 1}. {item}");
+            SkinWarningList.Text = string.Join("\n", lines);
+        }
+        else
+        {
+            SkinWarningList.IsVisible = false;
+        }
+
         // 美化包已指定的值优先：把会被覆盖的设置整块置灰，并给出说明
         var requiresDark = AndroidSkinStore.Current != null && AndroidSkinStore.RequiresDarkPalette;
         var accent = AndroidSkinStore.AccentColor;
@@ -366,6 +382,12 @@ public partial class AppearanceSettingsPage : ContentPage
         if (accent != null) notes.Add($"当前美化包已指定主色 {accent}，主题色设置不生效。");
         SkinOverrideNote.Text = string.Join("\n", notes);
         SkinOverrideNote.IsVisible = notes.Count > 0;
+    }
+
+    private void OnSkinWarningsToggle(object? sender, EventArgs e)
+    {
+        SkinWarningList.IsVisible = !SkinWarningList.IsVisible;
+        UpdateSkinStatus();
     }
 
     private async void OnSkinImport(object? sender, EventArgs e)

@@ -6,6 +6,8 @@ public partial class GameSettingsPage : ContentPage
 {
     private static readonly string[] CloseValues = { "close", "ask" };
     private static readonly string[] CloseNames = { "直接关闭本地服务器", "询问是否保留后台服务" };
+    private static readonly string[] OrientationValues = { "portrait", "landscape" };
+    private static readonly string[] OrientationNames = { "竖屏", "横屏" };
 
     private LauncherConfig _config = new();
     private bool _loading;
@@ -16,6 +18,7 @@ public partial class GameSettingsPage : ContentPage
     {
         InitializeComponent();
         ClosePicker.ItemsSource = CloseNames;
+        OrientationPicker.ItemsSource = OrientationNames;
     }
 
     protected override void OnAppearing()
@@ -38,6 +41,8 @@ public partial class GameSettingsPage : ContentPage
         {
             ClosePicker.SelectedIndex =
                 SettingsStore.IndexOf(CloseValues, _config.General.ClosePageBehavior, 0);
+            OrientationPicker.SelectedIndex =
+                SettingsStore.IndexOf(OrientationValues, _config.General.GameOrientation, 0);
 
             HeartbeatSlider.Value = Math.Clamp(_config.General.HeartbeatSeconds, 1, 30);
             TimeoutSlider.Value = Math.Clamp(_config.General.HeartbeatTimeoutSeconds, 5, 180);
@@ -101,5 +106,15 @@ public partial class GameSettingsPage : ContentPage
 
         _config.General.ClosePageBehavior = value;
         await SettingsStore.SaveAsync(_config, "关闭游戏页面时 = " + CloseNames[ClosePicker.SelectedIndex]);
+    }
+
+    private async void OnOrientationChanged(object? sender, EventArgs e)
+    {
+        if (_loading || OrientationPicker.SelectedIndex < 0) return;
+        var value = OrientationValues[OrientationPicker.SelectedIndex];
+        if (SettingsStore.Same(_config.General.GameOrientation, value)) return;
+
+        _config.General.GameOrientation = value;
+        await SettingsStore.SaveAsync(_config, "进入游戏后的默认方向 = " + OrientationNames[OrientationPicker.SelectedIndex]);
     }
 }

@@ -19,4 +19,26 @@
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+	<!-- 目录「打开方式」需要能查询到支持这些 MIME 的文件管理器（Android 11+ 包可见性） -->
+	<queries>
+		<!-- 直接唤起 MT 管理器的目录浏览 -->
+		<package android:name="bin.mt.plus" />
+		<intent>
+			<action android:name="android.intent.action.VIEW" />
+			<data android:scheme="file" />
+			<data android:mimeType="*/*" />
+		</intent>
+		<intent>
+			<action android:name="android.intent.action.VIEW" />
+			<data android:mimeType="resource/folder" />
+		</intent>
+		<intent>
+			<action android:name="android.intent.action.VIEW" />
+			<data android:mimeType="vnd.android.document/directory" />
+		</intent>
+		<intent>
+			<action android:name="android.intent.action.VIEW" />
+			<data android:mimeType="inode/directory" />
+		</intent>
+	</queries>
 </manifest>

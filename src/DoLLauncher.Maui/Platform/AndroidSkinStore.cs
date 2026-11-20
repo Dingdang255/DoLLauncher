@@ -11,8 +11,9 @@ namespace DoLLauncher.Maui.Platform;
 
 /// <summary>
 /// Android 端本地 UI 美化包：SAF 选 zip → 解压到 skins/&lt;id&gt; → 校验 skin.json → 启用。
-/// 只使用主色、页面背景色 / 背景图与 variables，不支持 CSS。
-/// 启用记录写在 skins/active.json，启动时自动恢复。
+/// 支持主色、页面背景色 / 背景图、variables，以及 CSS 子集（skin.css / android.styleSheet）。
+/// 启用记录写在 skins/active.json（刻意不复用 General.SkinFolder，避免与 WPF 端配置互相干扰），
+/// 启动时自动恢复。
 /// </summary>
 public static class AndroidSkinStore
 {
@@ -38,9 +39,28 @@ public static class AndroidSkinStore
     /// <summary>当前生效的美化包解压目录名。</summary>
     public static string CurrentFolder { get; private set; } = string.Empty;
 
-    /// <summary>美化包 variables（原样保存；AccentBrush / AccentColor 可用于覆盖主色）。</summary>
+    /// <summary>美化包 variables（已合并 android.variables / 顶层 variables / CSS :root）。</summary>
     public static IReadOnlyDictionary<string, string> Variables { get; private set; } =
         new Dictionary<string, string>();
+
+    /// <summary>当前解析出的 CSS 样式表；没有样式表时为 null。</summary>
+    private static SkinStyleSheet? _sheet;
+
+    /// <summary>CSS 规则条数（Android 实际生效条数）。</summary>
+    public static int CssRuleCount => _sheet?.Rules.Count ?? 0;
+
+    /// <summary>CSS 解析与应用阶段的告警（已去重，最多 100 条）。</summary>
+    public static IReadOnlyList<string> CssWarnings
+    {
+        get
+        {
+            var list = new List<string>();
+            if (_sheet != null) list.AddRange(_sheet.Warnings);
+            foreach (var item in MauiSkinStyler.LoadWarnings)
+                if (!list.Contains(item)) list.Add(item);
+            return list;
+        }
+    }
 
     /// <summary>美化包主色；为空表示沿用用户主题色。</summary>
     public static string? AccentColor
@@ -73,7 +93,10 @@ public static class AndroidSkinStore
             if (skin == null) return "当前未启用美化包。";
             var author = string.IsNullOrWhiteSpace(skin.Author) ? string.Empty : $" · {skin.Author}";
             var version = string.IsNullOrWhiteSpace(skin.Version) ? string.Empty : $" v{skin.Version}";
-            return $"已启用：{skin.Name}{version}{author}";
+            var css = CssRuleCount > 0 ? $" · CSS {CssRuleCount} 条规则" : string.Empty;
+            var warnings = CssWarnings.Count;
+            var warn = warnings > 0 ? $" · {warnings} 条警告" : string.Empty;
+            return $"已启用：{skin.Name}{version}{author}{css}{warn}";
         }
     }
 
@@ -208,6 +231,7 @@ public static class AndroidSkinStore
 
         ClearCurrent();
         RestorePageBackground(Application.Current?.Resources);
+        MauiSkinStyler.Unload();
 
         // 恢复用户在设置里选择的主题与主题色
         App.ApplyTheme(AppConfig.Load().General.ThemeMode);
@@ -223,19 +247,73 @@ public static class AndroidSkinStore
 
         if (Current == null)
         {
+            MauiSkinStyler.Unload();
             RestorePageBackground(resources);
             return;
         }
 
+        // 美化包指定深色背景时强制深色，避免深底 + 深色文字看不清
         if (RequiresDarkPalette && app != null && app.UserAppTheme != AppTheme.Dark)
             app.UserAppTheme = AppTheme.Dark;
+
+        // 变量优先级：android.variables → 顶层 variables → CSS :root（按当前深浅色合并）
+        var dark = ThemeAccent.IsDark;
+        Variables = SkinPalette.Merge(Current, _sheet, dark);
 
         var general = AppConfig.Load().General;
         var accent = AccentColor;
         ThemeAccent.Apply(resources, accent ?? general.ThemeAccentColor,
             accent == null ? general.ThemeAccentSaturation : 100);
+        ApplyPaletteOverrides(resources);
         ApplyPageBackground(resources);
+
+        var folder = Path.Combine(SkinsRoot, CurrentFolder);
+        MauiSkinStyler.Load(_sheet, folder, Variables, ThemeAccent.IsDark);
+
+        // 主题 / 资源重建后 UI 密度可能退回系统值，这里静默补回缩放
+        DoLLauncher.Maui.MainApplication.ReapplyUiScale();
     }
+
+    /// <summary>把变量里声明的调色板颜色覆盖到 MAUI 资源（AccentBrush → AccentColor 等）。</summary>
+    private static void ApplyPaletteOverrides(ResourceDictionary resources)
+    {
+        var overrides = SkinPalette.ResolveColorOverrides(Variables);
+        if (overrides.Count == 0) return;
+
+        foreach (var pair in overrides)
+        {
+            var key = MapPaletteKey(pair.Key);
+            if (key == null) continue;
+
+            Color color;
+            try
+            {
+                color = Color.FromArgb(pair.Value);
+            }
+            catch
+            {
+                continue;
+            }
+
+            resources[key] = color;
+            // Colors.xaml 里的键在合并字典内，只有那里也改掉才会触发 DynamicResource 重新取值
+            foreach (var merged in resources.MergedDictionaries)
+                if (merged.TryGetValue(key, out _)) merged[key] = color;
+        }
+    }
+
+    private static string? MapPaletteKey(string coreKey) => coreKey switch
+    {
+        "AccentBrush" => "AccentColor",
+        "AccentHoverBrush" => "AccentHoverColor",
+        "AccentSoftBrush" => "AccentSoftColor",
+        "AccentPaleBrush" => "AccentPaleColor",
+        "AccentStrongBrush" => "AccentStrongColor",
+        "AccentOnBrush" => "AccentOnColor",
+        "TabChipActiveBgBrush" => "AccentColor",
+        "TabChipActiveFgBrush" => "AccentOnColor",
+        _ => null,
+    };
 
     private static bool Activate(string folder)
     {
@@ -267,10 +345,10 @@ public static class AndroidSkinStore
 
             Current = manifest;
             CurrentFolder = folder;
-            Variables = manifest!.Variables is { Count: > 0 }
-                ? new Dictionary<string, string>(manifest.Variables, StringComparer.OrdinalIgnoreCase)
-                : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            LogService.Append($"美化包「{manifest.Name}」已启用，主色：{AccentColor ?? "(未覆盖，沿用自定义主题色)"}");
+            LoadSheet(dir, manifest!);
+            Variables = SkinPalette.Merge(manifest, _sheet, ThemeAccent.IsDark);
+            LogService.Append($"美化包「{manifest!.Name}」已启用，主色：{AccentColor ?? "(未覆盖，沿用自定义主题色)"}" +
+                              (CssRuleCount > 0 ? $"，CSS {CssRuleCount} 条规则" : "，无 CSS"));
             return true;
         }
         catch (Exception ex)
@@ -286,6 +364,78 @@ public static class AndroidSkinStore
         Current = null;
         CurrentFolder = string.Empty;
         Variables = new Dictionary<string, string>();
+        _sheet = null;
+        _sheetCacheKey = string.Empty;
+    }
+
+    // ---------- CSS 样式表 ----------
+
+    private const int MaxSheetBytes = 256 * 1024;
+    private const int MaxRules = 500;
+
+    private static string _sheetCacheKey = string.Empty;
+
+    /// <summary>解析美化包样式表：android.styleSheet 优先，其次顶层 styleSheet，最后自动查找。</summary>
+    private static void LoadSheet(string skinDir, SkinManifest manifest)
+    {
+        _sheet = null;
+        _sheetCacheKey = string.Empty;
+
+        var relative = manifest.PreferredStyleSheet;
+        if (relative.Length == 0)
+        {
+            foreach (var name in new[] { "skin.css", "style.css", "styles.css" })
+            {
+                if (!File.Exists(Path.Combine(skinDir, name))) continue;
+                relative = name;
+                break;
+            }
+        }
+
+        if (relative.Length == 0) return;
+        if (!SkinRules.IsSafeRelativePath(relative))
+        {
+            LogService.Append("美化包样式表路径不安全，已忽略：" + relative);
+            return;
+        }
+
+        var file = Path.Combine(skinDir, relative.Replace('\\', '/').Replace('/', Path.DirectorySeparatorChar));
+        if (!File.Exists(file))
+        {
+            LogService.Append("美化包样式表不存在，已忽略：" + relative);
+            return;
+        }
+
+        try
+        {
+            var info = new FileInfo(file);
+            var cacheKey = file + "|" + info.LastWriteTimeUtc.Ticks + "|" + info.Length;
+            if (cacheKey == _sheetCacheKey && _sheet != null) return;
+
+            var text = File.ReadAllText(file);
+            var warnings = new List<string>();
+            if (text.Length > MaxSheetBytes)
+            {
+                text = text[..MaxSheetBytes];
+                warnings.Add($"样式表超过 {MaxSheetBytes / 1024}KB，已只加载前面部分。");
+            }
+
+            var sheet = SkinStyleSheet.Parse(text);
+            if (sheet.Rules.Count > MaxRules)
+            {
+                sheet.Rules.RemoveRange(MaxRules, sheet.Rules.Count - MaxRules);
+                sheet.Warnings.Add($"规则数超过上限 {MaxRules}，已只加载前面的规则。");
+            }
+            sheet.Warnings.InsertRange(0, warnings);
+            foreach (var warning in sheet.Warnings) LogService.Append("[美化包] " + warning);
+
+            _sheet = sheet;
+            _sheetCacheKey = cacheKey;
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("解析美化包样式表失败", ex);
+        }
     }
 
     // ---------- 页面背景 ----------

@@ -58,10 +58,19 @@
 		<ProjectReference Include="..\DoLLauncher.Core\DoLLauncher.Core.csproj" />
 	</ItemGroup>
 
+	<!-- Release 签名：通过环境变量提供 keystore 路径、别名与密码；未提供时保持 SDK 默认行为 -->
+	<PropertyGroup Condition="'$(DOL_KEYSTORE)' != ''">
+		<AndroidKeyStore>true</AndroidKeyStore>
+		<AndroidSigningKeyStore>$(DOL_KEYSTORE)</AndroidSigningKeyStore>
+		<AndroidSigningKeyAlias Condition="'$(DOL_KEY_ALIAS)' != ''">$(DOL_KEY_ALIAS)</AndroidSigningKeyAlias>
+		<AndroidSigningKeyPass Condition="'$(DOL_KEY_PASS)' != ''">env:DOL_KEY_PASS</AndroidSigningKeyPass>
+		<AndroidSigningStorePass Condition="'$(DOL_STORE_PASS)' != ''">env:DOL_STORE_PASS</AndroidSigningStorePass>
+	</PropertyGroup>
+
 	<!-- 与 build.ps1 相同的版本信息生成逻辑：git tag | 提交 | 构建时间；有未提交改动时按 dev 处理 -->
 	<Target Name="InjectDolBuildInfo" BeforeTargets="GenerateAssemblyInfo" Condition="'$(DesignTimeBuild)' != 'true'">
 		<Exec Command="git -C &quot;$(MSBuildProjectDirectory)\..\..&quot; describe --tags --exact-match"
-		      IgnoreExitCode="true" ConsoleToMSBuild="true" StandardOutputImportance="low">
+		      IgnoreExitCode="true" ConsoleToMSBuild="true" StandardOutputImportance="low" StandardErrorImportance="low">
 			<Output TaskParameter="ConsoleOutput" PropertyName="_DolTagOutput" />
 		</Exec>
 		<Exec Command="git -C &quot;$(MSBuildProjectDirectory)\..\..&quot; status --porcelain"

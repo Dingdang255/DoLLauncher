@@ -128,6 +128,8 @@ public sealed class IconActionView : ContentView
         _border.Padding = IsCompact ? new Thickness(10, 8) : new Thickness(12, 8);
         _border.HorizontalOptions = IsCompact ? LayoutOptions.Center : LayoutOptions.Fill;
 
+        EnsureStyleClasses();
+
         switch ((Variant ?? string.Empty).Trim().ToLowerInvariant())
         {
             case "primary":
@@ -159,6 +161,32 @@ public sealed class IconActionView : ContentView
 
         if (!string.IsNullOrEmpty(Text))
             SemanticProperties.SetDescription(this, Text);
+    }
+
+    /// <summary>给美化包的 .class 选择器提供稳定的类名：button / button-primary / button-compact。</summary>
+    private void EnsureStyleClasses()
+    {
+        var classes = StyleClass;
+        if (classes == null)
+        {
+            classes = new List<string>();
+            StyleClass = classes;
+        }
+
+        void Ensure(string name)
+        {
+            foreach (var item in classes)
+                if (string.Equals(item, name, StringComparison.OrdinalIgnoreCase)) return;
+            classes.Add(name);
+        }
+
+        Ensure("button");
+        var variant = (Variant ?? string.Empty).Trim().ToLowerInvariant();
+        if (variant.Length > 0) Ensure("button-" + variant);
+        if (IsCompact) Ensure("button-compact");
+
+        // 内层 Border 才是实际可见的按钮底板，同步一份类名让 .button 的背景 / 圆角生效
+        _border.StyleClass = new List<string>(classes);
     }
 
     private void SetForeground(Color color)

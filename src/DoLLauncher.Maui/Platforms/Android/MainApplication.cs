@@ -64,7 +64,52 @@ public class MainApplication : MauiApplication
     public static void ApplyUiScale() => ApplyUiScale(Android.App.Application.Context.Resources);
 
     /// <summary>把界面缩放应用到指定 Resources（Activity 的 Resources 与应用级是两份）。</summary>
-    public static void ApplyUiScale(Android.Content.Res.Resources? resources)
+    public static void ApplyUiScale(Android.Content.Res.Resources? resources) => ApplyUiScale(resources, true);
+
+    /// <summary>
+    /// 美化包 / 主题重应用后 Resources 可能已被重建，这里静默补一次缩放，
+    /// 避免界面退回系统密度（表现为控件突然变大）。
+    /// </summary>
+    public static void ReapplyUiScale()
+    {
+        try
+        {
+            var activity = Microsoft.Maui.ApplicationModel.Platform.CurrentActivity;
+            ApplyUiScale(activity?.Resources, false);
+            ResetMauiDensityCache(activity);
+        }
+        catch
+        {
+            // 页面切换瞬间可能拿不到 Activity，忽略即可。
+        }
+    }
+
+    /// <summary>MAUI 把第一次 dp→px 换算时的 Context 密度缓存进静态字段，之后不再更新。</summary>
+    private static readonly System.Reflection.FieldInfo? MauiDensityField =
+        typeof(Microsoft.Maui.Platform.ContextExtensions).GetField(
+            "s_displayDensity",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
+    /// <summary>
+    /// 让 MAUI 丢掉缓存的系统密度，并立刻用缩放后的 Activity 资源重新初始化。
+    /// 不做这一步时，即使资源密度已经改成 0.6x，所有布局尺寸仍按系统密度换算（界面看上去没有缩放）。
+    /// </summary>
+    public static void ResetMauiDensityCache(Context? context)
+    {
+        try
+        {
+            if (context == null || MauiDensityField == null) return;
+            MauiDensityField.SetValue(null, float.MinValue);
+            // 抢先用自己的资源初始化缓存，避免下一次换算落在未缩放的 Context 上。
+            Microsoft.Maui.Platform.ContextExtensions.ToPixels(context, 1d);
+        }
+        catch (Exception ex)
+        {
+            try { LogService.Error("重置 MAUI 密度缓存失败", ex); } catch { }
+        }
+    }
+
+    private static void ApplyUiScale(Android.Content.Res.Resources? resources, bool log)
     {
         try
         {
@@ -92,6 +137,7 @@ public class MainApplication : MauiApplication
             resources.UpdateConfiguration(config, metrics);
 #pragma warning restore CA1422
 
+            if (!log) return;
             try
             {
                 LogService.Append($"界面缩放已启用：密度 {_baseDpi} → {targetDpi}（{UiScale:0.0}x）");

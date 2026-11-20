@@ -36,7 +36,8 @@ public partial class SaveHelperPage : ContentPage
         base.OnDisappearing();
         if (BackRouter.Handler == HandleBack) BackRouter.Handler = null;
         AndroidSessionWatcher.Untrack(_version.Folder);
-        ServerManager.Stop(_version.Folder);
+        // 游戏页还在后台运行时不跟着停服（对应 WPF 端只关掉存档助手页、游戏窗口仍在）。
+        if (!GameSurface.HasSession(_version.Folder)) ServerManager.Stop(_version.Folder);
         LauncherStatusService.Sync();
     }
 

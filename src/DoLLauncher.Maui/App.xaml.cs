@@ -38,6 +38,7 @@ public partial class App : Application
 		Settings.ThemeAccent.Apply();
 		// 美化包的主色 / 深色背景优先于用户设置
 		AndroidSkinStore.Refresh();
+		MainApplication.ReapplyUiScale();
 		RefreshPickerTheme();
 		MainActivity.ApplySystemBars();
 	}
@@ -63,10 +64,19 @@ public partial class App : Application
 		Settings.ThemeAccent.Apply();
 		AndroidSkinStore.Refresh();
 
-		var window = new Window(new NavigationPage(new MainPage()));
+		var navigation = new NavigationPage(new MainPage());
+		// 美化包样式需要覆盖被 Push 的页面；页面内动态生成的控件由 styler 的 DescendantAdded 兜底
+		navigation.Pushed += (_, e) =>
+			MainThread.BeginInvokeOnMainThread(() => MauiSkinStyler.Attach(e.Page));
+		navigation.Popped += (_, _) =>
+			MainThread.BeginInvokeOnMainThread(() => MauiSkinStyler.ApplyAll());
+
+		var window = new Window(navigation);
 		// 启动后后台检查更新（AutoCheckUpdate 开启且今日未跳过时）
 		window.Created += (_, _) =>
 		{
+			MauiSkinStyler.Attach(navigation.CurrentPage);
+			MauiSkinStyler.ApplyAll();
 			UpdateDialogPage.StartAutoCheck(window);
 			StartStatusTimer();
 		};
@@ -86,6 +96,7 @@ public partial class App : Application
 		};
 		window.Destroying += (_, _) =>
 		{
+			DoLLauncher.Maui.Platform.GameSurface.DisposeSession();
 			ServerManager.StopAll();
 			LauncherStatusService.Sync();
 			LogService.Append("应用退出，本地服务器已全部停止");

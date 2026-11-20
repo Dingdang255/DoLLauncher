@@ -10,6 +10,7 @@
 
         <!-- 左侧导航（对应 WPF 的 PCL 式侧边栏） -->
         <Border Grid.Column="0" StrokeThickness="0" StrokeShape="RoundRectangle 14"
+                StyleClass="sidebar card"
                 BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#242424}"
                 Padding="14,16">
             <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="14">
@@ -69,7 +70,8 @@
 
                 <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
                     <HorizontalStackLayout Grid.Column="0" Spacing="10" VerticalOptions="Center">
-                        <Label Text="游戏版本" FontSize="20" FontAttributes="Bold" VerticalOptions="Center" />
+                        <Label Text="游戏版本" FontSize="20" FontAttributes="Bold" VerticalOptions="Center"
+                               StyleClass="pane-title" StyleId="VersionsTitle" />
                         <Label x:Name="VersionCountLabel" FontSize="12" VerticalOptions="Center"
                                TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
                     </HorizontalStackLayout>
@@ -100,6 +102,7 @@
                             <DataTemplate>
                                 <Border Padding="12" Margin="0,0,0,8"
                                         StrokeThickness="0"
+                                        StyleClass="card version-card"
                                         StrokeShape="RoundRectangle 12"
                                         BackgroundColor="{AppThemeBinding Light=#F7F7F7, Dark=#2A2A2A}">
                                     <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
@@ -119,8 +122,10 @@
 
                                             <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
                                                 <Label Text="{Binding DisplayName}" FontSize="16" FontAttributes="Bold"
+                                                       StyleClass="version-title"
                                                        LineBreakMode="TailTruncation" />
                                                 <Label Text="{Binding Subtitle}" FontSize="11"
+                                                       StyleClass="version-subtitle"
                                                        LineBreakMode="MiddleTruncation"
                                                        TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
                                             </VerticalStackLayout>
@@ -132,6 +137,7 @@
 
                                         <ctl:IconActionView Grid.Column="3" Glyph="{x:Static local:IconGlyph.PuzzlePiece}"
                                                             Text="模组管理" Variant="pale"
+                                                            IsVisible="{Binding CanManageMods}"
                                                             Tapped="OnRowModsClicked"
                                                             CommandParameter="{Binding .}" />
                                     </Grid>

@@ -19,6 +19,16 @@
 
             <Border Style="{StaticResource SettingsCard}">
                 <VerticalStackLayout Spacing="4">
+                    <Label Text="进入游戏后的默认方向" Style="{StaticResource SettingsItemTitle}" />
+                    <Label Style="{StaticResource SettingsHint}"
+                           Text="进入游戏页时先切到这个方向，随后解锁传感器允许自由旋转；返回启动器后仍恢复横屏锁定。" />
+                    <Picker x:Name="OrientationPicker" FontSize="12" Margin="0,6,0,0"
+                            SelectedIndexChanged="OnOrientationChanged" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Style="{StaticResource SettingsCard}">
+                <VerticalStackLayout Spacing="4">
                     <Label Text="关页检测时间参数" Style="{StaticResource SettingsItemTitle}" />
                     <Label Style="{StaticResource SettingsHint}"
                            Text="心跳由页面脚本定时上报。时间越大越不容易把加载中的游戏误判为关闭，但真正关页后停服也会更慢。修改下次打开页面生效。" />
