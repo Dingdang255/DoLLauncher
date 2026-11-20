@@ -19,11 +19,6 @@ public partial class DownloadPage : ContentView
 
     /// <summary>程序化设置下载源时置位，避免触发保存与重复加载。</summary>
     private bool _loadingSource;
-
-    /// <summary>日志回调很频繁，界面上的最近一行按时间节流。</summary>
-    private long _lastLogTick;
-    private string _lastLog = "";
-
     /// <summary>最近一次安装的参数，失败后供「重试」按钮使用。</summary>
     private GameRelease? _retryRelease;
     private bool _retryPolyfill;
@@ -38,6 +33,7 @@ public partial class DownloadPage : ContentView
     private readonly List<VersionInfo> _versions = new();
     private bool _marketActive;
     private bool _optionsExpanded = true;
+    private bool _togglingOptions;
     private bool _activatingMarket;
     private bool _fillingTargets;
 
@@ -250,11 +246,18 @@ public partial class DownloadPage : ContentView
         await MarketContent.SetTargetAsync(TargetVersionPicker.SelectedItem as VersionInfo);
     }
 
-    private void OnToggleOptionsClicked(object? sender, TappedEventArgs e)
+    private async void OnToggleOptionsClicked(object? sender, TappedEventArgs e)
     {
+        if (_togglingOptions) return;
+        _togglingOptions = true;
         _optionsExpanded = !_optionsExpanded;
-        OptionsBody.IsVisible = _optionsExpanded;
-        OptionsChevron.Rotation = _optionsExpanded ? 90 : 0;
+        try
+        {
+            await Task.WhenAll(
+                UiMotion.TogglePanelAsync(OptionsBody, _optionsExpanded),
+                UiMotion.RotateAsync(OptionsChevron, _optionsExpanded ? 90 : 0));
+        }
+        finally { _togglingOptions = false; }
     }
 
     // ---------- 游戏源 ----------
@@ -306,10 +309,11 @@ public partial class DownloadPage : ContentView
 
     private async void OnRetryClicked(object? sender, EventArgs e) => await LoadAsync();
 
-    private void OnToggleBodyClicked(object? sender, EventArgs e)
+    private async void OnOpenBodyClicked(object? sender, EventArgs e)
     {
-        if (sender is Button { BindingContext: DownloadRow row })
-            row.IsExpanded = !row.IsExpanded;
+        if (sender is not Button { BindingContext: DownloadRow row }) return;
+        if (string.IsNullOrWhiteSpace(row.Release.Body)) return;
+        await Navigation.PushAsync(new MarkdownPage(row.Title, row.Release.Body));
     }
 
     // ---------- 安装 ----------
@@ -372,22 +376,12 @@ public partial class DownloadPage : ContentView
 
         SetBusy(true);
         RetryPanel.IsVisible = false;
-        InstallProgress.Progress = 0;
-        PercentLabel.Text = "0%";
-        LogLabel.Text = "";
 
         try
         {
-            Action<double> progress = value => MainThread.BeginInvokeOnMainThread(() =>
-            {
-                var ratio = Math.Clamp(value, 0, 1);
-                InstallProgress.Progress = ratio;
-                PercentLabel.Text = ratio.ToString("P0");
-            });
-
             Task<string> RunInstall() => DownloadService.InstallGameAsync(release,
                 usePolyfill: usePolyfill, includeI18n: includeI18n, includeImagePack: includeImagePack,
-                log: OnInstallLog, progress: progress);
+                log: OnInstallLog, progress: _ => { });
 
             string folder;
             try
@@ -411,8 +405,6 @@ public partial class DownloadPage : ContentView
                 folder = await RunInstall();
             }
 
-            InstallProgress.Progress = 1;
-            PercentLabel.Text = "100%";
             LogService.Append($"[下载] 安装完成：{folder}");
             _retryRelease = null;
 
@@ -456,17 +448,8 @@ public partial class DownloadPage : ContentView
         await Navigation.PushAsync(new VersionDetailPage(info));
     }
 
-    /// <summary>完整日志写入日志文件，界面只节流显示最近一行。</summary>
-    private void OnInstallLog(string message)
-    {
-        LogService.Append("[下载] " + message);
-
-        var now = Environment.TickCount64;
-        if (message == _lastLog || now - _lastLogTick < 300) return;
-        _lastLog = message;
-        _lastLogTick = now;
-        MainThread.BeginInvokeOnMainThread(() => LogLabel.Text = message);
-    }
+    /// <summary>安装日志写入日志文件；进度由左侧下载列表的任务条目实时展示。</summary>
+    private static void OnInstallLog(string message) => LogService.Append("[下载] " + message);
 
     // ---------- 下载任务 ----------
 
@@ -564,17 +547,9 @@ public partial class DownloadPage : ContentView
         CancelTaskButton.IsVisible = false;
     }
 
-    /// <summary>遮罩上的取消：取消当前所有可取消的下载任务。</summary>
-    private void OnCancelInstallClicked(object? sender, EventArgs e)
-    {
-        var active = DownloadService.DownloadTasks.Where(t => t.CanCancel).ToList();
-        foreach (var task in active) task.Cancel();
-        if (active.Count == 0) LogService.Append("[下载] 当前没有可取消的任务。");
-    }
-
+    /// <summary>遮罩上的取消已移除：下载进度改由左侧列表展示，取消在列表里选中任务后操作。</summary>
     private void SetBusy(bool busy)
     {
-        BusyOverlay.IsVisible = busy;
         Refresher.IsEnabled = !busy;
         RefreshButton.IsEnabled = !busy;
         GameSourcePicker.IsEnabled = !busy;
@@ -588,19 +563,12 @@ public partial class DownloadPage : ContentView
 /// <summary>下载列表行：包装 GameRelease，并保存更新日志的展开状态。</summary>
 public sealed class DownloadRow : INotifyPropertyChanged
 {
-    /// <summary>更新日志纯文本上限，避免超长 Release 正文撑爆列表。</summary>
-    private const int BodyLimit = 4000;
-
     private bool _canInstall;
-    private bool _expanded;
 
     public DownloadRow(GameRelease release)
     {
         Release = release;
         _canInstall = release.HasInstallableAsset;
-        BodyPreview = release.Body.Length > BodyLimit
-            ? release.Body[..BodyLimit] + "\n…（已截断，完整内容见 Release 页面）"
-            : release.Body;
     }
 
     public GameRelease Release { get; }
@@ -608,8 +576,7 @@ public sealed class DownloadRow : INotifyPropertyChanged
     public string MetaText => Release.ReleaseTip;
     public string AssetSummary => Release.AssetSummary;
     public bool Prerelease => Release.Prerelease;
-    public string BodyPreview { get; }
-    public bool HasBody => BodyPreview.Length > 0;
+    public bool HasBody => !string.IsNullOrWhiteSpace(Release.Body);
 
     public bool CanInstall
     {
@@ -619,17 +586,6 @@ public sealed class DownloadRow : INotifyPropertyChanged
             if (_canInstall == value) return;
             _canInstall = value;
             OnPropertyChanged(nameof(CanInstall));
-        }
-    }
-
-    public bool IsExpanded
-    {
-        get => _expanded;
-        set
-        {
-            if (_expanded == value) return;
-            _expanded = value;
-            OnPropertyChanged(nameof(IsExpanded));
         }
     }
 

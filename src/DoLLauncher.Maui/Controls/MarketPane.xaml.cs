@@ -25,8 +25,19 @@ public partial class MarketPane : ContentView
     private bool _loaded;
     private bool _suppressPrefs;
     private bool _filterOpen = true;
+    private bool _togglingFilter;
     private int _chip;
     private int _filterSeq;
+    private int _lastVisibleIndex;
+    private int _pendingScrollIndex = -1;
+
+    private bool _selectMode;
+    private bool _suppressCheck;
+    private bool _selectBarShown;
+    private int _selectBarSeq;
+    private long _suppressTapUntil;
+    private readonly HashSet<string> _selected = new(StringComparer.OrdinalIgnoreCase);
+    private AndroidX.RecyclerView.Widget.RecyclerView? _recycler;
 
     private VersionInfo? _target;
 
@@ -36,6 +47,12 @@ public partial class MarketPane : ContentView
     {
         InitializeComponent();
         MarketList.ItemsSource = _rows;
+        MarketList.HandlerChanged += (_, _) => AttachTouchListener();
+        // 安装完模组后要重建列表，记住当前滚动位置，重建后按原位置恢复。
+        MarketList.Scrolled += (_, e) =>
+        {
+            if (e.FirstVisibleItemIndex >= 0) _lastVisibleIndex = e.FirstVisibleItemIndex;
+        };
         _suppressPrefs = true;
         MatchPicker.ItemsSource = new[] { "部分匹配", "完全匹配" };
         ScopePicker.ItemsSource = new[] { "全部", "标题", "作者", "简介", "标签" };
@@ -169,11 +186,18 @@ public partial class MarketPane : ContentView
 
     // ---------- 折叠 ----------
 
-    private void OnToggleFilterClicked(object? sender, TappedEventArgs e)
+    private async void OnToggleFilterClicked(object? sender, TappedEventArgs e)
     {
+        if (_togglingFilter) return;
+        _togglingFilter = true;
         _filterOpen = !_filterOpen;
-        FilterBody.IsVisible = _filterOpen;
-        FilterChevron.Rotation = _filterOpen ? 90 : 0;
+        try
+        {
+            await Task.WhenAll(
+                UiMotion.TogglePanelAsync(FilterBody, _filterOpen),
+                UiMotion.RotateAsync(FilterChevron, _filterOpen ? 90 : 0));
+        }
+        finally { _togglingFilter = false; }
     }
 
     // ---------- 筛选 ----------
@@ -232,16 +256,33 @@ public partial class MarketPane : ContentView
         _rows.Clear();
         foreach (var mod in result) _rows.Add(GetRow(mod));
         FilterCountLabel.Text = $"{_rows.Count} / {_all.Count} 个";
+
+        if (_pendingScrollIndex >= 0)
+        {
+            var index = Math.Min(_pendingScrollIndex, _rows.Count - 1);
+            _pendingScrollIndex = -1;
+            if (index >= 0)
+            {
+                Dispatcher.Dispatch(() =>
+                    MarketList.ScrollTo(index, position: ScrollToPosition.Start, animate: false));
+            }
+        }
     }
 
     private MarketRow GetRow(MarketMod mod)
     {
-        var key = mod.Id.Length > 0 ? mod.Id : mod.Name;
+        var key = KeyOf(mod);
         if (_rowCache.TryGetValue(key, out var row) && ReferenceEquals(row.Mod, mod)) return row;
-        row = new MarketRow(mod);
+        row = new MarketRow(mod)
+        {
+            SelectMode = _selectMode,
+            IsChecked = _selected.Contains(key),
+        };
         _rowCache[key] = row;
         return row;
     }
+
+    private static string KeyOf(MarketMod mod) => mod.Id.Length > 0 ? mod.Id : mod.Name;
 
     private MarketMatchMode CurrentMatchMode()
     {
@@ -539,6 +580,485 @@ public partial class MarketPane : ContentView
         row.HasStar = true;
     }
 
+    // ---------- 详情与选择模式 ----------
+
+    private async void OnRowTapped(object? sender, TappedEventArgs e)
+    {
+        if (Environment.TickCount64 < _suppressTapUntil) return;
+        if (sender is not Element { BindingContext: MarketRow row }) return;
+        // 选择模式下单击只切换勾选，不进详情；详情改用行内「详情」按钮。
+        if (_selectMode)
+        {
+            SetRowChecked(row, !row.IsChecked);
+            return;
+        }
+        await OpenDetailAsync(row);
+    }
+
+    private async void OnRowDetailClicked(object? sender, EventArgs e)
+    {
+        if (sender is not Button { BindingContext: MarketRow row }) return;
+        await OpenDetailAsync(row);
+    }
+
+    private Task OpenDetailAsync(MarketRow row) =>
+        Navigation.PushAsync(new MarketDetailPage(row.Mod, row.SelectedRelease));
+
+    private void OnRowCheckedChanged(object? sender, CheckedChangedEventArgs e)
+    {
+        if (_suppressCheck) return;
+        if (sender is not CheckBox { BindingContext: MarketRow row }) return;
+        var key = KeyOf(row.Mod);
+        if (e.Value) _selected.Add(key);
+        else _selected.Remove(key);
+        UpdateSelectBar();
+    }
+
+    private void SetRowChecked(MarketRow row, bool value)
+    {
+        var key = KeyOf(row.Mod);
+        if (value) _selected.Add(key);
+        else _selected.Remove(key);
+        _suppressCheck = true;
+        try { row.IsChecked = value; }
+        finally { _suppressCheck = false; }
+        UpdateSelectBar();
+    }
+
+    /// <summary>切换选择模式；退出时清空所有勾选。</summary>
+    private void SetSelectMode(bool on)
+    {
+        if (_selectMode == on) return;
+        _selectMode = on;
+        if (!on) _selected.Clear();
+
+        _suppressCheck = true;
+        try
+        {
+            foreach (var row in _rowCache.Values)
+            {
+                row.SelectMode = on;
+                if (!on) row.IsChecked = false;
+            }
+        }
+        finally
+        {
+            _suppressCheck = false;
+        }
+        UpdateSelectBar();
+    }
+
+    private void UpdateSelectBar()
+    {
+        SelectCountLabel.Text = $"已选 {_selected.Count} 个";
+        BatchInstallButton.IsEnabled = _selected.Count > 0;
+        ShowSelectBar(_selectMode);
+    }
+
+    /// <summary>底部操作栏：显示时自下而上，隐藏时自上而下。</summary>
+    private async void ShowSelectBar(bool show)
+    {
+        if (_selectBarShown == show) return;
+        _selectBarShown = show;
+        var seq = ++_selectBarSeq;
+
+        if (show)
+        {
+            SelectBar.IsVisible = true;
+            if (!UiMotion.Enabled)
+            {
+                SelectBar.Opacity = 1;
+                SelectBar.TranslationY = 0;
+                return;
+            }
+            SelectBar.Opacity = 0;
+            SelectBar.TranslationY = 14;
+            await Task.WhenAll(
+                SelectBar.FadeToAsync(1, 140, Easing.CubicOut),
+                SelectBar.TranslateToAsync(0, 0, 170, Easing.CubicOut));
+        }
+        else
+        {
+            if (!UiMotion.Enabled)
+            {
+                SelectBar.IsVisible = false;
+                return;
+            }
+            await Task.WhenAll(
+                SelectBar.FadeToAsync(0, 110, Easing.CubicIn),
+                SelectBar.TranslateToAsync(0, 14, 130, Easing.CubicIn));
+            if (seq != _selectBarSeq) return;
+            SelectBar.IsVisible = false;
+            SelectBar.Opacity = 1;
+            SelectBar.TranslationY = 0;
+        }
+    }
+
+    private void OnExitSelectClicked(object? sender, EventArgs e) => SetSelectMode(false);
+
+    private async void OnBatchInstallClicked(object? sender, EventArgs e)
+    {
+        var target = _target;
+        if (target == null)
+        {
+            await PlatformServices.Dialogs.InfoAsync("请先在左侧选择一个安装目标版本。", "模组市场");
+            return;
+        }
+        if (_catalog == null)
+        {
+            await PlatformServices.Dialogs.InfoAsync("市场索引还没有加载完成。", "模组市场");
+            return;
+        }
+
+        var picked = _all.Where(m => _selected.Contains(KeyOf(m))).ToList();
+        if (picked.Count == 0)
+        {
+            await PlatformServices.Dialogs.InfoAsync("请先勾选要安装的模组。", "模组市场");
+            return;
+        }
+
+        var ordered = MarketSearch.Sort(picked, CurrentSort(), DescSwitch.IsToggled);
+        SetSelectMode(false);
+
+        var plans = new List<InstallPlan>();
+        foreach (var mod in ordered)
+        {
+            _rowCache.TryGetValue(KeyOf(mod), out var row);
+            InstallCheckResult check;
+            try
+            {
+                check = await DownloadService.CheckInstallAsync(mod, _catalog, target.FullPath,
+                    target.GameVersion, msg => LogService.Append("[市场] " + msg), row?.SelectedEdition);
+            }
+            catch (Exception ex)
+            {
+                LogService.Error("安装前检查失败", ex);
+                check = new InstallCheckResult();
+            }
+
+            plans.Add(new InstallPlan
+            {
+                Mod = mod,
+                Check = check,
+                Release = row?.SelectedRelease,
+                Edition = row?.SelectedEdition,
+                AssetName = row?.SelectedAssetName,
+            });
+        }
+
+        var page = new InstallCheckPage(plans, target, ShowInstallProgress);
+        page.Completed += OnInstallCompleted;
+        await Navigation.PushAsync(page);
+    }
+
+    /// <summary>安装进度覆盖层：市场面板本身不显示进度，安装时至少能看到百分比与当前模组。</summary>
+    private void ShowInstallProgress(double value, string stage)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            if (value < 0)
+            {
+                InstallOverlay.IsVisible = false;
+                return;
+            }
+            InstallOverlay.IsVisible = true;
+            InstallOverlayProgress.Progress = Math.Clamp(value, 0, 1);
+            InstallOverlayStage.Text = stage;
+        });
+    }
+
+    // ---------- 长按拖选（Android 原生触摸） ----------
+
+    private bool _touchAttached;
+
+    private void AttachTouchListener()
+    {
+        if (MarketList.Handler?.PlatformView is not AndroidX.RecyclerView.Widget.RecyclerView recycler) return;
+        if (_touchAttached && ReferenceEquals(_recycler, recycler)) return;
+        _touchAttached = true;
+        _recycler = recycler;
+        recycler.AddOnItemTouchListener(new MarketTouchListener(this, recycler));
+    }
+
+    internal bool SelectMode => _selectMode;
+
+    /// <summary>长按触发：进入选择模式并选中按到的项。</summary>
+    internal void TouchBeginSelection(int index)
+    {
+        if (index < 0 || index >= _rows.Count) return;
+        _suppressTapUntil = Environment.TickCount64 + 900;
+        SetSelectMode(true);
+        SetRowChecked(_rows[index], true);
+    }
+
+    /// <summary>
+    /// 按下点是否落在复选框上。刚进入选择模式时复选框还没完成布局，
+    /// 用进入前那个位置的「安装」按钮作为等价区域。
+    /// </summary>
+    internal bool TouchPressOnCheckbox(float x, float y, bool selectModeBefore)
+    {
+        var recycler = _recycler;
+        if (recycler == null) return false;
+        var child = recycler.FindChildViewUnder(x, y);
+        if (child == null) return false;
+
+        if (HitControl(child, x - child.Left, y - child.Top, checkBox: selectModeBefore)) return true;
+
+        if (selectModeBefore) return false;
+        var density = child.Resources?.DisplayMetrics?.Density ?? 1f;
+        return x >= child.Right - 78 * density && y <= child.Top + 64 * density;
+    }
+
+    /// <summary>在行视图里递归判断触点是否落在指定类型的控件上。</summary>
+    private static bool HitControl(Android.Views.View view, float x, float y, bool checkBox)
+    {
+        var hit = checkBox ? view is Android.Widget.CheckBox : view is Android.Widget.Button;
+        if (hit) return x >= 0 && y >= 0 && x <= view.Width && y <= view.Height;
+        if (view is not Android.Views.ViewGroup group) return false;
+
+        for (var i = 0; i < group.ChildCount; i++)
+        {
+            var child = group.GetChildAt(i);
+            if (child == null || child.Visibility != Android.Views.ViewStates.Visible) continue;
+            if (x < child.Left || x > child.Right || y < child.Top || y > child.Bottom) continue;
+            if (HitControl(child, x - child.Left, y - child.Top, checkBox)) return true;
+        }
+        return false;
+    }
+
+    internal void TouchSuppressTap() => _suppressTapUntil = Environment.TickCount64 + 900;
+
+    /// <summary>拖选起点：记录拖选前的勾选集合，保证拖选范围之外原先勾选的项不被误取消。</summary>
+    internal HashSet<string> TouchBeginRange(int anchor)
+    {
+        var baseKeys = new HashSet<string>(_selected, StringComparer.OrdinalIgnoreCase);
+        if (anchor >= 0 && anchor < _rows.Count) baseKeys.Add(KeyOf(_rows[anchor].Mod));
+        return baseKeys;
+    }
+
+    internal void TouchDragTo(int anchor, int current, HashSet<string> baseKeys)
+    {
+        if (anchor < 0 || current < 0 || _rows.Count == 0) return;
+        var lo = Math.Min(anchor, current);
+        var hi = Math.Max(anchor, current);
+
+        var next = new HashSet<string>(baseKeys, StringComparer.OrdinalIgnoreCase);
+        for (var i = lo; i <= hi && i < _rows.Count; i++) next.Add(KeyOf(_rows[i].Mod));
+
+        _selected.Clear();
+        _selected.UnionWith(next);
+
+        _suppressCheck = true;
+        try
+        {
+            foreach (var row in _rowCache.Values)
+                row.IsChecked = _selected.Contains(KeyOf(row.Mod));
+        }
+        finally
+        {
+            _suppressCheck = false;
+        }
+        UpdateSelectBar();
+    }
+
+    internal void TouchEnd() => UpdateSelectBar();
+
+    /// <summary>把触点换算成列表里最近的一项；触点越界时取最近的可见项。</summary>
+    internal static int NearestIndex(AndroidX.RecyclerView.Widget.RecyclerView recycler, float y)
+    {
+        var best = -1;
+        var bestDistance = float.MaxValue;
+        for (var i = 0; i < recycler.ChildCount; i++)
+        {
+            var child = recycler.GetChildAt(i);
+            if (child == null) continue;
+            var distance = Math.Abs(child.Top + child.Height / 2f - y);
+            if (distance >= bestDistance) continue;
+            bestDistance = distance;
+            best = recycler.GetChildAdapterPosition(child);
+        }
+        return best;
+    }
+
+    private sealed class MarketTouchListener : Java.Lang.Object,
+        AndroidX.RecyclerView.Widget.RecyclerView.IOnItemTouchListener
+    {
+        private const int LongPressMs = 450;
+
+        private readonly MarketPane _pane;
+        private readonly AndroidX.RecyclerView.Widget.RecyclerView _recycler;
+        private readonly int _slop;
+        private readonly float _density;
+        private readonly IDispatcherTimer _longTimer;
+        private readonly IDispatcherTimer _scrollTimer;
+
+        private float _downX;
+        private float _downY;
+        private float _lastY;
+        private int _downIndex = -1;
+        private bool _pending;
+        private bool _dragging;
+        private int _anchor = -1;
+        private int _scrollDir;
+        private HashSet<string> _baseKeys = new(StringComparer.OrdinalIgnoreCase);
+
+        public MarketTouchListener(MarketPane pane, AndroidX.RecyclerView.Widget.RecyclerView recycler)
+        {
+            _pane = pane;
+            _recycler = recycler;
+            var context = recycler.Context;
+            _slop = context == null ? 8 : Android.Views.ViewConfiguration.Get(context)!.ScaledTouchSlop;
+            _density = recycler.Resources?.DisplayMetrics?.Density ?? 1f;
+
+            _longTimer = pane.Dispatcher.CreateTimer();
+            _longTimer.Interval = TimeSpan.FromMilliseconds(LongPressMs);
+            _longTimer.IsRepeating = false;
+            _longTimer.Tick += (_, _) => OnLongPress();
+
+            _scrollTimer = pane.Dispatcher.CreateTimer();
+            _scrollTimer.Interval = TimeSpan.FromMilliseconds(16);
+            _scrollTimer.IsRepeating = true;
+            _scrollTimer.Tick += (_, _) => AutoScrollTick();
+        }
+
+        public bool OnInterceptTouchEvent(AndroidX.RecyclerView.Widget.RecyclerView rv,
+            Android.Views.MotionEvent e)
+        {
+            // 抬起事件里 Track 会把 _dragging 复位，这里要先记住本次是否处于拖动中，
+            // 否则最后一次抬起不会被拦截，行内的按钮仍会收到点击。
+            var wasDragging = _dragging;
+            Track(e);
+            return wasDragging || _dragging;
+        }
+
+        public void OnTouchEvent(AndroidX.RecyclerView.Widget.RecyclerView rv, Android.Views.MotionEvent e)
+        {
+            if (_dragging) Track(e);
+        }
+
+        public void OnRequestDisallowInterceptTouchEvent(bool disallowIntercept) { }
+
+        private void Track(Android.Views.MotionEvent e)
+        {
+            switch (e.ActionMasked)
+            {
+                case Android.Views.MotionEventActions.Down:
+                    _downX = e.GetX();
+                    _downY = e.GetY();
+                    _lastY = _downY;
+                    _downIndex = MarketPane.NearestIndex(_recycler, _downY);
+                    _pending = _downIndex >= 0;
+                    _dragging = false;
+                    if (_pending) _longTimer.Start();
+                    break;
+
+                case Android.Views.MotionEventActions.Move:
+                    _lastY = e.GetY();
+                    if (_dragging)
+                    {
+                        UpdateDrag();
+                        return;
+                    }
+                    if (!_pending) return;
+                    if (Math.Abs(_lastY - _downY) > _slop) StopPending();
+                    break;
+
+                case Android.Views.MotionEventActions.Up:
+                case Android.Views.MotionEventActions.Cancel:
+                    StopPending();
+                    if (_dragging) EndDrag();
+                    break;
+            }
+        }
+
+        private void StopPending()
+        {
+            _pending = false;
+            _longTimer.Stop();
+        }
+
+        private void OnLongPress()
+        {
+            if (_dragging) return;
+            _longTimer.Stop();
+            if (!_pending) return;
+            _pending = false;
+
+            var index = MarketPane.NearestIndex(_recycler, _lastY);
+            if (index < 0) index = _downIndex;
+            if (index < 0) return;
+
+            // 先进入选择模式并选中该项，复选框随后才会出现在右上角；
+            // 已经处于选择模式时长按本身不再改变勾选。
+            _pane.TouchSuppressTap();
+            var selectModeBefore = _pane.SelectMode;
+            if (!selectModeBefore) _pane.TouchBeginSelection(index);
+            if (!_pane.TouchPressOnCheckbox(_downX, _downY, selectModeBefore)) return;
+
+            _anchor = index;
+            _baseKeys = _pane.TouchBeginRange(_anchor);
+            _dragging = true;
+            AllowSelfIntercept();
+            UpdateDrag();
+        }
+
+        private void UpdateDrag()
+        {
+            var current = MarketPane.NearestIndex(_recycler, _lastY);
+            if (current < 0) current = _anchor;
+            if (_anchor >= 0 && current >= 0) _pane.TouchDragTo(_anchor, current, _baseKeys);
+
+            var edge = 48 * _density;
+            var dir = 0;
+            if (_lastY < edge) dir = -1;
+            else if (_lastY > _recycler.Height - edge) dir = 1;
+
+            if (dir == 0)
+            {
+                _scrollTimer.Stop();
+                _scrollDir = 0;
+            }
+            else
+            {
+                _scrollDir = dir;
+                if (!_scrollTimer.IsRunning) _scrollTimer.Start();
+            }
+        }
+
+        private void AutoScrollTick()
+        {
+            if (!_dragging || _scrollDir == 0) return;
+            _recycler.ScrollBy(0, _scrollDir * (int)Math.Max(4, 8 * _density));
+            UpdateDrag();
+        }
+
+        /// <summary>
+        /// 行内控件按下时会禁止 RecyclerView 拦截事件，导致拖动收不到后续事件。
+        /// 这里清掉 RecyclerView 自己的标记，只让它的父级继续禁止拦截。
+        /// </summary>
+        private void AllowSelfIntercept()
+        {
+            var group = (Android.Views.ViewGroup)_recycler;
+            group.RequestDisallowInterceptTouchEvent(false);
+            if (group.Parent is Android.Views.ViewGroup parent)
+                parent.RequestDisallowInterceptTouchEvent(true);
+        }
+
+        private void EndDrag()
+        {
+            _dragging = false;
+            _scrollDir = 0;
+            _scrollTimer.Stop();
+            var group = (Android.Views.ViewGroup)_recycler;
+            group.RequestDisallowInterceptTouchEvent(false);
+            if (group.Parent is Android.Views.ViewGroup parent)
+                parent.RequestDisallowInterceptTouchEvent(false);
+            _anchor = -1;
+            _baseKeys.Clear();
+            _pane.TouchEnd();
+        }
+    }
+
     // ---------- 安装 ----------
 
     private async void OnInstallClicked(object? sender, EventArgs e)
@@ -570,7 +1090,7 @@ public partial class MarketPane : ContentView
         }
 
         var page = new InstallCheckPage(row.Mod, target, check,
-            row.SelectedRelease, row.SelectedEdition, row.SelectedAssetName);
+            row.SelectedRelease, row.SelectedEdition, row.SelectedAssetName, ShowInstallProgress);
         page.Completed += OnInstallCompleted;
         await Navigation.PushAsync(page);
     }
@@ -578,7 +1098,9 @@ public partial class MarketPane : ContentView
     /// <summary>安装页弹出后刷新已装标记，并提示结果。</summary>
     private async Task OnInstallCompleted(int count)
     {
+        SetSelectMode(false);
         await RefreshInstalledStatusAsync();
+        _pendingScrollIndex = _lastVisibleIndex;
         ApplyFilter();
         // 索引本身不变，这里只把市场缓存预热一次，失败不影响界面。
         _ = Task.Run(async () =>
@@ -698,6 +1220,29 @@ public sealed class MarketRow : INotifyPropertyChanged
     {
         get => _hasStar;
         set => Set(ref _hasStar, value);
+    }
+
+    private bool _selectMode;
+    /// <summary>选择模式下隐藏「安装」按钮、显示复选框与「详情」。</summary>
+    public bool SelectMode
+    {
+        get => _selectMode;
+        set
+        {
+            if (_selectMode == value) return;
+            _selectMode = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectMode)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(InstallVisible)));
+        }
+    }
+
+    public bool InstallVisible => !_selectMode;
+
+    private bool _isChecked;
+    public bool IsChecked
+    {
+        get => _isChecked;
+        set => Set(ref _isChecked, value);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

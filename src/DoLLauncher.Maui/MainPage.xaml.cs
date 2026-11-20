@@ -18,6 +18,7 @@ public partial class MainPage : ContentPage
     private StoryPage? _storyPanel;
     private DiagnosticsPage? _diagnosticsPanel;
     private View? _activePanel;
+    private IconActionView? _activeNav;
 
     // 启动时的自动备份检查只执行一次（返回列表不再重复）。
     private static bool _startupBackupChecked;
@@ -30,6 +31,7 @@ public partial class MainPage : ContentPage
         NavigationPage.SetHasNavigationBar(this, false);
         VersionList.ItemsSource = _versions;
         RootLabel.Text = Paths.Root;
+        Highlight(NavVersions);
     }
 
     private async Task ReloadAsync()
@@ -173,7 +175,11 @@ public partial class MainPage : ContentPage
 
     private void ShowVersions()
     {
-        if (_activePanel == null) return;
+        if (_activePanel == null)
+        {
+            Highlight(NavVersions);
+            return;
+        }
         Deactivate(_activePanel);
         _activePanel = null;
         PanelHost.Content = null;
@@ -204,11 +210,12 @@ public partial class MainPage : ContentPage
 
     private void Highlight(IconActionView nav)
     {
-        NavVersions.Variant = ReferenceEquals(nav, NavVersions) ? "pale" : "plain";
-        NavDownload.Variant = ReferenceEquals(nav, NavDownload) ? "pale" : "plain";
-        NavBackup.Variant = ReferenceEquals(nav, NavBackup) ? "pale" : "plain";
-        NavStory.Variant = ReferenceEquals(nav, NavStory) ? "pale" : "plain";
-        NavDiagnostics.Variant = ReferenceEquals(nav, NavDiagnostics) ? "pale" : "plain";
+        _activeNav = nav;
+        NavVersions.SetSelected(ReferenceEquals(nav, NavVersions));
+        NavDownload.SetSelected(ReferenceEquals(nav, NavDownload));
+        NavBackup.SetSelected(ReferenceEquals(nav, NavBackup));
+        NavStory.SetSelected(ReferenceEquals(nav, NavStory));
+        NavDiagnostics.SetSelected(ReferenceEquals(nav, NavDiagnostics));
     }
 
     private static async Task ActivateAsync(View panel)
@@ -258,6 +265,8 @@ public partial class MainPage : ContentPage
         _ = ShareImportHelper.ProcessPendingAsync(this);
         UpdateAvatar();
         ApplySubtitle();
+        // 主题色可能在设置页被改过，回来时重新取一次选中色。
+        Highlight(_activeNav ?? NavVersions);
         // 从详情 / 模组管理等页面返回时，恢复当前面板的轮询与刷新。
         if (_activePanel != null) _ = ActivateAsync(_activePanel);
     }

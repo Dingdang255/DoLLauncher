@@ -29,7 +29,7 @@
         </Style>
     </ContentView.Resources>
 
-    <Grid RowDefinitions="Auto,*" RowSpacing="8">
+    <Grid RowDefinitions="Auto,*,Auto" RowSpacing="8">
 
         <!-- 可折叠的搜索 / 筛选面板 -->
         <Border Grid.Row="0" Padding="12" StrokeThickness="0"
@@ -37,7 +37,10 @@
                 BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
             <VerticalStackLayout Spacing="8">
 
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" BackgroundColor="Transparent">
+                    <Grid.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnToggleFilterClicked" />
+                    </Grid.GestureRecognizers>
                     <Grid Grid.Column="0" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8"
                           VerticalOptions="Center">
                         <Label Grid.Column="0" Text="模组市场" FontSize="14" FontAttributes="Bold"
@@ -47,9 +50,6 @@
                                TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
                     </Grid>
                     <Grid Grid.Column="1" Padding="8,4" VerticalOptions="Center">
-                        <Grid.GestureRecognizers>
-                            <TapGestureRecognizer Tapped="OnToggleFilterClicked" />
-                        </Grid.GestureRecognizers>
                         <Label x:Name="FilterChevron" Text="{x:Static local:IconGlyph.ChevronRight}"
                                FontFamily="FluentIcons" FontSize="14" Rotation="90"
                                VerticalOptions="Center"
@@ -130,6 +130,9 @@
                                 StyleClass="card market-row"
                                 StrokeShape="RoundRectangle 12"
                                 BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnRowTapped" />
+                            </Border.GestureRecognizers>
                             <VerticalStackLayout Spacing="6">
 
                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
@@ -148,24 +151,34 @@
                                                    TextColor="{AppThemeBinding Light=#B25B00, Dark=#FFCC80}" />
                                         </HorizontalStackLayout>
                                     </Grid>
-                                    <Button Grid.Column="1" Text="安装" FontSize="13"
-                                            Padding="14,0" HeightRequest="32" MinimumHeightRequest="32"
-                                            WidthRequest="62" CornerRadius="8"
-                                            VerticalOptions="Start"
-                                            Clicked="OnInstallClicked"
-                                            BackgroundColor="{DynamicResource AccentColor}"
-                                            TextColor="{DynamicResource AccentOnColor}" />
+                                    <Grid Grid.Column="1" VerticalOptions="Start">
+                                        <Button Text="安装" FontSize="13"
+                                                Padding="14,0" HeightRequest="32" MinimumHeightRequest="32"
+                                                WidthRequest="62" CornerRadius="8"
+                                                VerticalOptions="Start"
+                                                IsVisible="{Binding InstallVisible}"
+                                                Clicked="OnInstallClicked"
+                                                BackgroundColor="{DynamicResource AccentColor}"
+                                                TextColor="{DynamicResource AccentOnColor}" />
+                                        <CheckBox IsVisible="{Binding SelectMode}"
+                                                  IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                                                  HorizontalOptions="Center" VerticalOptions="Start"
+                                                  CheckedChanged="OnRowCheckedChanged" />
+                                    </Grid>
                                 </Grid>
 
                                 <Label Text="{Binding Mod.Description}" FontSize="11" MaxLines="3"
                                        IsVisible="{Binding HasDescription}" LineBreakMode="TailTruncation"
                                        TextColor="{AppThemeBinding Light=#4A4A4A, Dark=#C8C8C8}" />
 
-                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                                <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8">
                                     <Button Grid.Column="0" Text="版本选择"
                                             Style="{StaticResource RowToolButton}"
                                             Clicked="OnRowVersionsClicked" />
-                                    <Label Grid.Column="1" Text="{Binding StatusText}" FontSize="10"
+                                    <Button Grid.Column="1" Text="详情" IsVisible="{Binding SelectMode}"
+                                            Style="{StaticResource RowToolButton}"
+                                            Clicked="OnRowDetailClicked" />
+                                    <Label Grid.Column="2" Text="{Binding StatusText}" FontSize="10"
                                            VerticalOptions="Center" LineBreakMode="TailTruncation"
                                            TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
                                 </Grid>
@@ -235,6 +248,44 @@
                         HeightRequest="34" MinimumHeightRequest="34" CornerRadius="8"
                         Clicked="OnRetryClicked" />
             </VerticalStackLayout>
+        </Grid>
+
+        <!-- 选择模式底部操作栏 -->
+        <Border x:Name="SelectBar" Grid.Row="2" IsVisible="False" Padding="12,8"
+                StrokeThickness="0" StrokeShape="RoundRectangle 12"
+                BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                <Label x:Name="SelectCountLabel" Text="已选 0 个" FontSize="12"
+                       VerticalOptions="Center"
+                       TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                <Button x:Name="BatchInstallButton" Grid.Column="1" Text="安装" FontSize="13" Padding="14,0"
+                        HeightRequest="34" MinimumHeightRequest="34" WidthRequest="72"
+                        CornerRadius="8" Clicked="OnBatchInstallClicked"
+                        BackgroundColor="{DynamicResource AccentColor}"
+                        TextColor="{DynamicResource AccentOnColor}" />
+                <Button Grid.Column="2" Text="退出选择" FontSize="13" Padding="14,0"
+                        HeightRequest="34" MinimumHeightRequest="34"
+                        CornerRadius="8" Clicked="OnExitSelectClicked"
+                        BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                        TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+            </Grid>
+        </Border>
+
+        <!-- 安装进度：没有总长度（chunked）的线路也能看到已下载字节与速度 -->
+        <Grid x:Name="InstallOverlay" Grid.Row="0" Grid.RowSpan="3" IsVisible="False"
+              BackgroundColor="#66000000" Padding="24">
+            <Border Padding="18" StrokeThickness="0" StrokeShape="RoundRectangle 14"
+                    VerticalOptions="Center" HorizontalOptions="Fill"
+                    BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#2A2A2A}">
+                <VerticalStackLayout Spacing="10">
+                    <Label x:Name="InstallOverlayTitle" FontSize="14" FontAttributes="Bold"
+                           Text="正在安装模组" />
+                    <Label x:Name="InstallOverlayStage" FontSize="12" LineBreakMode="TailTruncation"
+                           TextColor="{AppThemeBinding Light=#666666, Dark=#B0B0B0}" />
+                    <ProgressBar x:Name="InstallOverlayProgress" Progress="0" HeightRequest="6"
+                                 ProgressColor="{DynamicResource AccentColor}" />
+                </VerticalStackLayout>
+            </Border>
         </Grid>
 
     </Grid>

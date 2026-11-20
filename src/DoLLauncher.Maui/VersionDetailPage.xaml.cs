@@ -1,4 +1,5 @@
 using DoLLauncher.Models;
+using DoLLauncher.Maui.Controls;
 using DoLLauncher.Maui.Platform;
 using DoLLauncher.Platform;
 using DoLLauncher.Services;
@@ -295,10 +296,11 @@ public partial class VersionDetailPage : ContentPage
                       "\n\nAndroid WebView 的内存上限约 256MB，加载这些模组后渲染进程可能因内存耗尽而退出（游戏白屏或闪退）。\n" +
                       "是否暂时禁用它们再启动？";
 
-        var choice = await DisplayActionSheetAsync(message, "取消", null!,
-            "禁用这些模组并启动", "仍然启动");
+        var choice = await DolDialog.ChooseAsync("大体积模组", message,
+            new[] { "禁用这些模组并启动", "仍然启动", "取消" },
+            DolDialogKind.Warning, primaryIndex: 0);
 
-        if (choice == "禁用这些模组并启动")
+        if (choice == 0)
         {
             var names = heavy.Select(x => x.Mod.FileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var mods = ModService.Load(_version.FullPath);
@@ -311,7 +313,7 @@ public partial class VersionDetailPage : ContentPage
             return true;
         }
 
-        if (choice == "仍然启动")
+        if (choice == 1)
         {
             LogService.Append($"继续带大体积模组启动：{string.Join(", ", heavy.Select(x => x.Mod.FileName))}");
             return true;
@@ -423,10 +425,11 @@ public partial class VersionDetailPage : ContentPage
         var includeGame = ExportIncludeGameCheck.IsChecked;
         ExportOverlay.IsVisible = false;
 
-        var note = await DisplayPromptAsync("导出备注",
+        var noteResult = await DolDialog.ShowAsync("导出备注",
             "可留空；备注会写进版本包 manifest，导入时能看见。",
-            "确定", "跳过", "例如：带几个常用模组的整合包", maxLength: 200);
-        note ??= string.Empty;
+            new[] { "跳过", "确定" }, DolDialogKind.Info, primaryIndex: 1, allowDismiss: true,
+            inputPlaceholder: "例如：带几个常用模组的整合包", maxLength: 200);
+        var note = noteResult.Index == 1 ? noteResult.Input ?? string.Empty : string.Empty;
 
         var dir = Path.Combine(FileSystem.CacheDirectory, "export");
         var name = string.IsNullOrWhiteSpace(_version.Folder) ? _version.DisplayName : _version.Folder;

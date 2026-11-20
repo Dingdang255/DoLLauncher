@@ -27,9 +27,15 @@ public partial class MainWindow : Window
 {
     private readonly ObservableCollection<VersionVm> _versions = new();
     private readonly ObservableCollection<ModVm> _mods = new();
+
+    // 按住拖动排序：无时间阈值，移动超过系统拖动阈值就进入拖动
+    private System.Windows.Point _modDragStart;
+    private ModVm? _modDragVm;
+    private bool _modDragging;
+    private int _modDragTarget = -1;
     private readonly ObservableCollection<GameRelease> _gameReleases = new();
     private readonly ObservableCollection<MarketMod> _marketAll = new();
-    private readonly ObservableCollection<MarketMod> _marketView = new();
+    private readonly ObservableCollection<MarketItemVm> _marketView = new();
     private readonly ObservableCollection<VersionVm> _targets = new();
     private readonly ObservableCollection<string> _categories = new();
     private readonly ObservableCollection<GameRelease> _marketReleases = new();
@@ -882,6 +888,8 @@ public partial class MainWindow : Window
 
     private void ModList_PreviewLeftDown(object sender, MouseButtonEventArgs e)
     {
+        PrepareModDrag(e);
+
         if (ModList.SelectedItems.Count == 0) return;
         var source = e.OriginalSource as DependencyObject;
         if (source == null) return;
@@ -902,6 +910,161 @@ public partial class MainWindow : Window
             node = System.Windows.Media.VisualTreeHelper.GetParent(node);
         }
         return false;
+    }
+
+    // ---------- 模组按住拖动排序 ----------
+
+    /// <summary>记下按下点能否作为拖动起点（开关 / 按钮 / 滚动条上不拖）。</summary>
+    private void PrepareModDrag(MouseButtonEventArgs e)
+    {
+        _modDragVm = null;
+        _modDragging = false;
+        _modDragTarget = -1;
+        if (_loadingMods || _selected == null || _selected.Info.IsFileMode) return;
+
+        var source = e.OriginalSource as DependencyObject;
+        if (source == null) return;
+        if (ItemsControl.ContainerFromElement(ModList, source) is not ListBoxItem item) return;
+        if (item.DataContext is not ModVm vm) return;
+        if (IsInteractivePart(source)) return;
+
+        _modDragStart = e.GetPosition(ModList);
+        _modDragVm = vm;
+    }
+
+    private static bool IsInteractivePart(DependencyObject? node)
+    {
+        while (node != null)
+        {
+            if (node is System.Windows.Controls.Primitives.ButtonBase ||
+                node is System.Windows.Controls.Primitives.ScrollBar ||
+                node is System.Windows.Controls.Primitives.Thumb)
+                return true;
+            if (node is ListBoxItem) return false;
+            node = node is Visual || node is System.Windows.Media.Media3D.Visual3D
+                ? System.Windows.Media.VisualTreeHelper.GetParent(node)
+                : LogicalTreeHelper.GetParent(node);
+        }
+        return false;
+    }
+
+    private void ModList_PreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (_modDragVm == null) return;
+        if (e.LeftButton != MouseButtonState.Pressed)
+        {
+            CancelModDrag();
+            return;
+        }
+
+        var point = e.GetPosition(ModList);
+        if (!_modDragging)
+        {
+            if (Math.Abs(point.X - _modDragStart.X) < SystemParameters.MinimumHorizontalDragDistance &&
+                Math.Abs(point.Y - _modDragStart.Y) < SystemParameters.MinimumVerticalDragDistance)
+                return;
+            StartModDrag();
+        }
+        UpdateModDrag(point);
+    }
+
+    private void StartModDrag()
+    {
+        _modDragging = true;
+        ModList.CaptureMouse();
+        // 桌面端不需要长按等待，按住移动即进入排序；光标用「拖动复制」样式。
+        Mouse.OverrideCursor = DragCopyCursor.Get();
+        ModDragLine.Background = new SolidColorBrush(ThemeService.IsDark
+            ? System.Windows.Media.Color.FromRgb(0xE6, 0xE6, 0xE6)
+            : System.Windows.Media.Color.FromRgb(0x3C, 0x3C, 0x3C));
+        ModDragLine.Visibility = Visibility.Visible;
+    }
+
+    private void UpdateModDrag(System.Windows.Point point)
+    {
+        var target = ModTargetIndexAt(point, out var lineY);
+        if (target < 0) return;
+        _modDragTarget = target;
+
+        if (ModDragLine.RenderTransform is not TranslateTransform transform)
+        {
+            transform = new TranslateTransform();
+            ModDragLine.RenderTransform = transform;
+        }
+        var max = Math.Max(0, ModList.ActualHeight - ModDragLine.Height);
+        transform.Y = Math.Max(0, Math.Min(lineY - ModDragLine.Height / 2, max));
+    }
+
+    /// <summary>按鼠标位置算插入槽位（0..Count，含顶部与底部），并给出指示线的纵坐标。</summary>
+    private int ModTargetIndexAt(System.Windows.Point point, out double lineY)
+    {
+        lineY = 0;
+        var found = -1;
+        for (var i = 0; i < _mods.Count; i++)
+        {
+            if (ModList.ItemContainerGenerator.ContainerFromIndex(i) is not ListBoxItem container) continue;
+            if (!container.IsVisible) continue;
+
+            double top;
+            try
+            {
+                top = container.TransformToAncestor(ModList).Transform(new System.Windows.Point(0, 0)).Y;
+            }
+            catch (InvalidOperationException)
+            {
+                continue;
+            }
+
+            var bottom = top + container.ActualHeight;
+            if (point.Y < top + container.ActualHeight / 2)
+            {
+                lineY = top;
+                return i;
+            }
+            lineY = bottom;
+            found = i + 1;
+        }
+        return found;
+    }
+
+    private void ModList_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_modDragging)
+        {
+            _modDragVm = null;
+            return;
+        }
+
+        var vm = _modDragVm;
+        var target = _modDragTarget;
+        CancelModDrag();
+        if (vm == null || target < 0) return;
+
+        var from = _mods.IndexOf(vm);
+        if (from < 0) return;
+        var to = target > from ? target - 1 : target;
+        if (to == from || to < 0 || to >= _mods.Count) return;
+
+        _mods.RemoveAt(from);
+        _mods.Insert(to, vm);
+        ModList.SelectedItem = vm;
+        PersistMods();
+    }
+
+    private void ModList_LostMouseCapture(object sender, MouseEventArgs e)
+    {
+        if (_modDragging) CancelModDrag();
+        else _modDragVm = null;
+    }
+
+    private void CancelModDrag()
+    {
+        _modDragVm = null;
+        _modDragging = false;
+        _modDragTarget = -1;
+        Mouse.OverrideCursor = null;
+        ModDragLine.Visibility = Visibility.Collapsed;
+        if (Mouse.Captured == ModList) ModList.ReleaseMouseCapture();
     }
 
     private void MarketList_PreviewLeftDown(object sender, MouseButtonEventArgs e)

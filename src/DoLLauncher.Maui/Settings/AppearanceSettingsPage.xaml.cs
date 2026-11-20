@@ -50,6 +50,19 @@ public partial class AppearanceSettingsPage : ContentPage
     protected override void OnDisappearing()
     {
         if (_accentDirty) _ = SaveAccentAsync(CurrentHex(), (int)Math.Round(SaturationSlider.Value), log: false);
+
+        // 界面缩放按需求在退出本子页后才生效，避免拖动滑块时整页反复重排。
+        if (Math.Abs(_config.General.UiScale - MainApplication.UiScale) > 0.001)
+        {
+            var target = _config.General.UiScale;
+            MainThread.BeginInvokeOnMainThread(async () =>
+            {
+                // 等返回动画结束再换密度，避免过渡过程中控件跳动。
+                await Task.Delay(260);
+                MainApplication.ApplyUiScaleChange(target);
+            });
+        }
+
         base.OnDisappearing();
     }
 
@@ -65,7 +78,8 @@ public partial class AppearanceSettingsPage : ContentPage
                 StrokeThickness = 0,
                 StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 17 },
                 BackgroundColor = Color.FromArgb(hex),
-                Margin = new Thickness(0, 0, 10, 8),
+                // 两侧留一样的间距，配合 FlexLayout 居中，避免有的机型上整排往左偏。
+                Margin = new Thickness(5, 0, 5, 8),
             };
             var tap = new TapGestureRecognizer { CommandParameter = hex };
             tap.Tapped += OnPresetTapped;
@@ -91,6 +105,11 @@ public partial class AppearanceSettingsPage : ContentPage
 
             SubtitleEntry.Text = _config.General.Subtitle ?? string.Empty;
             AnimSwitch.IsToggled = _config.General.ShowAnimations;
+
+            var scale = Math.Clamp(_config.General.UiScale, MainApplication.MinUiScale, MainApplication.MaxUiScale);
+            UiScaleSlider.Value = scale;
+            UpdateUiScaleLabel(scale);
+
             _accentDirty = false;
             UpdateAccentLabels();
             UpdateAvatar();
@@ -344,6 +363,28 @@ public partial class AppearanceSettingsPage : ContentPage
 
         _config.General.ShowAnimations = e.Value;
         await SettingsStore.SaveAsync(_config, "界面过渡动画 = " + (e.Value ? "开" : "关"));
+    }
+
+    private void OnUiScaleChanged(object? sender, ValueChangedEventArgs e) => UpdateUiScaleLabel(e.NewValue);
+
+    private void UpdateUiScaleLabel(double value) => UiScaleText.Text = value.ToString("0.00") + "x";
+
+    /// <summary>松手后按 0.05 取整并写入配置；真正应用在退出本页时进行。</summary>
+    private async void OnUiScaleDragCompleted(object? sender, EventArgs e)
+    {
+        if (_loading) return;
+
+        var snapped = Math.Round(UiScaleSlider.Value / 0.05) * 0.05;
+        snapped = Math.Clamp(snapped, MainApplication.MinUiScale, MainApplication.MaxUiScale);
+        _loading = true;
+        try { UiScaleSlider.Value = snapped; }
+        finally { _loading = false; }
+
+        UpdateUiScaleLabel(snapped);
+        if (Math.Abs(_config.General.UiScale - snapped) < 0.001) return;
+
+        _config.General.UiScale = snapped;
+        await SettingsStore.SaveAsync(_config, $"界面缩放 = {snapped:0.00}x");
     }
 
     // ---------- UI 美化包 ----------

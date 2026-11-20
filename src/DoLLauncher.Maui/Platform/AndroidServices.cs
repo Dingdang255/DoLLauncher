@@ -1,3 +1,4 @@
+using DoLLauncher.Maui.Controls;
 using DoLLauncher.Platform.Abstractions;
 using DoLLauncher.Services;
 
@@ -19,33 +20,24 @@ public sealed class AndroidThemePlatform : IThemePlatform
     }
 }
 
-/// <summary>使用 MAUI 的 DisplayAlert 呈现提示，全部在主线程执行。</summary>
+/// <summary>使用应用内自制弹窗呈现提示（视觉规范与 WPF 端一致），全部在主线程执行。</summary>
 public sealed class AndroidDialogHost : IDialogHost
 {
-    public Task InfoAsync(string message, string title = "DoL 启动器") => ShowAsync(title, message);
+    public Task InfoAsync(string message, string title = "DoL 启动器") =>
+        MainThread.InvokeOnMainThreadAsync(() => DolDialog.AlertAsync(title, message));
 
-    public Task WarnAsync(string message, string title = "DoL 启动器") => ShowAsync(title, message);
+    public Task WarnAsync(string message, string title = "DoL 启动器") =>
+        MainThread.InvokeOnMainThreadAsync(() =>
+            DolDialog.AlertAsync(title, message, DolDialogKind.Warning));
 
-    public Task ErrorAsync(string message, string title = "DoL 启动器") => ShowAsync(title, message);
+    public Task ErrorAsync(string message, string title = "DoL 启动器") =>
+        MainThread.InvokeOnMainThreadAsync(() =>
+            DolDialog.AlertAsync(title, message, DolDialogKind.Error));
 
     public Task<bool> ConfirmAsync(string message, string title = "DoL 启动器",
         string confirmText = "确定", bool danger = false) =>
-        MainThread.InvokeOnMainThreadAsync(async () =>
-        {
-            var page = CurrentPage;
-            if (page == null) return false;
-            return await page.DisplayAlertAsync(title, message, confirmText, "取消");
-        });
-
-    private static Task ShowAsync(string title, string message) =>
-        MainThread.InvokeOnMainThreadAsync(async () =>
-        {
-            var page = CurrentPage;
-            if (page == null) return;
-            await page.DisplayAlertAsync(title, message, "确定");
-        });
-
-    private static Page? CurrentPage => Application.Current?.Windows.FirstOrDefault()?.Page;
+        MainThread.InvokeOnMainThreadAsync(() =>
+            DolDialog.ConfirmAsync(title, message, confirmText, danger));
 }
 
 /// <summary>日志落到 Core 的日志文件（logs/launcher.log）。</summary>

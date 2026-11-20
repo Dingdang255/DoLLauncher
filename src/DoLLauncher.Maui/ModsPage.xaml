@@ -66,6 +66,7 @@
                                 StrokeThickness="0"
                                 StyleClass="card mod-row"
                                 StrokeShape="RoundRectangle 12"
+                                Opacity="{Binding RowOpacity}"
                                 BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
                             <Border.Triggers>
                                 <DataTrigger TargetType="Border" Binding="{Binding IsSelected}" Value="True">

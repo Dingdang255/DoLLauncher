@@ -5,7 +5,7 @@
              xmlns:local="clr-namespace:DoLLauncher.Maui"
              x:Class="DoLLauncher.Maui.DownloadPage">
 
-    <Grid ColumnDefinitions="Auto,*" Padding="16,12,16,0" ColumnSpacing="12">
+    <Grid ColumnDefinitions="Auto,*" Padding="0,12,16,0" ColumnSpacing="12">
 
         <!-- ===== 左侧栏：子面板导航 + 安装目标 + 下载列表（可收起） ===== -->
         <Border x:Name="SideBar" Grid.Column="0" WidthRequest="150" Padding="8"
@@ -83,13 +83,13 @@
                         StrokeShape="RoundRectangle 12"
                         BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
                     <VerticalStackLayout Spacing="8">
-                        <Grid ColumnDefinitions="*,Auto">
+                        <Grid ColumnDefinitions="*,Auto" BackgroundColor="Transparent">
+                            <Grid.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnToggleOptionsClicked" />
+                            </Grid.GestureRecognizers>
                             <Label Grid.Column="0" Text="游戏源与安装选项" FontSize="13"
                                    FontAttributes="Bold" VerticalOptions="Center" />
                             <Grid Grid.Column="1" Padding="8,4">
-                                <Grid.GestureRecognizers>
-                                    <TapGestureRecognizer Tapped="OnToggleOptionsClicked" />
-                                </Grid.GestureRecognizers>
                                 <Label x:Name="OptionsChevron" Text="{x:Static local:IconGlyph.ChevronRight}"
                                        FontFamily="FluentIcons" FontSize="14" Rotation="90"
                                        VerticalOptions="Center"
@@ -193,11 +193,9 @@
                                                     HeightRequest="28" WidthRequest="78" CornerRadius="7"
                                                     HorizontalOptions="Start"
                                                     IsVisible="{Binding HasBody}"
-                                                    Clicked="OnToggleBodyClicked"
+                                                    Clicked="OnOpenBodyClicked"
                                                     BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
                                                     TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
-                                            <ctl:MarkdownView Markdown="{Binding BodyPreview}"
-                                                              IsVisible="{Binding IsExpanded}" />
                                         </VerticalStackLayout>
                                     </Border>
                                 </DataTemplate>
@@ -225,27 +223,6 @@
 
             <!-- 模组市场（同页子面板） -->
             <ctl:MarketPane x:Name="MarketContent" IsVisible="False" />
-        </Grid>
-
-        <!-- 安装遮罩 -->
-        <Grid x:Name="BusyOverlay" Grid.ColumnSpan="2" IsVisible="False" BackgroundColor="#80000000">
-            <Border Padding="18" Margin="24" StrokeThickness="0" StrokeShape="RoundRectangle 14"
-                    VerticalOptions="Center"
-                    BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#2A2A2A}">
-                <VerticalStackLayout Spacing="10">
-                    <Label Text="正在下载并安装…" FontSize="15" FontAttributes="Bold" />
-                    <ProgressBar x:Name="InstallProgress" Progress="0" />
-                    <Label x:Name="PercentLabel" Text="0%" FontSize="13" HorizontalOptions="End"
-                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                    <Label x:Name="LogLabel" Text="" FontSize="11" MaxLines="2"
-                           LineBreakMode="TailTruncation"
-                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                    <Button Text="取消下载" FontSize="13" HeightRequest="36" CornerRadius="9"
-                            Clicked="OnCancelInstallClicked"
-                            BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
-                            TextColor="#C62828" />
-                </VerticalStackLayout>
-            </Border>
         </Grid>
 
     </Grid>

@@ -49,9 +49,80 @@ public partial class MainWindow
     private static string FormatStars(int stars) =>
         stars >= 10000 ? $"{stars / 10000.0:0.#} 万" : stars.ToString();
 
+    // ---------- 市场多选与版本选择记忆 ----------
+
+    /// <summary>市场行的勾选键：市场 id 优先，回退到名称。</summary>
+    private static string MarketKey(MarketMod mod) => mod.Id.Length > 0 ? mod.Id : mod.Name;
+
+    /// <summary>勾选中的模组键；即使被搜索过滤掉，也仍会参与批量安装。</summary>
+    private readonly HashSet<string> _marketChecked = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>每个模组上次选的 Release / 包型 / 包文件名，只放内存，不落盘。</summary>
+    private readonly Dictionary<string, MarketPick> _marketPicks = new(StringComparer.OrdinalIgnoreCase);
+
+    private sealed record MarketPick(string ReleaseTag, string EditionId, string AssetName);
+
+    private void MarketCheck_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox { DataContext: MarketItemVm item } box) return;
+        item.IsChecked = box.IsChecked == true;
+        var key = MarketKey(item.Mod);
+        if (item.IsChecked) _marketChecked.Add(key);
+        else _marketChecked.Remove(key);
+        UpdateMarketBatchHint();
+    }
+
+    private void UpdateMarketBatchHint()
+    {
+        if (MarketBatchHint == null) return;
+        MarketBatchHint.Text = _marketChecked.Count > 0
+            ? $"已勾选 {_marketChecked.Count} 个，点「下载并安装」可批量安装"
+            : "";
+    }
+
+    /// <summary>按模组记住当前下拉框的选择（Release / 包型 / 包文件名）。</summary>
+    private void RememberMarketPick()
+    {
+        if (MarketList.SelectedItem is not MarketItemVm item) return;
+        if (MarketVersionBox.SelectedItem is not GameRelease release) return;
+        var edition = MarketEditionBox.SelectedItem as MarketEdition;
+        var editionId = edition?.Id ?? "";
+        var asset = (MarketAssetBox.SelectedItem as ModAssetOption)?.AssetName ?? "";
+        var key = MarketKey(item.Mod);
+        // 切回某个模组时资产列表还没拉回来，这时不能把上次记住的包文件名冲掉。
+        if (asset.Length == 0 && _marketPicks.TryGetValue(key, out var previous) &&
+            previous.ReleaseTag == release.Tag && previous.EditionId == editionId)
+            asset = previous.AssetName;
+        _marketPicks[key] = new MarketPick(release.Tag, editionId, asset);
+    }
+
+    /// <summary>Release 列表里按上次记住的 tag 找下标，找不到就用最新（0）。</summary>
+    private int ReleaseIndexFor(MarketMod mod)
+    {
+        if (!_marketPicks.TryGetValue(MarketKey(mod), out var pick)) return 0;
+        for (var i = 0; i < _marketReleases.Count; i++)
+        {
+            if (string.Equals(_marketReleases[i].Tag, pick.ReleaseTag, StringComparison.OrdinalIgnoreCase))
+                return i;
+        }
+        return 0;
+    }
+
+    /// <summary>Release 缓存只留最近的一小部分，避免长时间浏览后内存一直涨。</summary>
+    private void CacheMarketReleases(string repo, List<GameRelease> list)
+    {
+        if (list.Count == 0) return;
+        if (_releaseCache.Count >= 32 && !_releaseCache.ContainsKey(repo))
+        {
+            var oldest = _releaseCache.Keys.FirstOrDefault();
+            if (oldest != null) _releaseCache.Remove(oldest);
+        }
+        _releaseCache[repo] = list;
+    }
+
     private void MarketList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if (MarketList.SelectedItem is MarketMod mod) ShowMarketDetail(mod);
+        if (MarketList.SelectedItem is MarketItemVm item) ShowMarketDetail(item.Mod);
     }
 
     private void ShowMarketDetail(MarketMod mod)
@@ -693,7 +764,8 @@ public partial class MainWindow
         if (seq != _marketFilterSeq) return;
 
         _marketView.Clear();
-        foreach (var mod in result) _marketView.Add(mod);
+        foreach (var mod in result)
+            _marketView.Add(new MarketItemVm(mod, _marketChecked.Contains(MarketKey(mod))));
 
         MarketCountText.Text = $"{_marketView.Count} / {_marketAll.Count} 个";
         if (_marketView.Count > 0 && MarketList.SelectedItem == null) MarketList.SelectedIndex = 0;
@@ -1005,7 +1077,7 @@ public partial class MainWindow
         MarketAssetBox.ItemsSource = null;
         _assetVersionToken++;
 
-        var mod = MarketList.SelectedItem as MarketMod;
+        var mod = (MarketList.SelectedItem as MarketItemVm)?.Mod;
         if (mod == null)
         {
             // 点空白处取消选中后，顺带清掉上一个模组的版本提示
@@ -1013,10 +1085,18 @@ public partial class MainWindow
             return;
         }
 
+        _marketPicks.TryGetValue(MarketKey(mod), out var remembered);
         if (mod.Editions.Count > 1)
         {
             MarketEditionBox.ItemsSource = mod.Editions;
-            MarketEditionBox.SelectedIndex = 0;
+            var editionIndex = 0;
+            if (remembered != null)
+            {
+                var match = mod.Editions.FindIndex(x =>
+                    string.Equals(x.Id, remembered.EditionId, StringComparison.OrdinalIgnoreCase));
+                if (match >= 0) editionIndex = match;
+            }
+            MarketEditionBox.SelectedIndex = editionIndex;
             MarketEditionPanel.Visibility = Visibility.Visible;
         }
 
@@ -1032,7 +1112,7 @@ public partial class MainWindow
         if (_releaseCache.TryGetValue(mod.Repo, out var cached))
         {
             foreach (var release in cached) _marketReleases.Add(release);
-            if (_marketReleases.Count > 0) MarketVersionBox.SelectedIndex = 0;
+            if (_marketReleases.Count > 0) MarketVersionBox.SelectedIndex = ReleaseIndexFor(mod);
             return;
         }
 
@@ -1042,7 +1122,7 @@ public partial class MainWindow
 
     private async void LoadModReleases_Click(object sender, RoutedEventArgs e)
     {
-        var mod = MarketList.SelectedItem as MarketMod;
+        var mod = (MarketList.SelectedItem as MarketItemVm)?.Mod;
         if (mod == null) return;
         await LoadModReleasesAsync(mod, false);
     }
@@ -1066,17 +1146,18 @@ public partial class MainWindow
             if (!_releaseCache.TryGetValue(mod.Repo, out var list))
             {
                 list = await DownloadService.FetchModReleasesAsync(mod);
-                _releaseCache[mod.Repo] = list;
+                CacheMarketReleases(mod.Repo, list);
             }
 
             // 等待期间选中项可能已经变了，变了就不再覆盖下拉框
-            if (MarketList.SelectedItem is not MarketMod current || current.Repo != mod.Repo) return;
+            if ((MarketList.SelectedItem as MarketItemVm)?.Mod is not { } current ||
+                current.Repo != mod.Repo) return;
 
             _marketReleases.Clear();
             foreach (var release in list) _marketReleases.Add(release);
             if (_marketReleases.Count > 0)
             {
-                MarketVersionBox.SelectedIndex = 0;
+                MarketVersionBox.SelectedIndex = ReleaseIndexFor(mod);
                 MarketStatusText.Text = $"共 {_marketReleases.Count} 个版本";
             }
             else
@@ -1174,12 +1255,6 @@ public partial class MainWindow
     private async void DownloadMod_Click(object sender, RoutedEventArgs e)
     {
         if (_downloadBusy) return;
-        var mod = MarketList.SelectedItem as MarketMod;
-        if (mod == null)
-        {
-            AppDialog.Info("请先在列表里选择一个模组。", "下载中心");
-            return;
-        }
 
         var target = MarketTargetBox.SelectedItem as VersionVm;
         if (target == null || target.Info.IsFileMode)
@@ -1188,21 +1263,52 @@ public partial class MainWindow
             return;
         }
 
+        // 有勾选项时走批量安装；被搜索过滤掉的勾选项也照样安装。
+        // 顺序按当前排序，过滤掉的排在后面。
+        var checkedMods = _marketView.Select(v => v.Mod)
+            .Where(m => _marketChecked.Contains(MarketKey(m)))
+            .ToList();
+        foreach (var m in _marketAll)
+        {
+            if (_marketChecked.Contains(MarketKey(m)) && !checkedMods.Contains(m)) checkedMods.Add(m);
+        }
+        if (checkedMods.Count > 0)
+        {
+            await InstallCheckedMarketModsAsync(checkedMods, target);
+            return;
+        }
+
+        var mod = (MarketList.SelectedItem as MarketItemVm)?.Mod;
+        if (mod == null)
+        {
+            AppDialog.Info("请先在列表里选择一个模组。", "下载中心");
+            return;
+        }
+
         await InstallMarketModAsync(mod, target, MarketVersionBox.SelectedItem as GameRelease, null,
             MarketEditionBox.SelectedItem as MarketEdition,
             (MarketAssetBox.SelectedItem as ModAssetOption)?.AssetName);
     }
 
-    private void MarketVersion_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+    private void MarketVersion_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        RememberMarketPick();
         _ = RefreshMarketAssetVersionsAsync();
+    }
 
-    private void MarketEdition_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+    private void MarketEdition_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        RememberMarketPick();
         _ = RefreshMarketAssetVersionsAsync();
+    }
 
-    /// <summary>按当前选中的 Release / 包型，加载可选的具体资产版本（默认选最新）。</summary>
+    private void MarketAsset_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        RememberMarketPick();
+
+    /// <summary>按当前选中的 Release / 包型，加载可选的具体资产版本（优先上次记住的包文件名）。</summary>
     private async Task RefreshMarketAssetVersionsAsync()
     {
-        var mod = MarketList.SelectedItem as MarketMod;
+        var mod = (MarketList.SelectedItem as MarketItemVm)?.Mod;
         var release = MarketVersionBox.SelectedItem as GameRelease;
         var token = ++_assetVersionToken;
 
@@ -1213,9 +1319,25 @@ public partial class MainWindow
         {
             var list = await DownloadService.FetchModAssetVersionsAsync(
                 mod, MarketEditionBox.SelectedItem as MarketEdition, release.Tag);
-            if (token != _assetVersionToken || MarketList.SelectedItem != mod) return;
+            if (token != _assetVersionToken ||
+                (MarketList.SelectedItem as MarketItemVm)?.Mod != mod) return;
             MarketAssetBox.ItemsSource = list;
-            if (list.Count > 0) MarketAssetBox.SelectedIndex = 0;
+            if (list.Count > 0)
+            {
+                var want = _marketPicks.TryGetValue(MarketKey(mod), out var pick) &&
+                           string.Equals(pick.ReleaseTag, release.Tag, StringComparison.OrdinalIgnoreCase)
+                    ? pick.AssetName
+                    : "";
+                var index = 0;
+                if (want.Length > 0)
+                {
+                    var match = list.FindIndex(a =>
+                        string.Equals(a.AssetName, want, StringComparison.OrdinalIgnoreCase));
+                    if (match >= 0) index = match;
+                }
+                MarketAssetBox.SelectedIndex = index;
+            }
+            RememberMarketPick();
         }
         catch (Exception ex)
         {
@@ -1304,6 +1426,173 @@ public partial class MainWindow
             MarketProgress.Value = 0;
             MarketProgress.Visibility = Visibility.Collapsed;
             SetDownloadBusy(false);
+        }
+    }
+
+    // ---------- 批量安装 ----------
+
+    private sealed record MarketInstallRequest(MarketMod Mod, InstallCheckResult Check,
+        string ReleaseTag, MarketEdition? Edition, string AssetName);
+
+    /// <summary>批量安装：逐个检查前置，合成一个检查窗口，再按顺序安装。</summary>
+    private async Task InstallCheckedMarketModsAsync(List<MarketMod> mods, VersionVm target)
+    {
+        SetDownloadBusy(true);
+        try
+        {
+            var requests = new List<MarketInstallRequest>();
+            foreach (var mod in mods)
+            {
+                MarketStatusText.Text = $"正在检查「{mod.Name}」…";
+                var pick = await ResolveMarketPickAsync(mod);
+                InstallCheckResult check;
+                try
+                {
+                    check = await DownloadService.CheckInstallAsync(mod, _marketCatalog ?? new MarketCatalog(),
+                        target.Info.FullPath, target.Info.GameVersion, Log, pick.Edition);
+                }
+                catch (Exception ex)
+                {
+                    LogError("安装前检查失败", ex);
+                    check = new InstallCheckResult();
+                }
+                requests.Add(new MarketInstallRequest(mod, check, pick.ReleaseTag, pick.Edition, pick.AssetName));
+            }
+
+            requests = RemoveNestedDependencyRequests(requests);
+            var dialog = new InstallCheckDialog(
+                requests.Select(r => new InstallCheckItem(r.Mod, r.Check)).ToList(),
+                target.Info) { Owner = this };
+            MarketStatusText.Text = "";
+            if (dialog.ShowDialog() != true) return;
+
+            await RunMarketInstallAsync(requests, target);
+        }
+        finally
+        {
+            SetDownloadBusy(false);
+        }
+    }
+
+    /// <summary>显式勾选的模组同时是另一个勾选模组的前置时，从顶层移除，避免重复列两次。</summary>
+    private static List<MarketInstallRequest> RemoveNestedDependencyRequests(List<MarketInstallRequest> requests)
+    {
+        var nested = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var request in requests)
+        {
+            foreach (var dependency in request.Check.Dependencies.Where(d => d.Selected))
+                nested.Add(MarketKey(dependency.Mod));
+        }
+
+        var kept = requests.Where(r => !nested.Contains(MarketKey(r.Mod))).ToList();
+        return kept.Count > 0 ? kept : requests;
+    }
+
+    /// <summary>把内存里记住的 Release / 包型 / 包文件名，对齐到刚拉到的列表；没有记录则取最新。</summary>
+    private async Task<(string ReleaseTag, MarketEdition? Edition, string AssetName)> ResolveMarketPickAsync(
+        MarketMod mod)
+    {
+        _marketPicks.TryGetValue(MarketKey(mod), out var pick);
+        if (mod.Repo.Length == 0) return (pick?.ReleaseTag ?? "", null, pick?.AssetName ?? "");
+
+        if (!_releaseCache.TryGetValue(mod.Repo, out var releases))
+        {
+            try
+            {
+                releases = await DownloadService.FetchModReleasesAsync(mod);
+                CacheMarketReleases(mod.Repo, releases);
+            }
+            catch (Exception ex)
+            {
+                LogError("获取模组版本失败", ex);
+                return (pick?.ReleaseTag ?? "", null, pick?.AssetName ?? "");
+            }
+        }
+
+        var release = releases.FirstOrDefault(r => pick != null &&
+                string.Equals(r.Tag, pick.ReleaseTag, StringComparison.OrdinalIgnoreCase))
+            ?? releases.FirstOrDefault();
+        if (release == null) return (pick?.ReleaseTag ?? "", null, pick?.AssetName ?? "");
+
+        var edition = mod.Editions.FirstOrDefault(e => pick != null &&
+                string.Equals(e.Id, pick.EditionId, StringComparison.OrdinalIgnoreCase))
+            ?? mod.Editions.FirstOrDefault();
+
+        var asset = "";
+        try
+        {
+            var list = await DownloadService.FetchModAssetVersionsAsync(mod, edition, release.Tag);
+            asset = list.FirstOrDefault(a => pick != null &&
+                        string.Equals(a.AssetName, pick.AssetName, StringComparison.OrdinalIgnoreCase))?.AssetName
+                ?? list.FirstOrDefault()?.AssetName ?? "";
+        }
+        catch (Exception ex)
+        {
+            LogError("获取包版本失败", ex);
+        }
+
+        _marketPicks[MarketKey(mod)] = new MarketPick(release.Tag, edition?.Id ?? "", asset);
+        return (release.Tag, edition, asset);
+    }
+
+    private async Task RunMarketInstallAsync(List<MarketInstallRequest> requests, VersionVm target)
+    {
+        // 每个模组先装它勾选的前置，再装本体
+        var plan = new List<(MarketMod Mod, MarketInstallRequest? Request)>();
+        foreach (var request in requests)
+        {
+            foreach (var dependency in request.Check.Dependencies.Where(d => d.Selected))
+                plan.Add((dependency.Mod, null));
+            plan.Add((request.Mod, request));
+        }
+
+        void SetStatus(string text) => MarketStatusText.Text = text;
+
+        MarketProgress.Visibility = Visibility.Visible;
+        MarketProgress.Value = 0;
+        SetStatus("0%");
+        MarkInternalModsChange();
+        try
+        {
+            for (var i = 0; i < plan.Count; i++)
+            {
+                var (item, request) = plan[i];
+                SetStatus($"正在安装 {i + 1}/{plan.Count}：{item.Name}");
+                Log($"开始下载模组：{item.Title}" +
+                    (request is { ReleaseTag.Length: > 0 } ? $"（{request.ReleaseTag}）" : ""));
+                var file = await DownloadService.InstallModAsync(item, target.Info.FullPath, Log, p =>
+                {
+                    var overall = (i + p) / Math.Max(1, plan.Count);
+                    MarketProgress.Value = overall;
+                    SetStatus($"{overall:P0}　{item.Name}");
+                }, request?.ReleaseTag, request?.Edition, request?.AssetName);
+                Log("模组安装完成：" + file);
+            }
+
+            _marketChecked.Clear();
+            RefreshMarketStatus();
+            ApplyMarketFilter();
+            UpdateMarketBatchHint();
+            if (_selected != null && _selected.Info.Folder == target.Info.Folder)
+                LoadMods(_selected.Info);
+            // 放在刷新列表之后，避免 SelectionChanged 把完成提示清掉
+            SetStatus($"安装完成（{plan.Count} 个）");
+        }
+        catch (OperationCanceledException)
+        {
+            SetStatus("已取消");
+            Log("模组下载已取消");
+        }
+        catch (Exception ex)
+        {
+            SetStatus("安装失败");
+            LogError("模组下载/安装失败", ex);
+            AppDialog.Error(ex.Message, "下载失败");
+        }
+        finally
+        {
+            MarketProgress.Value = 0;
+            MarketProgress.Visibility = Visibility.Collapsed;
         }
     }
 

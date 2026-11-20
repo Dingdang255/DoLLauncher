@@ -31,6 +31,11 @@ public static class MauiProgram
 		var root = ResolveRoot();
 		PlatformServices.Initialize(new AndroidPlatformBundle(root));
 		LogService.Configure(AppConfig.Load().General.LogVerbosity);
+
+		// 界面缩放需要在任何页面创建前生效（OnCreate 里先按默认值套过一次）。
+		MainApplication.SetUiScale(AppConfig.Load().General.UiScale);
+		MainApplication.ApplyUiScale();
+
 		LogService.Append("DoL 启动器（Android）启动，根目录：" + Paths.Root);
 
 		// 关页检测：订阅 SessionLost，按设置决定是否停服

@@ -109,6 +109,25 @@ public sealed class IconActionView : ContentView
         set => SetValue(CommandParameterProperty, value);
     }
 
+    /// <summary>
+    /// 导航项选中态：直接写颜色而不是动态资源。
+    /// MAUI 里 Border.BackgroundColor 绑 DynamicResource 在运行时切换不会重绘，只有重建页面时才显示一次。
+    /// </summary>
+    public void SetSelected(bool selected)
+    {
+        _border.RemoveDynamicResource(Border.BackgroundColorProperty);
+        if (selected)
+        {
+            _border.BackgroundColor = Resource("AccentPaleColor", Color.FromArgb("#EAF3FF"));
+            SetForegroundDynamic("AccentColor", Color.FromArgb("#1370F3"));
+        }
+        else
+        {
+            _border.BackgroundColor = Colors.Transparent;
+            SetForeground(Color.FromArgb("#333333"), Color.FromArgb("#E8E8E8"));
+        }
+    }
+
     protected override void OnPropertyChanged(string? propertyName = null)
     {
         base.OnPropertyChanged(propertyName);

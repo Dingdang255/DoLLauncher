@@ -276,7 +276,8 @@
 
                         <Border Grid.Row="4" Height="1" Background="{DynamicResource BorderBrush}" Margin="0,10,0,4" />
 
-                        <ListBox x:Name="ModList" Grid.Row="5" Background="Transparent" BorderThickness="0" Padding="0"
+                        <Grid Grid.Row="5" ClipToBounds="True">
+                        <ListBox x:Name="ModList" Background="Transparent" BorderThickness="0" Padding="0"
                                  HorizontalContentAlignment="Stretch"
                                  ItemContainerStyle="{StaticResource ModItem}"
                                  AllowDrop="True" DragOver="ModList_DragOver" Drop="ModList_Drop"
@@ -284,9 +285,12 @@
                                  MouseDoubleClick="ModList_MouseDoubleClick"
                                  SelectionChanged="ModList_SelectionChanged"
                                  PreviewMouseLeftButtonDown="ModList_PreviewLeftDown"
+                                 PreviewMouseMove="ModList_PreviewMouseMove"
+                                 PreviewMouseLeftButtonUp="ModList_PreviewMouseLeftButtonUp"
+                                 LostMouseCapture="ModList_LostMouseCapture"
                                  PreviewMouseRightButtonDown="ModList_PreviewRightDown"
                                  PreviewKeyDown="ModList_PreviewKeyDown"
-                                 ToolTip="点一行选中；Ctrl / Shift 多选；Ctrl+A 全选"
+                                 ToolTip="点一行选中；Ctrl / Shift 多选；Ctrl+A 全选；按住行可拖动排序"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  ScrollViewer.CanContentScroll="False">
                             <ListBox.ItemTemplate>
@@ -374,6 +378,11 @@
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
+                        <!-- 拖动排序时的插入位置指示线 -->
+                        <Border x:Name="ModDragLine" Height="2" VerticalAlignment="Top"
+                                Margin="4,0,4,0" Background="#3C3C3C"
+                                IsHitTestVisible="False" Visibility="Collapsed" />
+                        </Grid>
 
                         <controls:PaneSplitter Grid.Row="6" Axis="Rows" SettingKey="version.logHeight"
                                                DefaultSize="180" MinPrevious="160" MinNext="120"
@@ -668,9 +677,19 @@
                                          ScrollViewer.CanContentScroll="False">
                                     <ListBox.ItemTemplate>
                                         <DataTemplate>
-                                            <StackPanel>
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <CheckBox Grid.Column="0" Style="{StaticResource ModCheck}"
+                                                          IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                                                          Click="MarketCheck_Click"
+                                                          VerticalAlignment="Top" Margin="0,3,10,0"
+                                                          ToolTip="勾选后可批量安装" />
+                                                <StackPanel Grid.Column="1">
                                                 <DockPanel>
-                                                    <TextBlock Text="{Binding Subtitle}" DockPanel.Dock="Right"
+                                                    <TextBlock Text="{Binding Mod.Subtitle}" DockPanel.Dock="Right"
                                                                Style="{StaticResource MutedText}" FontSize="11"
                                                                VerticalAlignment="Center" Margin="8,0,0,0" />
                                                     <Border DockPanel.Dock="Right" Background="{DynamicResource AccentPaleBrush}"
@@ -680,24 +699,25 @@
                                                             <Style TargetType="Border">
                                                                 <Setter Property="Visibility" Value="Visible" />
                                                                 <Style.Triggers>
-                                                                    <DataTrigger Binding="{Binding BadgeText.Length}" Value="0">
+                                                                    <DataTrigger Binding="{Binding Mod.BadgeText.Length}" Value="0">
                                                                         <Setter Property="Visibility" Value="Collapsed" />
                                                                     </DataTrigger>
                                                                 </Style.Triggers>
                                                             </Style>
                                                         </Border.Style>
-                                                        <TextBlock Text="{Binding BadgeText}" FontSize="11"
+                                                        <TextBlock Text="{Binding Mod.BadgeText}" FontSize="11"
                                                                    Foreground="{DynamicResource AccentBrush}" />
                                                     </Border>
-                                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14"
+                                                    <TextBlock Text="{Binding Mod.Name}" FontWeight="SemiBold" FontSize="14"
                                                                Foreground="{DynamicResource TextBrush}"
                                                                VerticalAlignment="Center"
                                                                TextTrimming="CharacterEllipsis" />
                                                 </DockPanel>
-                                                <TextBlock Text="{Binding Description}" Style="{StaticResource MutedText}"
+                                                <TextBlock Text="{Binding Mod.Description}" Style="{StaticResource MutedText}"
                                                            FontSize="11" Margin="0,4,0,0" TextWrapping="NoWrap"
                                                            TextTrimming="CharacterEllipsis" />
-                                            </StackPanel>
+                                                </StackPanel>
+                                            </Grid>
                                         </DataTemplate>
                                     </ListBox.ItemTemplate>
                                 </ListBox>
@@ -731,10 +751,14 @@
                                                   ItemContainerStyle="{StaticResource FlatComboItem}"
                                                   ItemTemplate="{StaticResource EditionComboTemplate}"
                                                   Width="110"
+                                                  SelectionChanged="MarketAsset_SelectionChanged"
                                                   ToolTip="这个包型下的具体版本，默认选最新" />
                                     </StackPanel>
                                     <Button x:Name="MarketVersionBtn" Style="{StaticResource IconButton}" Tag="&#xE72C;"
                                             Content="加载版本" Margin="8,0,0,0" Click="LoadModReleases_Click" />
+                                    <TextBlock x:Name="MarketBatchHint" Style="{StaticResource MutedText}"
+                                               Margin="12,0,0,0" VerticalAlignment="Center"
+                                               Foreground="{DynamicResource AccentBrush}" />
                                     <TextBlock x:Name="MarketStatusText" Style="{StaticResource MutedText}"
                                                Margin="12,0,0,0" VerticalAlignment="Center" />
                                     </StackPanel>

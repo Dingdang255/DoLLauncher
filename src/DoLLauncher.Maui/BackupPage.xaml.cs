@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using DoLLauncher.Maui.Controls;
 using DoLLauncher.Maui.Platform;
 using DoLLauncher.Models;
 using DoLLauncher.Platform;
@@ -387,12 +388,12 @@ public partial class BackupPage : ContentView
 
     private async void OnCreateSnapshotClicked(object? sender, EventArgs e)
     {
-        var page = Navigation.NavigationStack.LastOrDefault();
-        if (page == null) return;
-        var note = await page.DisplayPromptAsync("快照备注",
+        var noteResult = await DolDialog.ShowAsync("快照备注",
             "可留空；备注会写进快照 manifest，还原时能看见。",
-            "确定", "跳过", string.Empty, maxLength: 100);
-        await CreateSnapshotAsync(SnapshotGameCheck.IsChecked, note ?? string.Empty);
+            new[] { "跳过", "确定" }, DolDialogKind.Info, primaryIndex: 1, allowDismiss: true,
+            maxLength: 100);
+        var note = noteResult.Index == 1 ? noteResult.Input ?? string.Empty : string.Empty;
+        await CreateSnapshotAsync(SnapshotGameCheck.IsChecked, note);
     }
 
     private async void OnQuickSnapshotClicked(object? sender, EventArgs e) =>

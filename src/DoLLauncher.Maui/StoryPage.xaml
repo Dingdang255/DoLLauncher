@@ -43,7 +43,7 @@
     <Grid>
 
         <ScrollView>
-            <VerticalStackLayout x:Name="ContentStack" Padding="16,12,16,24" Spacing="12">
+            <VerticalStackLayout x:Name="ContentStack" Padding="0,12,16,24" Spacing="12">
 
                 <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                     <Label x:Name="HeaderLabel" FontSize="22" FontAttributes="Bold"

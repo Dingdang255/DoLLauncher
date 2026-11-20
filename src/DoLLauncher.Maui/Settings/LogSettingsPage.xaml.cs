@@ -1,4 +1,5 @@
 using DoLLauncher.Core.Data;
+using DoLLauncher.Maui.Controls;
 using DoLLauncher.Models;
 using DoLLauncher.Platform;
 using DoLLauncher.Services;
@@ -159,11 +160,10 @@ public partial class LogSettingsPage : ContentPage
         if (versions.Count > 1)
         {
             var options = versions.Select(v => v.DisplayName).ToArray();
-            var choice = await DisplayActionSheetAsync("要清空哪个版本的 Mod 缓存？", "取消", null!, options);
-            if (string.IsNullOrEmpty(choice)) return;
-            var index = Array.IndexOf(options, choice);
-            if (index < 0) return;
-            target = versions[index];
+            var choice = await DolDialog.ChooseAsync("清空 Mod 缓存",
+                "要清空哪个版本的 Mod 缓存？", options, DolDialogKind.Warning, primaryIndex: 0);
+            if (choice < 0) return;
+            target = versions[choice];
         }
 
         if (!await PlatformServices.Dialogs.ConfirmAsync(

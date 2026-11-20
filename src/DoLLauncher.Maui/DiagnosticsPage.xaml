@@ -6,7 +6,7 @@
     <Grid>
 
         <ScrollView>
-            <VerticalStackLayout Padding="16,12,16,24" Spacing="12">
+            <VerticalStackLayout Padding="0,12,16,24" Spacing="12">
 
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                     <Label x:Name="HeaderLabel" Grid.Column="0" FontSize="22" FontAttributes="Bold"

@@ -62,7 +62,8 @@
                                 TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
                     </HorizontalStackLayout>
 
-                    <FlexLayout x:Name="PresetRow" Wrap="Wrap" Direction="Row" Margin="0,10,0,0" />
+                    <FlexLayout x:Name="PresetRow" Wrap="Wrap" Direction="Row"
+                                JustifyContent="Center" AlignItems="Center" Margin="0,10,0,0" />
 
                     <Label Text="色相" Style="{StaticResource SettingsHint}" Margin="0,10,0,0" />
                     <Grid ColumnDefinitions="*,48" ColumnSpacing="8">
@@ -129,6 +130,21 @@
                            Text="显示在主界面「DoL 启动器」下方的一行小字；留空时使用「版本 · 模组 · 存档」。" />
                     <Entry x:Name="SubtitleEntry" FontSize="14" MaxLength="32" Margin="0,4,0,0"
                            Unfocused="OnSubtitleUnfocused" Completed="OnSubtitleUnfocused" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Style="{StaticResource SettingsCard}" StyleClass="card settings-card">
+                <VerticalStackLayout Spacing="4">
+                    <Label Text="界面缩放" Style="{StaticResource SettingsItemTitle}" />
+                    <Label Style="{StaticResource SettingsHint}"
+                           Text="整体缩放启动器界面与文字，1.00x 为系统默认尺寸。修改后退出本页生效；只影响启动器，不影响游戏内画面。" />
+                    <Grid ColumnDefinitions="*,56" ColumnSpacing="8" Margin="0,6,0,0">
+                        <Slider x:Name="UiScaleSlider" Grid.Column="0"
+                                Minimum="0.5" Maximum="1" ValueChanged="OnUiScaleChanged"
+                                DragCompleted="OnUiScaleDragCompleted" />
+                        <Label x:Name="UiScaleText" Grid.Column="1" Style="{StaticResource SettingsHint}"
+                               VerticalOptions="Center" HorizontalTextAlignment="End" />
+                    </Grid>
                 </VerticalStackLayout>
             </Border>
 

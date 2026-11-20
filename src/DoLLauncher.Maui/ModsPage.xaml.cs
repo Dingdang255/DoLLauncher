@@ -29,12 +29,30 @@ public partial class ModsPage : ContentPage
     /// <summary>批量操作栏是否已经播放过展开动画，避免每次刷新重复触发。</summary>
     private bool _bulkBarShown;
 
+    // 长按拖动排序
+    private bool _touchAttached;
+    private AndroidX.RecyclerView.Widget.RecyclerView? _recycler;
+    /// <summary>拖动浮层直接挂在 Activity 内容容器上，全部用屏幕像素定位，避免 DIP 缩放出错。</summary>
+    private Android.Widget.ImageView? _dragGhost;
+    private Android.Graphics.Bitmap? _dragBitmap;
+    private Android.Views.ViewGroup? _dragHost;
+    private readonly int[] _dragHostLoc = new int[2];
+    private float _density = 1f;
+    private float _grabOffsetX;
+    private float _grabOffsetY;
+    private float _dragRowPx;
+    private int _dragFrom = -1;
+    private int _dragTo = -1;
+    private bool _draggingRow;
+    private long _suppressTapUntil;
+
     public ModsPage(VersionInfo version)
     {
         InitializeComponent();
         _version = version;
         Title = version.DisplayName;
         ModList.ItemsSource = _rows;
+        ModList.HandlerChanged += (_, _) => AttachTouchListener();
     }
 
     protected override void OnAppearing()
@@ -50,6 +68,13 @@ public partial class ModsPage : ContentPage
         _tapCts?.Cancel();
         _tapCts?.Dispose();
         _tapCts = null;
+        if (_draggingRow)
+        {
+            _draggingRow = false;
+            _dragFrom = _dragTo = -1;
+            ResetDragOffsets();
+        }
+        ReleaseDragGhost();
         if (AndroidKeyRouter.Handler == HandleHardwareKey) AndroidKeyRouter.Handler = null;
     }
 
@@ -465,6 +490,7 @@ public partial class ModsPage : ContentPage
     /// <summary>单击行：进入选择模式并选中该项；再次单击取消 / 复选，选中数为 0 时退出。</summary>
     private async void OnRowTapped(object? sender, TappedEventArgs e)
     {
+        if (Environment.TickCount64 < _suppressTapUntil) return;
         if (sender is not Element { BindingContext: ModsRow row } || _busy) return;
 
         // 选择模式下没有「双击打开详情」的歧义，直接立刻切换勾选，避免等待判定窗口。
@@ -530,9 +556,8 @@ public partial class ModsPage : ContentPage
     {
         if (_busy) return;
         var initial = Path.GetFileNameWithoutExtension(row.Mod.FileName);
-        var input = await DisplayPromptAsync("重命名模组",
-            "新的文件名（不含 .zip 也可以）：", "确定", "取消", "文件名",
-            maxLength: 120, keyboard: Keyboard.Text, initialValue: initial);
+        var input = await DolDialog.PromptAsync("重命名模组",
+            "新的文件名（不含 .zip 也可以）：", "文件名", initial, maxLength: 120);
         if (string.IsNullOrWhiteSpace(input)) return;
         if (string.Equals(input.Trim(), initial, StringComparison.Ordinal)) return;
 
@@ -818,6 +843,498 @@ public partial class ModsPage : ContentPage
         return Path.Combine(dir, $"{stem}-{Guid.NewGuid():N}{ext}");
     }
 
+    // ---------- 长按拖动排序（Android 原生触摸） ----------
+
+    private void AttachTouchListener()
+    {
+        if (ModList.Handler?.PlatformView is not AndroidX.RecyclerView.Widget.RecyclerView recycler) return;
+        if (_touchAttached && ReferenceEquals(_recycler, recycler)) return;
+        _touchAttached = true;
+        _recycler = recycler;
+        _density = recycler.Resources?.DisplayMetrics?.Density ?? 1f;
+        recycler.AddOnItemTouchListener(new ModTouchListener(this, recycler));
+    }
+
+    /// <summary>按下点不在开关 / 按钮 / 复选框上才允许拖动。</summary>
+    internal bool CanStartDrag(float x, float y)
+    {
+        if (_busy || _loading || _multiSelect) return false;
+        var recycler = _recycler;
+        if (recycler == null) return false;
+        var child = recycler.FindChildViewUnder(x, y);
+        return child != null && !HitInteractive(child, x - child.Left, y - child.Top);
+    }
+
+    private static bool HitInteractive(Android.Views.View view, float x, float y)
+    {
+        if (view is Android.Widget.CompoundButton || view is Android.Widget.Button) return true;
+        if (view is not Android.Views.ViewGroup group) return false;
+
+        for (var i = 0; i < group.ChildCount; i++)
+        {
+            var child = group.GetChildAt(i);
+            if (child == null || child.Visibility != Android.Views.ViewStates.Visible) continue;
+            if (x < child.Left || x > child.Right || y < child.Top || y > child.Bottom) continue;
+            if (HitInteractive(child, x - child.Left, y - child.Top)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>长按达到阈值：把该行截成位图浮层跟随手指，其余行开始让位。</summary>
+    internal void StartRowDrag(int index, Android.Views.View rowView, float rawX, float rawY)
+    {
+        if (index < 0 || index >= _rows.Count) return;
+        if (rowView.Width <= 0 || rowView.Height <= 0) return;
+
+        var loc = new int[2];
+        rowView.GetLocationOnScreen(loc);
+
+        _dragFrom = _dragTo = index;
+        _draggingRow = true;
+        _dragRowPx = rowView.Height;
+        _grabOffsetX = rawX - loc[0];
+        _grabOffsetY = rawY - loc[1];
+        _suppressTapUntil = Environment.TickCount64 + 1500;
+
+        BeginGhost(rowView);
+    }
+
+    /// <summary>
+    /// 用 PixelCopy 抓「屏幕上实际显示」的行区域做浮层。
+    /// View.Draw 画出来的是视图自身的逻辑像素，界面缩放（0.6x 等）时会被放大而超出屏幕；
+    /// PixelCopy 抓的是屏上像素，尺寸与位置天然一致。
+    /// </summary>
+    private void BeginGhost(Android.Views.View rowView)
+    {
+        var activity = Microsoft.Maui.ApplicationModel.Platform.CurrentActivity;
+        var host = activity?.FindViewById(Android.Resource.Id.Content) as Android.Views.ViewGroup;
+        if (activity?.Window == null || host == null)
+        {
+            if (_dragFrom >= 0 && _dragFrom < _rows.Count) _rows[_dragFrom].RowOpacity = 0.72;
+            return;
+        }
+
+        var rect = new Android.Graphics.Rect();
+        rowView.GetGlobalVisibleRect(rect, new Android.Graphics.Point());
+        if (rect.Width() <= 0 || rect.Height() <= 0 ||
+            Android.OS.Build.VERSION.SdkInt < Android.OS.BuildVersionCodes.O)
+        {
+            StartLegacyGhost(rowView, activity, host);
+            return;
+        }
+
+        Android.Graphics.Bitmap bitmap;
+        try
+        {
+            bitmap = Android.Graphics.Bitmap.CreateBitmap(rect.Width(), rect.Height(),
+                Android.Graphics.Bitmap.Config.Argb8888!);
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("生成拖动浮层失败", ex);
+            if (_dragFrom >= 0 && _dragFrom < _rows.Count) _rows[_dragFrom].RowOpacity = 0.72;
+            return;
+        }
+
+        var listener = new GhostCopyListener
+        {
+            Done = status =>
+            {
+                if (!_draggingRow)
+                {
+                    bitmap.Recycle();
+                    return;
+                }
+                if (status != (int)Android.Views.PixelCopyResult.Success)
+                {
+                    LogService.Append($"[拖动] PixelCopy 失败（{status}），改用视图位图");
+                    bitmap.Recycle();
+                    StartLegacyGhost(rowView, activity, host);
+                    return;
+                }
+                ShowGhost(bitmap, rect.Left, rect.Top, activity, host, rowView);
+            },
+        };
+
+        try
+        {
+            Android.Views.PixelCopy.Request(activity.Window, rect, bitmap, listener,
+                new Android.OS.Handler(Android.OS.Looper.MainLooper!));
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("截取拖动浮层失败", ex);
+            bitmap.Recycle();
+            StartLegacyGhost(rowView, activity, host);
+        }
+    }
+
+    private sealed class GhostCopyListener : Java.Lang.Object, Android.Views.PixelCopy.IOnPixelCopyFinishedListener
+    {
+        public Action<int>? Done;
+
+        public void OnPixelCopyFinished(int copyResult) =>
+            Done?.Invoke(copyResult);
+    }
+
+    /// <summary>PixelCopy 不可用时的兜底：直接画视图位图。</summary>
+    private void StartLegacyGhost(Android.Views.View rowView, Android.App.Activity activity,
+        Android.Views.ViewGroup host)
+    {
+        var bitmap = TrySnapshot(rowView);
+        if (bitmap == null)
+        {
+            if (_dragFrom >= 0 && _dragFrom < _rows.Count) _rows[_dragFrom].RowOpacity = 0.72;
+            return;
+        }
+        ShowGhost(bitmap, int.MinValue, int.MinValue, activity, host, rowView);
+    }
+
+    private void ShowGhost(Android.Graphics.Bitmap bitmap, int screenLeft, int screenTop,
+        Android.App.Activity activity, Android.Views.ViewGroup host, Android.Views.View rowView)
+    {
+        var image = new Android.Widget.ImageView(activity);
+        image.SetScaleType(Android.Widget.ImageView.ScaleType.FitXy);
+        image.SetImageBitmap(bitmap);
+        image.Alpha = 0.85f;
+
+        host.AddView(image, new Android.Widget.FrameLayout.LayoutParams(bitmap.Width, bitmap.Height)
+        {
+            Gravity = Android.Views.GravityFlags.Top | Android.Views.GravityFlags.Left,
+        });
+        host.GetLocationOnScreen(_dragHostLoc);
+        if (screenLeft != int.MinValue)
+        {
+            image.TranslationX = screenLeft - _dragHostLoc[0];
+            image.TranslationY = screenTop - _dragHostLoc[1];
+        }
+        try { image.Elevation = 24 * _density; } catch { }
+
+        _dragBitmap = bitmap;
+        _dragGhost = image;
+        _dragHost = host;
+        if (_dragFrom >= 0 && _dragFrom < _rows.Count) _rows[_dragFrom].RowOpacity = 0;
+        LogService.Append($"[拖动] 行 {rowView.Width}x{rowView.Height}px 浮层 {bitmap.Width}x{bitmap.Height}px " +
+                          $"宿主 {host.Width}x{host.Height}px");
+    }
+
+    /// <summary>把行视图画进位图，作为拖动时的浮层。</summary>
+    private static Android.Graphics.Bitmap? TrySnapshot(Android.Views.View view)
+    {
+        try
+        {
+            var bitmap = Android.Graphics.Bitmap.CreateBitmap(view.Width, view.Height,
+                Android.Graphics.Bitmap.Config.Argb8888!);
+            if (bitmap == null) return null;
+            using (var canvas = new Android.Graphics.Canvas(bitmap))
+            {
+                view.Draw(canvas);
+            }
+            return bitmap;
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("生成拖动浮层失败", ex);
+            return null;
+        }
+    }
+
+    private void MoveGhost(float rawX, float rawY)
+    {
+        var ghost = _dragGhost;
+        if (ghost == null) return;
+        ghost.TranslationX = rawX - _grabOffsetX - _dragHostLoc[0];
+        ghost.TranslationY = rawY - _grabOffsetY - _dragHostLoc[1];
+    }
+
+    private void ReleaseDragGhost()
+    {
+        var ghost = _dragGhost;
+        var host = _dragHost;
+        _dragGhost = null;
+        _dragHost = null;
+        if (ghost != null && host != null)
+        {
+            try { host.RemoveView(ghost); } catch { }
+        }
+        _dragBitmap?.Recycle();
+        _dragBitmap = null;
+    }
+
+    internal void MoveRowDrag(float rawX, float rawY, float localY)
+    {
+        if (!_draggingRow) return;
+
+        MoveGhost(rawX, rawY);
+
+        var target = ComputeDragTarget(localY);
+        if (target >= 0) _dragTo = target;
+        // 滚动后子 View 会换一批，偏移必须每次重算。
+        ApplyDragOffsets();
+    }
+
+    /// <summary>按手指中心落在第几项之前，决定插入位置。</summary>
+    private int ComputeDragTarget(float localY)
+    {
+        var recycler = _recycler;
+        if (recycler == null || recycler.ChildCount == 0) return -1;
+        var anchorChild = recycler.GetChildAt(0);
+        if (anchorChild == null) return -1;
+        var first = recycler.GetChildAdapterPosition(anchorChild);
+        if (first < 0) return -1;
+
+        var count = first;
+        if (_dragFrom < first) count--;
+
+        for (var i = 0; i < recycler.ChildCount; i++)
+        {
+            var child = recycler.GetChildAt(i);
+            if (child == null) continue;
+            var pos = recycler.GetChildAdapterPosition(child);
+            if (pos < 0 || pos == _dragFrom || pos < first) continue;
+            // 用原始布局位置比较，避免让位动画把判定来回推开。
+            if (localY > child.Top + child.Height / 2f) count++;
+        }
+
+        return Math.Clamp(count, 0, _rows.Count - 1);
+    }
+
+    /// <summary>
+    /// 被拖行与目标位之间的行整体让出一个行高。
+    /// 直接平移 RecyclerView 的子 View：行模板里的 TranslationY 会被 item 容器裁剪，移出去就看不见了。
+    /// </summary>
+    private void ApplyDragOffsets()
+    {
+        var recycler = _recycler;
+        if (recycler == null) return;
+
+        var height = _dragRowPx;
+        for (var i = 0; i < recycler.ChildCount; i++)
+        {
+            var child = recycler.GetChildAt(i);
+            if (child == null) continue;
+            var pos = recycler.GetChildAdapterPosition(child);
+            if (pos < 0) continue;
+
+            float offset;
+            if (pos == _dragFrom) offset = 0;
+            else if (_dragFrom < _dragTo && pos > _dragFrom && pos <= _dragTo) offset = -height;
+            else if (_dragFrom > _dragTo && pos >= _dragTo && pos < _dragFrom) offset = height;
+            else offset = 0;
+            child.TranslationY = offset;
+        }
+    }
+
+    /// <summary>把所有可见行的让位偏移清零。</summary>
+    private void ResetDragOffsets()
+    {
+        var recycler = _recycler;
+        if (recycler == null) return;
+        for (var i = 0; i < recycler.ChildCount; i++)
+        {
+            var child = recycler.GetChildAt(i);
+            if (child != null) child.TranslationY = 0;
+        }
+    }
+
+    internal async Task EndRowDragAsync(bool commit)
+    {
+        if (!_draggingRow) return;
+        _draggingRow = false;
+
+        var from = _dragFrom;
+        var to = _dragTo;
+        _dragFrom = _dragTo = -1;
+
+        ReleaseDragGhost();
+        ResetDragOffsets();
+
+        foreach (var row in _rows) row.RowOpacity = 1;
+
+        if (!commit || from < 0 || to < 0 || from == to || to >= _rows.Count) return;
+
+        // CollectionView 在 Android 上对 Move 事件的重绘不可靠，改成先删后插强制刷新。
+        var moved = _rows[from];
+        _rows.RemoveAt(from);
+        _rows.Insert(to, moved);
+        RefreshMoveFlags();
+        await SaveAsync();
+        Dispatcher.Dispatch(() =>
+            ModList.ScrollTo(to, position: ScrollToPosition.MakeVisible, animate: false));
+    }
+
+    private sealed class ModTouchListener : Java.Lang.Object,
+        AndroidX.RecyclerView.Widget.RecyclerView.IOnItemTouchListener
+    {
+        private const int LongPressMs = 450;
+
+        private readonly ModsPage _page;
+        private readonly AndroidX.RecyclerView.Widget.RecyclerView _recycler;
+        private readonly int _slop;
+        private readonly float _density;
+        private readonly IDispatcherTimer _longTimer;
+        private readonly IDispatcherTimer _scrollTimer;
+
+        private float _downX;
+        private float _downY;
+        private float _lastY;
+        private float _lastRawX;
+        private float _lastRawY;
+        private int _downIndex = -1;
+        private bool _pending;
+        private bool _dragging;
+        private int _scrollDir;
+
+        public ModTouchListener(ModsPage page, AndroidX.RecyclerView.Widget.RecyclerView recycler)
+        {
+            _page = page;
+            _recycler = recycler;
+            var context = recycler.Context;
+            _slop = context == null ? 8 : Android.Views.ViewConfiguration.Get(context)!.ScaledTouchSlop;
+            _density = recycler.Resources?.DisplayMetrics?.Density ?? 1f;
+
+            _longTimer = page.Dispatcher.CreateTimer();
+            _longTimer.Interval = TimeSpan.FromMilliseconds(LongPressMs);
+            _longTimer.IsRepeating = false;
+            _longTimer.Tick += (_, _) => OnLongPress();
+
+            _scrollTimer = page.Dispatcher.CreateTimer();
+            _scrollTimer.Interval = TimeSpan.FromMilliseconds(16);
+            _scrollTimer.IsRepeating = true;
+            _scrollTimer.Tick += (_, _) => AutoScrollTick();
+        }
+
+        public bool OnInterceptTouchEvent(AndroidX.RecyclerView.Widget.RecyclerView rv,
+            Android.Views.MotionEvent e)
+        {
+            // 抬起时 Track 会复位 _dragging，先记住本次事件是否属于拖动。
+            var wasDragging = _dragging;
+            Track(e);
+            return wasDragging || _dragging;
+        }
+
+        public void OnTouchEvent(AndroidX.RecyclerView.Widget.RecyclerView rv, Android.Views.MotionEvent e)
+        {
+            if (_dragging) Track(e);
+        }
+
+        public void OnRequestDisallowInterceptTouchEvent(bool disallowIntercept) { }
+
+        private void Track(Android.Views.MotionEvent e)
+        {
+            switch (e.ActionMasked)
+            {
+                case Android.Views.MotionEventActions.Down:
+                    _downX = e.GetX();
+                    _downY = e.GetY();
+                    _lastY = _downY;
+                    _lastRawX = e.RawX;
+                    _lastRawY = e.RawY;
+                    _downIndex = NearestIndex(_recycler, _downY);
+                    _pending = _downIndex >= 0 && _page.CanStartDrag(_downX, _downY);
+                    _dragging = false;
+                    if (_pending) _longTimer.Start();
+                    break;
+
+                case Android.Views.MotionEventActions.Move:
+                    _lastY = e.GetY();
+                    _lastRawX = e.RawX;
+                    _lastRawY = e.RawY;
+                    if (_dragging)
+                    {
+                        _page.MoveRowDrag(_lastRawX, _lastRawY, _lastY);
+                        UpdateScroll();
+                        return;
+                    }
+                    if (!_pending) return;
+                    if (Math.Abs(_lastY - _downY) > _slop) StopPending();
+                    break;
+
+                case Android.Views.MotionEventActions.Up:
+                case Android.Views.MotionEventActions.Cancel:
+                    StopPending();
+                    if (!_dragging) return;
+                    _dragging = false;
+                    _scrollTimer.Stop();
+                    _ = _page.EndRowDragAsync(e.ActionMasked == Android.Views.MotionEventActions.Up);
+                    break;
+            }
+        }
+
+        private void StopPending()
+        {
+            _pending = false;
+            _longTimer.Stop();
+        }
+
+        private void OnLongPress()
+        {
+            _longTimer.Stop();
+            if (!_pending || _dragging) return;
+            _pending = false;
+
+            var child = _recycler.FindChildViewUnder(_downX, _downY);
+            if (child == null) return;
+
+            var index = NearestIndex(_recycler, _downY);
+            if (index < 0) index = _downIndex;
+            if (index < 0) return;
+
+            _dragging = true;
+            // 行内控件按下时会禁止 RecyclerView 拦截事件；这里清掉自己的标记，
+            // 只让父级（下拉刷新）继续禁止拦截，拖动才能收到后续移动 / 抬起。
+            var group = (Android.Views.ViewGroup)_recycler;
+            group.RequestDisallowInterceptTouchEvent(false);
+            if (group.Parent is Android.Views.ViewGroup parent)
+                parent.RequestDisallowInterceptTouchEvent(true);
+
+            _page.StartRowDrag(index, child, _lastRawX, _lastRawY);
+            _page.MoveRowDrag(_lastRawX, _lastRawY, _lastY);
+            UpdateScroll();
+        }
+
+        private void UpdateScroll()
+        {
+            var edge = 48 * _density;
+            var dir = 0;
+            if (_lastY < edge) dir = -1;
+            else if (_lastY > _recycler.Height - edge) dir = 1;
+
+            if (dir == 0)
+            {
+                _scrollDir = 0;
+                _scrollTimer.Stop();
+                return;
+            }
+
+            _scrollDir = dir;
+            if (!_scrollTimer.IsRunning) _scrollTimer.Start();
+        }
+
+        private void AutoScrollTick()
+        {
+            if (!_dragging || _scrollDir == 0) return;
+            _recycler.ScrollBy(0, _scrollDir * (int)Math.Max(4, 8 * _density));
+            _page.MoveRowDrag(_lastRawX, _lastRawY, _lastY);
+        }
+
+        private static int NearestIndex(AndroidX.RecyclerView.Widget.RecyclerView recycler, float y)
+        {
+            var best = -1;
+            var bestDistance = float.MaxValue;
+            for (var i = 0; i < recycler.ChildCount; i++)
+            {
+                var child = recycler.GetChildAt(i);
+                if (child == null) continue;
+                var distance = Math.Abs(child.Top + child.Height / 2f - y);
+                if (distance >= bestDistance) continue;
+                bestDistance = distance;
+                best = recycler.GetChildAdapterPosition(child);
+            }
+            return best;
+        }
+    }
+
     // ---------- 快照类型 ----------
 
     private sealed class ModSnapshot
@@ -914,6 +1431,19 @@ public sealed class ModsRow : INotifyPropertyChanged
     }
 
     public bool IsNormalMode => !_isMultiSelect;
+
+    private double _rowOpacity = 1;
+    /// <summary>被拖动行的透明度（拖动时由浮层接管，原位置隐藏）。</summary>
+    public double RowOpacity
+    {
+        get => _rowOpacity;
+        set
+        {
+            if (Math.Abs(_rowOpacity - value) < 0.01) return;
+            _rowOpacity = value;
+            OnPropertyChanged(nameof(RowOpacity));
+        }
+    }
 
     public string IssueText => _issueText;
     public bool HasIssue => _issueText.Length > 0;

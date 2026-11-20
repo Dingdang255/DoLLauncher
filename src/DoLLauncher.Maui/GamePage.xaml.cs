@@ -30,6 +30,8 @@ public partial class GamePage : ContentPage
 
         // 游戏默认竖屏并允许旋转，返回启动器时恢复横屏锁定
         AppOrientation.EnterGame();
+        // 收起状态栏：竖屏时它会盖住左侧栏顶部的收起/展开按钮
+        GameSystemBars.EnterGame();
 
         EnterSurface();
         // 游戏页不参与心跳关页检测：WebView 就在本进程里，存活状态由渲染进程回调直接告知；
@@ -42,6 +44,8 @@ public partial class GamePage : ContentPage
         if (BackRouter.Handler == HandleBack) BackRouter.Handler = null;
         AppOrientation.ExitGame();
         if (GameFullscreen.IsActive) GameFullscreen.Hide();
+        // 回到启动器时恢复正常状态栏
+        GameSystemBars.ExitGame();
 
         // 关键：只隐藏画面，不销毁 WebView。回到启动器后游戏仍在运行，
         // 再次进入还是同一局（对应 WPF 端游戏页在独立浏览器窗口里常驻）。

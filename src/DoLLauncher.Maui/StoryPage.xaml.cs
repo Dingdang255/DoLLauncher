@@ -998,14 +998,7 @@ public partial class StoryPage : ContentView
     {
         try
         {
-            var target = Navigation.NavigationStack.LastOrDefault();
-            if (target == null)
-            {
-                await PlatformServices.Dialogs.InfoAsync(message, title);
-                return;
-            }
-            await MainThread.InvokeOnMainThreadAsync(async () =>
-                await target.DisplayAlertAsync(title, message, "好"));
+            await PlatformServices.Dialogs.InfoAsync(message, title);
         }
         catch (Exception ex)
         {

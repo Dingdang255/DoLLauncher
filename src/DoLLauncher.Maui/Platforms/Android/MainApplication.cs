@@ -10,8 +10,16 @@ namespace DoLLauncher.Maui;
 [Application]
 public class MainApplication : MauiApplication
 {
-    /// <summary>整体界面缩放：系统密度的 0.6 倍。</summary>
-    private const float UiScale = 0.6f;
+    /// <summary>界面缩放的允许范围与默认值（1.0 = 系统默认尺寸）。</summary>
+    public const double MinUiScale = 0.5;
+    public const double MaxUiScale = 1.0;
+    public const double DefaultUiScale = 0.6;
+
+    /// <summary>整体界面缩放：系统密度的倍数，由设置页写入配置。</summary>
+    private static float _uiScale = (float)DefaultUiScale;
+
+    /// <summary>当前生效的界面缩放（供设置页显示与比较）。</summary>
+    public static double UiScale => _uiScale;
 
     // 记录系统原始密度，避免多次应用缩放时重复相乘。
     private static int _baseDpi;
@@ -65,6 +73,54 @@ public class MainApplication : MauiApplication
 
     /// <summary>把界面缩放应用到指定 Resources（Activity 的 Resources 与应用级是两份）。</summary>
     public static void ApplyUiScale(Android.Content.Res.Resources? resources) => ApplyUiScale(resources, true);
+
+    /// <summary>设置界面缩放（夹到 0.5~1.0），只改内存值，不会立即重排界面。</summary>
+    public static void SetUiScale(double scale) =>
+        _uiScale = (float)Math.Clamp(scale, MinUiScale, MaxUiScale);
+
+    /// <summary>
+    /// 运行时切换界面缩放：换掉应用级与 Activity 的资源密度，清掉 MAUI 的密度缓存并强制重排。
+    /// 设置页在退出子页时调用，避免拖动滑块过程中界面不断跳动。
+    /// </summary>
+    public static void ApplyUiScaleChange(double scale)
+    {
+        SetUiScale(scale);
+        var activity = Microsoft.Maui.ApplicationModel.Platform.CurrentActivity;
+        try
+        {
+            ApplyUiScale(Android.App.Application.Context.Resources);
+            ApplyUiScale(activity?.Resources, false);
+            ResetMauiDensityCache(activity);
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("应用界面缩放失败", ex);
+        }
+
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            try
+            {
+                // 已创建的 MAUI 视图按旧密度算过尺寸，仅刷新资源密度不会重排；
+                // 这里重建页面树让控件按新密度重新创建。不重建 Activity，避免连带销毁后台游戏的 WebView。
+                var window = Microsoft.Maui.Controls.Application.Current?.Windows.FirstOrDefault();
+                if (window == null) return;
+
+                window.Page = new NavigationPage(new MainPage());
+                await Task.Delay(400);
+
+                // 用户是从设置子页退出时触发的，重建后回到设置列表，避免被直接甩回主界面。
+                if (window.Page is NavigationPage nav && nav.CurrentPage is MainPage)
+                    await nav.PushAsync(new SettingsPage(), false);
+            }
+            catch (Exception ex)
+            {
+                LogService.Error("界面缩放后重建界面失败", ex);
+            }
+        });
+
+        LogService.Append($"界面缩放已切换为 {_uiScale:0.00}x（1.00x 为系统默认尺寸）");
+    }
 
     /// <summary>
     /// 美化包 / 主题重应用后 Resources 可能已被重建，这里静默补一次缩放，

@@ -58,6 +58,8 @@ public class MainActivity : MauiAppCompatActivity
         MainApplication.ApplyUiScale(Resources);
         MainApplication.ResetMauiDensityCache(this);
         ApplySystemBars();
+        // 旋转后系统可能重新显示状态栏，游戏页内需要再次收起
+        if (GameSystemBars.StatusBarHidden) GameSystemBars.Apply();
     }
 
     protected override void OnResume()
@@ -67,6 +69,7 @@ public class MainActivity : MauiAppCompatActivity
         _scaledResources = null;
         MainApplication.ApplyUiScale(Resources);
         MainApplication.ResetMauiDensityCache(this);
+        if (GameSystemBars.StatusBarHidden) GameSystemBars.Apply();
     }
 
     /// <summary>记录实际生效的密度，便于排查「界面没有按 0.6x 缩放」的问题。</summary>

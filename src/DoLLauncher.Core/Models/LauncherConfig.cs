@@ -124,6 +124,9 @@ public sealed class GeneralSettings
     /// <summary>自动调整布局：开启后各分区按设计比例随窗口等比缩放；关闭时沿用拖动出的像素尺寸。</summary>
     [JsonPropertyName("autoLayout")] public bool AutoLayout { get; set; }
 
+    /// <summary>Android 界面整体缩放：0.5~1.0，1.0 表示系统默认尺寸；仅影响启动器界面。</summary>
+    [JsonPropertyName("uiScale")] public double UiScale { get; set; } = 0.6;
+
     /// <summary>模组市场高级搜索：匹配模式（contains / exact / tagall / tagany）。</summary>
     [JsonPropertyName("marketMatch")] public string MarketMatchMode { get; set; } = "contains";
 

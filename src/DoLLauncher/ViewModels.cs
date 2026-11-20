@@ -135,3 +135,30 @@ public sealed class ModVm : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 }
+
+/// <summary>模组市场列表行：多选勾选状态 + 原始市场条目。</summary>
+public sealed class MarketItemVm : INotifyPropertyChanged
+{
+    private bool _isChecked;
+
+    public MarketItemVm(MarketMod mod, bool isChecked)
+    {
+        Mod = mod;
+        _isChecked = isChecked;
+    }
+
+    public MarketMod Mod { get; }
+
+    public bool IsChecked
+    {
+        get => _isChecked;
+        set
+        {
+            if (_isChecked == value) return;
+            _isChecked = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsChecked)));
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+}

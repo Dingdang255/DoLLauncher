@@ -295,7 +295,8 @@ internal static class GameFullscreen
         }
 
         callback?.OnCustomViewHidden();
-        SetSystemBarsHidden(false);
+        // 全屏退出后按游戏页状态恢复：游戏页仍在时只恢复导航栏，状态栏继续保持收起。
+        GameSystemBars.Apply();
     }
 
     private static void SetSystemBarsHidden(bool hidden)
@@ -319,6 +320,53 @@ internal static class GameFullscreen
         catch (Exception ex)
         {
             LogService.Error("切换游戏全屏失败", ex);
+        }
+    }
+}
+
+/// <summary>
+/// 游戏页的系统栏状态：进入游戏页后收起状态栏，避免覆盖左侧栏顶部的收起/展开按钮；
+/// 返回启动器时恢复。网页全屏退出后同样只恢复导航栏，状态栏保持收起。
+/// </summary>
+internal static class GameSystemBars
+{
+    public static bool StatusBarHidden { get; private set; }
+
+    public static void EnterGame()
+    {
+        StatusBarHidden = true;
+        Apply();
+    }
+
+    public static void ExitGame()
+    {
+        StatusBarHidden = false;
+        Apply();
+    }
+
+    /// <summary>按当前状态应用系统栏：游戏页只收起状态栏并保留导航栏。</summary>
+    public static void Apply()
+    {
+        try
+        {
+            var window = Microsoft.Maui.ApplicationModel.Platform.CurrentActivity?.Window;
+            if (window?.DecorView == null) return;
+
+            var controller = new WindowInsetsControllerCompat(window, window.DecorView);
+            controller.SystemBarsBehavior = WindowInsetsControllerCompat.BehaviorShowTransientBarsBySwipe;
+            if (StatusBarHidden)
+            {
+                controller.Hide(WindowInsetsCompat.Type.StatusBars());
+                controller.Show(WindowInsetsCompat.Type.NavigationBars());
+            }
+            else
+            {
+                controller.Show(WindowInsetsCompat.Type.SystemBars());
+            }
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("切换游戏状态栏失败", ex);
         }
     }
 }

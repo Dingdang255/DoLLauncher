@@ -45,7 +45,7 @@
         <RefreshView x:Name="Refresher" Refreshing="OnRefreshing">
             <CollectionView x:Name="BackupList" SelectionMode="None">
                 <CollectionView.Header>
-                    <VerticalStackLayout Padding="16,12,16,10" Spacing="12">
+                    <VerticalStackLayout Padding="0,12,16,10" Spacing="12">
 
                         <!-- 目标版本 -->
                         <Border Padding="14" StrokeThickness="0" StrokeShape="RoundRectangle 12"

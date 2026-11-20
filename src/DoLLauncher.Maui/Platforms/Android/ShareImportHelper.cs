@@ -1,4 +1,5 @@
 using Android.Content;
+using DoLLauncher.Maui.Controls;
 using DoLLauncher.Models;
 using DoLLauncher.Platform;
 using DoLLauncher.Services;
@@ -199,12 +200,11 @@ internal static class ShareImportHelper
             return null;
         }
 
-        var options = candidates.Select((v, i) => $"{i + 1}. {v.DisplayName}").ToArray();
-        var choice = await owner.DisplayActionSheetAsync(
-            $"「{displayName}」是模组包，导入到哪个版本？", "取消", null!, options);
-        if (string.IsNullOrEmpty(choice)) return null;
-        var index = Array.IndexOf(options, choice);
-        return index < 0 ? null : candidates[index];
+        var options = candidates.Select(v => v.DisplayName).ToArray();
+        var choice = await DolDialog.ChooseAsync("导入模组包",
+            $"「{displayName}」是模组包，导入到哪个版本？", options, DolDialogKind.Info);
+        if (choice < 0 || choice >= candidates.Count) return null;
+        return candidates[choice];
     }
 
     // ---------- content:// 拷贝 ----------

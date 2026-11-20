@@ -1610,13 +1610,25 @@ public static class DownloadService
             var routeUrl = MirrorUrl(url, routes[i]);
             if (!tried.Add(routeUrl)) continue;
             Report(log, $"[网络] 尝试 {routes[i].Name}（{i + 1}/{routes.Count}）：{routeUrl}");
+
+            // 只看“实际收到的字节”：有的镜像慢速滴水（每次读都有少量数据），
+            // 单次读取空闲超时永远不会触发；这里每 IdleTimeout 统计一次收到的字节量，
+            // 低于阈值就判定线路实际上不可用，换下一条。
+            using var routeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            long routeBytes = 0;
+            var watchdog = WatchRouteProgressAsync(routes[i].Name, routeCts,
+                () => Interlocked.Read(ref routeBytes), log);
             try
             {
                 await DownloadDirectAsync(routeUrl, destPath, p =>
                 {
                     task?.ReportProgress(p);
                     progress(p);
-                }, task, ct);
+                }, delta =>
+                {
+                    var totalReceived = Interlocked.Add(ref routeBytes, delta);
+                    task?.ReportBytes(totalReceived);
+                }, task, routeCts.Token);
                 if (requireZip) EnsureZip(destPath);
                 Report(log, $"[网络] {routes[i].Name} 下载成功");
                 task?.Complete();
@@ -1635,9 +1647,51 @@ public static class DownloadService
                 task?.ReportProgress(0);
                 progress(0);
             }
+            finally
+            {
+                routeCts.Cancel();
+                try { await watchdog; } catch { /* 看门狗只负责计时，异常不影响下载结果 */ }
+            }
         }
         task?.MarkFailed(last?.Message ?? "未知错误");
         throw last!;
+    }
+
+    /// <summary>线路级看门狗：每个 IdleTimeout 窗口统计实际收到的字节，低于阈值就换下一条线路。</summary>
+    private static async Task WatchRouteProgressAsync(string routeName, CancellationTokenSource routeCts,
+        Func<long> bytesReceived, Action<string>? log)
+    {
+        // 30 秒至少要有 32 KB（约 1 KB/s），否则对几十 MB 的包来说等同卡死。
+        const long minBytesPerWindow = 32 * 1024;
+        var windowStart = Environment.TickCount64;
+        var startBytes = bytesReceived();
+        try
+        {
+            while (!routeCts.IsCancellationRequested)
+            {
+                await Task.Delay(1000, routeCts.Token).ConfigureAwait(false);
+                if (routeCts.IsCancellationRequested) return;
+                var now = Environment.TickCount64;
+                if (now - windowStart < (long)IdleTimeout.TotalMilliseconds) continue;
+
+                var current = bytesReceived();
+                if (current - startBytes >= minBytesPerWindow)
+                {
+                    windowStart = now;
+                    startBytes = current;
+                    continue;
+                }
+
+                Report(log, $"[网络] {routeName} {IdleTimeout.TotalSeconds:0} 秒只收到 " +
+                            $"{(current - startBytes) / 1024} KB，换下一条线路");
+                routeCts.Cancel();
+                return;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 正常取消（下载完成 / 用户取消 / 换线路）。
+        }
     }
 
     /// <summary>下载完检查压缩包是否完整：线路中途断流得到的残缺 zip 必须当作失败换线路。</summary>
@@ -1662,7 +1716,7 @@ public static class DownloadService
     }
 
     private static async Task DownloadDirectAsync(string url, string destPath, Action<double> progress,
-        DownloadTaskVm? task, CancellationToken ct)
+        Action<long> onBytes, DownloadTaskVm? task, CancellationToken ct)
     {
         // 先探测总大小与是否支持分段；支持就多连接并发拉取，镜像单连接限速时能明显提速
         var (total, supportsRange) = await ProbeRouteAsync(url, ct);
@@ -1671,20 +1725,22 @@ public static class DownloadService
         {
             try
             {
-                await DownloadParallelAsync(url, destPath, total, progress, ct);
+                await DownloadParallelAsync(url, destPath, total, progress, onBytes, ct);
                 return;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 throw;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex.Message.Contains("不支持分段", StringComparison.Ordinal))
             {
+                // 只有“线路不支持分段”才值得用同一条线路单连接重试；超时 / 断流应立刻换下一条线路，
+                // 否则会在同一条卡死的线路上再白等一个 IdleTimeout。
                 LogService.Append($"[网络] 多连接下载失败，改用单连接：{ex.Message}");
                 progress(0);
             }
         }
-        await DownloadStreamAsync(url, destPath, progress, ct);
+        await DownloadStreamAsync(url, destPath, progress, onBytes, ct);
     }
 
     /// <summary>探测线路总大小与 Range 支持情况（只读响应头）。</summary>
@@ -1712,7 +1768,7 @@ public static class DownloadService
 
     /// <summary>分段并发下载：每段一个连接，边下边写入文件对应偏移。</summary>
     private static async Task DownloadParallelAsync(string url, string destPath, long total, Action<double> progress,
-        CancellationToken ct)
+        Action<long> onBytes, CancellationToken ct)
     {
         // 镜像普遍按连接限速：连接数随文件大小增加，实测 16 连接可把单连接 100KB/s 提到 2MB/s
         var parts = (int)Math.Clamp(total / (2 * 1024 * 1024), 2, 16);
@@ -1732,6 +1788,7 @@ public static class DownloadService
         void AddBytes(long delta)
         {
             var value = Interlocked.Add(ref received, delta);
+            onBytes(delta);
             var now = watch.ElapsedMilliseconds;
             var last = Interlocked.Read(ref lastReport);
             if (now - last < 100) return;
@@ -1750,7 +1807,7 @@ public static class DownloadService
                     await DownloadRangeAsync(url, destPath, start, end, AddBytes, ct);
                     return;
                 }
-                catch (Exception) when (attempt < 2 && !ct.IsCancellationRequested)
+                catch (Exception) when (attempt < 1 && !ct.IsCancellationRequested)
                 {
                     await Task.Delay(300, ct);
                 }
@@ -1806,7 +1863,7 @@ public static class DownloadService
 
     /// <summary>单连接流式下载（不支持分段或分段失败时的兜底）。</summary>
     private static async Task DownloadStreamAsync(string url, string destPath, Action<double> progress,
-        CancellationToken ct)
+        Action<long> onBytes, CancellationToken ct)
     {
         // 只给「等到响应头」这一步加超时：镜像卡住时尽快换下一条；真正下载正文时不限制
         using var connect = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -1838,6 +1895,8 @@ public static class DownloadService
                 idle.CancelAfter(IdleTimeout);
                 await output.WriteAsync(buffer.AsMemory(0, read), ct);
                 readTotal += read;
+                onBytes(read);
+                // 没有总长度（chunked）时不推进百分比，只靠字节数驱动任务条目与线路看门狗。
                 if (total > 0) progress(readTotal / (double)total);
             }
         }
@@ -1992,6 +2051,8 @@ public sealed class DownloadTaskVm : INotifyPropertyChanged
                 parts.Add(_received > 0 && _state != "完成"
                     ? $"{FormatSize(_received)} / {FormatSize(_total)}"
                     : FormatSize(_total));
+            else if (_received > 0)
+                parts.Add(FormatSize(_received));
             if (_speed > 0 && _state == "下载中") parts.Add($"{FormatSize((long)_speed)}/s");
             parts.Add(_state);
             return string.Join(" · ", parts);
@@ -2028,7 +2089,32 @@ public sealed class DownloadTaskVm : INotifyPropertyChanged
         value = Math.Clamp(value, 0, 1);
         Progress = value;
         _received = _total > 0 ? (long)(_total * value) : 0;
+        UpdateSpeed();
+        Raise(nameof(InfoText));
+    }
 
+    /// <summary>没有总长度（chunked）的线路只报已收字节：界面至少能看到数字和速度在动。</summary>
+    internal void ReportBytes(long received)
+    {
+        if (Cts.IsCancellationRequested) return;
+        State = "下载中";
+        if (_total > 0)
+        {
+            _received = Math.Min(_total, received);
+            Progress = Math.Min(1.0, _received / (double)_total);
+        }
+        else
+        {
+            _received = received;
+            // 没有分母就按已收字节给一个缓慢逼近的进度，避免看起来一直卡在 0%。
+            Progress = Math.Min(0.95, 1 - Math.Exp(-received / (double)(16 * 1024 * 1024)));
+        }
+        UpdateSpeed();
+        Raise(nameof(InfoText));
+    }
+
+    private void UpdateSpeed()
+    {
         var now = Environment.TickCount64;
         if (_sampleMs < 0)
         {
@@ -2043,7 +2129,6 @@ public sealed class DownloadTaskVm : INotifyPropertyChanged
             _sampleMs = now;
             _sampleBytes = _received;
         }
-        Raise(nameof(InfoText));
     }
 
     internal void Complete()
