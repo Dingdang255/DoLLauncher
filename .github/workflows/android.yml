@@ -46,12 +46,16 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           New-Item -ItemType Directory -Force keys | Out-Null
-          [IO.File]::WriteAllBytes("keys/release.keystore", [Convert]::FromBase64String($env:KEYSTORE_BASE64))
+          $path = Join-Path $env:GITHUB_WORKSPACE 'keys/release.keystore'
+          [IO.File]::WriteAllBytes($path, [Convert]::FromBase64String($env:KEYSTORE_BASE64))
+          if (-not (Test-Path -LiteralPath $path)) { throw "keystore 写入失败：$path" }
+          Write-Host "keystore 已写入：$path（$((Get-Item -LiteralPath $path).Length) 字节）"
 
       - name: Build signed release APK
         if: env.HAS_KEYSTORE == 'true'
         env:
-          DOL_KEYSTORE: keys/release.keystore
+          # 必须用绝对路径：MSBuild 会按项目目录解析相对路径
+          DOL_KEYSTORE: ${{ github.workspace }}/keys/release.keystore
           DOL_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           DOL_KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
           DOL_STORE_PASS: ${{ secrets.ANDROID_STORE_PASSWORD }}
