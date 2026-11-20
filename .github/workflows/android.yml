@@ -2,7 +2,11 @@ name: android
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      # 安卓开发分支：推送到这些前缀的分支时自动构建（只出 Debug 包，不发 Release）
+      - "android/**"
+      - "feat/android*"
     tags: ["v*"]
     # 只改市场数据 / 文档时不重新构建（tag 推送不受 path 过滤影响）
     paths-ignore:
@@ -15,12 +19,19 @@ on:
 permissions:
   contents: write
 
+# 同一分支连续推送时取消上一次未完成的构建
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: windows-latest
     env:
       # secrets 不能直接在 if 里使用，先转成普通环境变量
       HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+      # 只有 main 和 tag 出 Release 签名包，开发分支一律 Debug
+      IS_RELEASE_REF: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,7 +51,7 @@ jobs:
         run: dotnet workload install maui-android
 
       - name: Restore signing keystore
-        if: env.HAS_KEYSTORE == 'true'
+        if: env.HAS_KEYSTORE == 'true' && env.IS_RELEASE_REF == 'true'
         shell: pwsh
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -52,7 +63,7 @@ jobs:
           Write-Host "keystore 已写入：$path（$((Get-Item -LiteralPath $path).Length) 字节）"
 
       - name: Build signed release APK
-        if: env.HAS_KEYSTORE == 'true'
+        if: env.HAS_KEYSTORE == 'true' && env.IS_RELEASE_REF == 'true'
         env:
           # 必须用绝对路径：MSBuild 会按项目目录解析相对路径
           DOL_KEYSTORE: ${{ github.workspace }}/keys/release.keystore
@@ -61,9 +72,9 @@ jobs:
           DOL_STORE_PASS: ${{ secrets.ANDROID_STORE_PASSWORD }}
         run: dotnet build src/DoLLauncher.Maui/DoLLauncher.Maui.csproj -c Release -f net10.0-android -p:AndroidPackageFormat=apk
 
-      # 仓库还没配置签名 Secrets 时退回调试签名，保证 CI 仍然可出包
-      - name: Build debug APK (no signing secrets)
-        if: env.HAS_KEYSTORE != 'true'
+      # 开发分支或仓库还没配置签名 Secrets 时出调试签名包
+      - name: Build debug APK
+        if: env.HAS_KEYSTORE != 'true' || env.IS_RELEASE_REF != 'true'
         run: dotnet build src/DoLLauncher.Maui/DoLLauncher.Maui.csproj -c Debug -f net10.0-android
 
       - uses: actions/upload-artifact@v4
