@@ -1,6 +1,6 @@
 # DoL 多版本启动器（DoLLauncher）
 
-面向 Degrees of Lewdity 的多版本管理工具：把不同版本的游戏、各自的模组、存档与设置收在一个界面里，互不干扰。界面布局参考 PCL，桌面端采用 WPF；发布版是单文件 exe，**不依赖 Python，也不需要预装 .NET 运行时**。
+面向 Degrees of Lewdity 的多版本管理工具：把不同版本的游戏、各自的模组、存档与设置收在一个界面里，互不干扰。界面布局参考 PCL，桌面端采用 WPF，Android 端采用 .NET MAUI；发布版无需预装 Python，桌面版是单文件 exe，**也不需要预装 .NET 运行时**。
 
 > 本仓库只包含启动器源码。游戏本体、模组、图片包与汉化资源不随仓库分发，版权归各自作者所有。
 
@@ -25,7 +25,8 @@
 
 ## 技术栈
 
-- **.NET 10 / WPF（C#）**，单文件自包含发布（`win-x64`）
+- **.NET 10**，桌面端 WPF，Android 端 .NET MAUI
+- 业务逻辑集中在跨平台的 `DoLLauncher.Core`，两端只做界面与平台适配
 - 内置 `TcpListener` 静态服务器，无第三方 Web 依赖
 - `System.Text.Json`（解析模组 `boot.json` 时容忍尾随逗号与注释）
 - Win32 / DWM API：标题栏主题、边框禁用、DPI 像素对齐
@@ -35,9 +36,11 @@
 
 ```
 .
-├─ src/DoLLauncher/         ← WPF 启动器源码（Assets / Controls / Models / Services）
+├─ src/DoLLauncher/         ← WPF 启动器（Assets / Controls / Models / Services）
+├─ src/DoLLauncher.Core/    ← 跨平台业务逻辑与平台抽象
+├─ src/DoLLauncher.Maui/    ← Android 启动器（MAUI，含 Platforms/Android）
 ├─ tools/                   ← icon/ 图标生成脚本与源图；scripts/ 分发用 DoL.bat、launcher.ps1
-├─ .github/workflows/       ← CI：构建与 Release
+├─ .github/workflows/       ← CI：WPF 构建（build.yml）、Android 构建（android.yml）
 ├─ build.ps1                ← 本地构建 / 打包
 ├─ README.md
 └─ LICENSE
@@ -56,11 +59,24 @@ cd dev
 
 产物写入 `_publish/`；本地的 `build.ps1` 会把 exe 复制到同级运行时目录 `DoLLauncher/`（该目录不属于仓库），并从 `tools/scripts/` 取脚本打包分发 zip。CI 只构建单文件 exe，连带 README、LICENSE、`DoL.bat` 与 `launcher.ps1` 打成 `DoL-Launcher-win-x64.zip`；推送 `v*` 标签会自动创建 Release（见 `.github/workflows/build.yml`）。开发者可用 `DoLLauncher.exe --selftest` 跑一次自检，结果写入 `self-test.log`。
 
+Android 端需要 Android SDK 与 MAUI 工作负载：
+
+```powershell
+cd dev
+dotnet workload install maui-android
+dotnet build src/DoLLauncher.Maui/DoLLauncher.Maui.csproj -c Debug -f net10.0-android
+adb install -r src/DoLLauncher.Maui/bin/Debug/net10.0-android/com.dol.launcher-Signed.apk
+```
+
+`android.yml` 在 main 与 `v*` 标签上构建签名 Release APK，`android/**`、`feat/android*` 分支只构建 Debug 包；签名所需 keystore 通过仓库 Secrets（`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`、`ANDROID_STORE_PASSWORD`）注入，未配置时自动退回调试签名。
+
 ## 运行
 
 1. 从 Release 下载 `DoL-Launcher-win-x64.zip`，解压到**没有中文和空格的路径**；
 2. 双击 `DoLLauncher.exe`，左侧选中版本后点「启动游戏」；
 3. 启动器在 `127.0.0.1:<端口>` 起内置服务器并用默认浏览器打开，关闭启动器时会询问是否一并停止服务器。
+
+Android 端从 Release 下载 `DoL-Launcher-android.apk` 安装（与调试包签名不同，覆盖安装前需先卸载旧包）。进入版本详情后「启动游戏」会在应用内 WebView 打开，返回启动器时游戏保留在后台，需要退出时在版本页点「停止」。数据目录位于 `/storage/emulated/0/Android/media/com.dol.launcher/DoL`，版本详情与关于页的「打开」按钮可直接用文件管理器定位。
 
 自行构建的用户可直接使用仓库里的 `tools/scripts/DoL.bat` 与 `launcher.ps1`（需 Python 3 在 PATH 中）；打包时会被放到分发包根目录。
 
@@ -69,7 +85,8 @@ cd dev
 - 启动器只管理本地文件与本地服务器，不抓取、不分发游戏本体或模组资源。
 - 浏览器存档只能通过同源页面读写，因此存档相关操作会短暂打开一个页面。
 - 启动器无法实时感知外部对 `mods/` 的修改；换端口也不会自动迁移旧的 `file://` 存档，需要用存档助手。
-- 仅支持 Windows（WPF + DWM），未适配 macOS / Linux。
+- 仅支持 Windows 与 Android（WPF + DWM / MAUI Android），未适配 macOS / Linux。
+- Android 端固定使用应用内 WebView（系统 WebView），不使用外部浏览器；旧版 WebView 的 JS 堆上限较低，模组较大时可能渲染失败，建议保持系统 WebView 为较新版本。
 
 ## 第三方资源与致谢
 
