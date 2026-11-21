@@ -15,7 +15,7 @@
 | 版本管理 | 扫描、添加、启动 / 停止、导出与导入 `.dolpack`；卡片式列表与运行状态 |
 | 模组管理 | 导入或拖拽安装、启停、排序、详情与 README、同名 / 缺前置 / 版本不满足提示 |
 | 下载中心 | 游戏本体支持汉化整包 / ModLoader Neo 两种来源，镜像测速与分块并行下载；模组市场按索引搜索、筛选、选资产版本并一键装到选中版本 |
-| 存档助手 | 同源页面导出 / 导入 / 删除单个存档槽，备份到 `backups/` |
+| 存档助手 | 同源页面导出 / 导入 / 删除单个存档槽，备份到 `backups/`；支持 DoL 原生 `.save` 存档的导入 / 导出，Android 端导出走系统保存对话框 |
 | 剧情 | 选择版本与存档作为起点，配合「剧情分支模拟」模组展开分支树，查看节点详情并导出图片 / JSON |
 | 备份与诊断 | 整版快照、模组配置导入导出、自动备份、兼容性检查、诊断包 |
 | 问题检查 | 模组冲突、前置缺失、版本不匹配、重复模组，分页展示并给出处理操作 |
@@ -30,7 +30,7 @@
 - 内置 `TcpListener` 静态服务器，无第三方 Web 依赖
 - `System.Text.Json`（解析模组 `boot.json` 时容忍尾随逗号与注释）
 - Win32 / DWM API：标题栏主题、边框禁用、DPI 像素对齐
-- PowerShell 构建脚本 `build.ps1`
+- PowerShell 构建脚本：`build.ps1`（桌面端）、`build-android.ps1`（Android）
 
 ## 目录结构
 
@@ -41,7 +41,8 @@
 ├─ src/DoLLauncher.Maui/    ← Android 启动器（MAUI，含 Platforms/Android）
 ├─ tools/                   ← icon/ 图标生成脚本与源图；scripts/ 分发用 DoL.bat、launcher.ps1
 ├─ .github/workflows/       ← CI：WPF 构建（build.yml）、Android 构建（android.yml）
-├─ build.ps1                ← 本地构建 / 打包
+├─ build.ps1                ← 本地构建 / 打包（桌面端）
+├─ build-android.ps1        ← 本地构建 Android APK（自动探测 SDK / JDK）
 ├─ README.md
 └─ LICENSE
 ```
@@ -59,14 +60,18 @@ cd dev
 
 产物写入 `_publish/`；本地的 `build.ps1` 会把 exe 复制到同级运行时目录 `DoLLauncher/`（该目录不属于仓库），并从 `tools/scripts/` 取脚本打包分发 zip。CI 只构建单文件 exe，连带 README、LICENSE、`DoL.bat` 与 `launcher.ps1` 打成 `DoL-Launcher-win-x64.zip`；推送 `v*` 标签会自动创建 Release（见 `.github/workflows/build.yml`）。开发者可用 `DoLLauncher.exe --selftest` 跑一次自检，结果写入 `self-test.log`。
 
-Android 端需要 Android SDK 与 MAUI 工作负载：
+Android 端需要 Android SDK、JDK 17 与 MAUI 工作负载（脚本会自动探测 `ANDROID_HOME` / `ANDROID_SDK_ROOT` 及常见安装路径，找不到时按提示设置环境变量）：
 
 ```powershell
 cd dev
 dotnet workload install maui-android
-dotnet build src/DoLLauncher.Maui/DoLLauncher.Maui.csproj -c Debug -f net10.0-android
-adb install -r src/DoLLauncher.Maui/bin/Debug/net10.0-android/com.dol.launcher-Signed.apk
+.\build-android.ps1                 # Release APK，复制到上一级的 DoL-Launcher-android.apk
+.\build-android.ps1 -Debug          # Debug 包，便于排查
+.\build-android.ps1 -Install        # 构建后直接 adb 安装（默认设备 127.0.0.1:7555）
+.\build-android.ps1 -NoCopy         # 只构建，不复制产物
 ```
+
+未提供签名密码时，本地产物是 debug 签名的测试包（可安装，不能用于发版）；正式签名包由 CI 在 main / `v*` 标签上生成。本地需要正式签名时，把 keystore 放到 `keys/dol-release.keystore`，再传 `-KeyAlias` / `-KeyPass` / `-StorePass`（或设置 `DOL_KEYSTORE`、`DOL_KEY_ALIAS`、`DOL_KEY_PASS`、`DOL_STORE_PASS` 环境变量）。
 
 `android.yml` 在 main 与 `v*` 标签上构建签名 Release APK，`android/**`、`feat/android*` 分支只构建 Debug 包；签名所需 keystore 通过仓库 Secrets（`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`、`ANDROID_STORE_PASSWORD`）注入，未配置时自动退回调试签名。
 
@@ -74,7 +79,7 @@ adb install -r src/DoLLauncher.Maui/bin/Debug/net10.0-android/com.dol.launcher-S
 
 1. 从 Release 下载 `DoL-Launcher-win-x64.zip`，解压到**没有中文和空格的路径**；
 2. 双击 `DoLLauncher.exe`，左侧选中版本后点「启动游戏」；
-3. 启动器在 `127.0.0.1:<端口>` 起内置服务器并用默认浏览器打开，关闭启动器时会询问是否一并停止服务器。
+3. 启动器在 `127.0.0.1:<端口>` 起内置服务器并用默认浏览器打开，关闭启动器时会询问是否一并停止服务器；服务器仍在运行时再次点击「打开游戏页面」会先聚焦上次打开的游戏窗口，页面确实关掉了才重新打开。
 
 Android 端从 Release 下载 `DoL-Launcher-android.apk` 安装（与调试包签名不同，覆盖安装前需先卸载旧包）。进入版本详情后「启动游戏」会在应用内 WebView 打开，返回启动器时游戏保留在后台，需要退出时在版本页点「停止」。数据目录位于 `/storage/emulated/0/Android/media/com.dol.launcher/DoL`，版本详情与关于页的「打开」按钮可直接用文件管理器定位。
 
