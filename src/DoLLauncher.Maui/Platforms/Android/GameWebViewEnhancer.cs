@@ -240,6 +240,98 @@ internal sealed class GameChromeClient : AndroidWebChromeClient
     }
 
     public override void OnHideCustomView() => GameFullscreen.Hide();
+
+    /// <summary>
+    /// 游戏内的 &lt;input type="file"&gt;（导入存档等）默认不会做任何事，
+    /// 必须在这里拉起系统文件选择器，否则点按钮没有任何反应。
+    /// </summary>
+    public override bool OnShowFileChooser(Android.Webkit.WebView? webView,
+        Android.Webkit.IValueCallback? filePathCallback,
+        Android.Webkit.WebChromeClient.FileChooserParams? fileChooserParams)
+        => GameFileChooser.TryShow(filePathCallback, fileChooserParams);
+}
+
+/// <summary>游戏 WebView 的文件选择：拉起系统文件管理器并把结果回传给网页。</summary>
+internal static class GameFileChooser
+{
+    private const int RequestCode = 47110;
+
+    private static Android.Webkit.IValueCallback? _callback;
+
+    public static bool TryShow(Android.Webkit.IValueCallback? callback,
+        Android.Webkit.WebChromeClient.FileChooserParams? parameters)
+    {
+        if (callback == null) return false;
+
+        // 上一次没结果就被取消时先回空，避免 WebView 一直等待。
+        DropPending();
+
+        var activity = Microsoft.Maui.ApplicationModel.Platform.CurrentActivity;
+        if (activity == null)
+        {
+            callback.OnReceiveValue(null);
+            return false;
+        }
+
+        Android.Content.Intent intent;
+        try
+        {
+            intent = parameters?.CreateIntent()
+                     ?? new Android.Content.Intent(Android.Content.Intent.ActionGetContent)
+                         .SetType("*/*");
+            if (parameters == null) intent.AddCategory(Android.Content.Intent.CategoryOpenable);
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("创建文件选择意图失败", ex);
+            callback.OnReceiveValue(null);
+            return false;
+        }
+
+        _callback = callback;
+        try
+        {
+            activity.StartActivityForResult(intent, RequestCode);
+            LogService.Append("[游戏页] 已拉起系统文件选择器");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("拉起系统文件选择器失败", ex);
+            DropPending();
+            callback.OnReceiveValue(null);
+            return false;
+        }
+    }
+
+    /// <summary>由 MainActivity.OnActivityResult 调用；返回 true 表示是本模块的请求。</summary>
+    public static bool HandleResult(int requestCode, Android.App.Result resultCode,
+        Android.Content.Intent? data)
+    {
+        if (requestCode != RequestCode) return false;
+
+        var callback = _callback;
+        _callback = null;
+        if (callback == null) return true;
+
+        Android.Net.Uri[]? uris = null;
+        if (resultCode == Android.App.Result.Ok && data != null)
+            uris = AndroidWebChromeClient.FileChooserParams.ParseResult((int)resultCode, data);
+
+        LogService.Append(uris is { Length: > 0 }
+            ? $"[游戏页] 已选择 {uris.Length} 个文件"
+            : "[游戏页] 未选择文件");
+        callback.OnReceiveValue(uris);
+        return true;
+    }
+
+    private static void DropPending()
+    {
+        var pending = _callback;
+        _callback = null;
+        if (pending == null) return;
+        try { pending.OnReceiveValue(null); } catch { }
+    }
 }
 
 internal sealed class GameDownloadListener : Java.Lang.Object, AndroidDownloadListener

@@ -175,6 +175,7 @@ public class MainActivity : MauiAppCompatActivity
     {
         base.OnActivityResult(requestCode, resultCode, data);
         SaveFileHelper.HandleResult(requestCode, resultCode, data);
+        GameFileChooser.HandleResult(requestCode, resultCode, data);
     }
 #pragma warning restore CS0618, CS0672
 
