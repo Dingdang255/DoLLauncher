@@ -105,12 +105,14 @@ public sealed class BrowserSessionMonitor
                 continue;
             }
 
-            // 登记后的一段时间内（游戏 HTML 很大，加载与初始化可能很慢）一律不判定关闭，
-            // 避免页面还没进入主界面就被误判。
-            if (now - session.OpenedAtUtc <= FirstHeartbeatGrace) continue;
+            // 登记后的一段时间内（游戏 HTML 很大，加载与初始化可能很慢）不按心跳判定关闭，
+            // 避免页面还没进入主界面就被误判。但页面主动上报的关闭事件不受宽限影响：
+            // 刚打开就关掉时也必须立刻停服，而不是干等满宽限时间。
+            var inGrace = now - session.OpenedAtUtc <= FirstHeartbeatGrace;
 
             if (state.HasPages)
             {
+                if (inGrace) continue;
                 // 还有页面开着：主线程被加载卡住时心跳会变慢，给足够的容错。
                 // 旧会话留下的心跳可能早于本次登记时间，按登记时间算，避免一上来就超时。
                 var last = state.LastHeartbeatUtc is { } heartbeat && heartbeat > session.OpenedAtUtc
@@ -123,6 +125,11 @@ public sealed class BrowserSessionMonitor
                 // 页面主动上报关闭：给防抖时间，刷新页面时新心跳会把它取消。
                 // 早于本次登记的关闭事件属于上一轮页面，忽略。
                 if (now - closedAt <= CloseDebounce) continue;
+            }
+            else if (inGrace)
+            {
+                // 还没有页面登记、也没有关闭事件：继续等首次心跳。
+                continue;
             }
 
             var removed = false;

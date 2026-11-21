@@ -1,4 +1,4 @@
-# 构建 Android 端 APK（需要 .NET 10 SDK + maui-android workload + JDK 17）
+﻿# 构建 Android 端 APK（需要 .NET 10 SDK + maui-android workload + JDK 17）
 # 用法：
 #   .\build-android.ps1                 -> Release APK，复制到上一级目录的 DoL-Launcher-android.apk
 #   .\build-android.ps1 -Debug          -> Debug APK，便于排查

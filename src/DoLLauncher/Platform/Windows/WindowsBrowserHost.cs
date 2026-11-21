@@ -190,6 +190,35 @@ public sealed class WindowsBrowserHost : IBrowserHost
         return new BrowserSession(process.Id, profileDir, capabilities);
     }
 
+    /// <summary>把该版本已打开的浏览器窗口切到前台；没有存活窗口时返回 false。</summary>
+    public bool TryFocus(string versionFolder)
+    {
+        TrackedSession? tracked;
+        lock (Sync) _sessions.TryGetValue(versionFolder, out tracked);
+        if (tracked == null) return false;
+
+        try
+        {
+            if (tracked.Process.HasExited) return false;
+            var handle = FindWindowHandle(tracked.Process);
+            if (handle == IntPtr.Zero) return false;
+
+            // 最小化的窗口先还原，再激活；系统的前台锁偶尔会拒绝第一次调用，重试一次。
+            ShowWindow(handle, IsIconic(handle) ? SwRestore : SwShow);
+            SetForegroundWindow(handle);
+            if (GetForegroundWindow() == handle) return true;
+
+            ShowWindow(handle, SwRestore);
+            SetForegroundWindow(handle);
+            return GetForegroundWindow() == handle;
+        }
+        catch (Exception ex)
+        {
+            LogError($"聚焦浏览器窗口失败（{versionFolder}）", ex);
+            return false;
+        }
+    }
+
     public void Close(string versionFolder)
     {
         TrackedSession? tracked = null;
@@ -224,6 +253,7 @@ public sealed class WindowsBrowserHost : IBrowserHost
     private void OnProcessExited(string versionFolder, Process process)
     {
         var removed = false;
+        var reliable = false;
         lock (Sync)
         {
             if (_sessions.TryGetValue(versionFolder, out var tracked) &&
@@ -231,12 +261,16 @@ public sealed class WindowsBrowserHost : IBrowserHost
             {
                 _sessions.Remove(versionFolder);
                 removed = true;
+                // 只有带独立 Profile 的浏览器才保证「进程退出 = 这个版本的页面全关了」；
+                // 共享实例的浏览器进程退出可能只是把 URL 转交给了别的实例，不能据此停服。
+                reliable = tracked.Capabilities.HasFlag(BrowserCapabilities.ReliableCloseDetection);
             }
         }
 
         if (!removed) return;
 
         try { process.Dispose(); } catch { }
+        if (!reliable) return;
         try { SessionClosed?.Invoke(versionFolder); }
         catch (Exception ex) { LogError($"SessionClosed 处理失败（{versionFolder}）", ex); }
     }
@@ -281,6 +315,79 @@ public sealed class WindowsBrowserHost : IBrowserHost
         try { return !process.HasExited; }
         catch { return false; }
     }
+
+    /// <summary>
+    /// 在浏览器进程里找游戏页窗口：跳过存档助手这类页面窗口，
+    /// 找不到可见且有标题的窗口时返回 0（调用方会改为打开新页面）。
+    /// </summary>
+    private static IntPtr FindWindowHandle(Process process)
+    {
+        int pid;
+        try { pid = process.Id; }
+        catch { return IntPtr.Zero; }
+
+        var found = IntPtr.Zero;
+        try
+        {
+            EnumWindows((hWnd, _) =>
+            {
+                GetWindowThreadProcessId(hWnd, out var windowPid);
+                if (windowPid != pid || !IsWindowVisible(hWnd)) return true;
+                var title = GetWindowTitle(hWnd);
+                if (title.Length == 0) return true;
+                // 存档助手页由同一个浏览器打开，标题不同，不能当作游戏页面聚焦。
+                if (title.Contains("存档助手") || title.Contains("正在备份存档")) return true;
+                found = hWnd;
+                return false;
+            }, IntPtr.Zero);
+        }
+        catch (Exception ex)
+        {
+            LogError("枚举浏览器窗口失败", ex);
+        }
+        return found;
+    }
+
+    private static string GetWindowTitle(IntPtr hWnd)
+    {
+        var length = GetWindowTextLength(hWnd);
+        if (length <= 0) return string.Empty;
+        var buffer = new StringBuilder(length + 1);
+        GetWindowText(hWnd, buffer, buffer.Capacity);
+        return buffer.ToString();
+    }
+
+    private const int SwShow = 5;
+    private const int SwRestore = 9;
+
+    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out int processId);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern int GetWindowTextLength(IntPtr hWnd);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int maxCount);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hWnd);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int cmdShow);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
 
     private static Process? StartProcess(string fileName, string arguments) =>
         Process.Start(new ProcessStartInfo(fileName)

@@ -88,12 +88,15 @@ public partial class MainWindow : Window
         BrowserSessionMonitor.Instance.SessionLost += OnBrowserSessionLost;
         GameLogService.FatalDetected += OnGameFatal;
         ModService.InternalWriteStarted += MarkInternalModsChange;
-        // 不再订阅浏览器进程退出：共用 Profile 时新命令会转发给已有实例并立刻退出，
-        // 进程退出并不代表页面关闭，关页统一以页面心跳为准。
+        // 独立 Profile 模式下浏览器进程就是该版本的页面，进程退出即可立刻判定关闭
+        // （页面还没加载完就关掉时不会有心跳或 pagehide，只能靠这个信号）。
+        // 共用实例的浏览器不会触发该事件，仍以心跳 / pagehide 为准。
+        PlatformServices.Browser.SessionClosed += OnBrowserSessionLost;
         Closed += (_, _) =>
         {
             StopModsWatcher();
             BrowserSessionMonitor.Instance.SessionLost -= OnBrowserSessionLost;
+            PlatformServices.Browser.SessionClosed -= OnBrowserSessionLost;
             GameLogService.FatalDetected -= OnGameFatal;
             ModService.InternalWriteStarted -= MarkInternalModsChange;
         };
@@ -809,6 +812,14 @@ public partial class MainWindow : Window
             {
                 AppDialog.Error("打开失败：" + ex.Message);
             }
+            return;
+        }
+
+        // 服务器还在跑：若上次打开的页面没被关闭，直接把那个窗口切到前台，不重复开新窗口。
+        if (ServerManager.IsRunning(version.Folder) && !ServerManager.IsHelperOnly(version.Folder) &&
+            BrowserService.TryFocus(version.Folder))
+        {
+            Log("已聚焦上一次打开的游戏页面：" + version.DisplayName);
             return;
         }
 

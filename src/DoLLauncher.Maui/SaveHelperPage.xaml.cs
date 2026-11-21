@@ -15,6 +15,11 @@ public partial class SaveHelperPage : ContentPage
         InitializeComponent();
         _version = version;
         Title = "存档助手 · " + version.DisplayName;
+
+        // Android WebView 不支持 blob 下载：挂上保存桥，页面里的「导出」改走系统保存对话框。
+        HelperView.HandlerChanged += (_, _) =>
+            SaveHelperWebViewBridge.Attach(HelperView.Handler?.PlatformView as Android.Webkit.WebView);
+
         HelperView.Source = url;
     }
 

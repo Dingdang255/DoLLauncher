@@ -41,6 +41,10 @@ public static class ServerManager
         return new ServerPageState(server.LastHeartbeatUtc, server.HasPages, server.PageClosedUtc);
     }
 
+    /// <summary>该版本是否还有游戏页面在发心跳（不含存档助手页）。</summary>
+    public static bool HasGamePage(string folder) =>
+        Running.TryGetValue(folder, out var server) && server.IsListening && server.HasGamePage;
+
     public static ILocalServer EnsureStarted(VersionInfo version) => EnsureStarted(version, false);
 
     public static ILocalServer EnsureStarted(VersionInfo version, bool saveHelperOnly)

@@ -165,6 +165,27 @@ public sealed class StaticServer : ILocalServer
     /// <summary>是否还有页面开着（游戏页 / 存档助手页）。</summary>
     public bool HasPages => !_pageHeartbeats.IsEmpty;
 
+    /// <summary>
+    /// 是否还有游戏页面活着：只看 game 前缀的心跳，并且要在心跳超时时间内，
+    /// 避免浏览器被强行结束后残留的心跳把页面误判为仍然打开。
+    /// </summary>
+    public bool HasGamePage
+    {
+        get
+        {
+            if (_pageHeartbeats.IsEmpty) return false;
+            var timeout = TimeSpan.FromSeconds(
+                Math.Clamp(AppConfig.Load().General.HeartbeatTimeoutSeconds, 5, 600));
+            var now = DateTime.UtcNow;
+            foreach (var pair in _pageHeartbeats)
+            {
+                if (!pair.Key.StartsWith("g", StringComparison.Ordinal)) continue;
+                if (now - new DateTime(pair.Value, DateTimeKind.Utc) <= timeout) return true;
+            }
+            return false;
+        }
+    }
+
     /// <summary>最后一个页面主动上报关闭的时间（UTC）；页面重新发心跳时清空。</summary>
     public DateTime? PageClosedUtc
     {

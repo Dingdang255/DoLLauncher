@@ -21,6 +21,7 @@ public static class SaveHelperPage
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__PAGE_TITLE__</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzNzUuMDQ4IDM3NSI+PHBhdGggZmlsbD0iIzVjOWRmZiIgZD0iTTEgNTdRMCAzMyAxNy4wIDE2LjVRMzQgMCA1OCAwSDI2NVEyOTMgMCAzMTMgMTlMMzU2IDYyUTM3NiA4MiAzNzUgMTEwVjMxN1EzNzUgMzQxIDM1OC41IDM1OC4wUTM0MiAzNzUgMzE4IDM3NUg1OFEzNCAzNzUgMTcuMCAzNTguMFEwIDM0MSAwIDMxN1pNNTggMzFRNDcgMzEgMzkuNSAzOC41UTMyIDQ2IDMyIDU3VjMxN1EzMiAzMjggMzkuNSAzMzUuNVE0NyAzNDMgNTggMzQzSDYzVjIzNFE2MyAyMTQgNzYuNSAyMDAuNVE5MCAxODcgMTEwIDE4N0gyNjZRMjg2IDE4NyAyOTkuNSAyMDAuNVEzMTMgMjE0IDMxMyAyMzRWMzQzSDMxOFEzMjkgMzQzIDMzNi41IDMzNS41UTM0NCAzMjggMzQ0IDMxN1YxMTBRMzQ0IDk0IDMzNCA4NEwyOTEgNDFRMjgzIDMzIDI3MSAzMVY4OFEyNzEgMTA3IDI1Ny41IDEyMS4wUTI0NCAxMzUgMjI0IDEzNUgxMzFRMTExIDEzNSA5Ny41IDEyMS4wUTg0IDEwNyA4NCA4OFYzMVpNMjgyIDM0M1YyMzRRMjgyIDIyNyAyNzcuNSAyMjIuNVEyNzMgMjE4IDI2NiAyMThIMTEwUTEwMyAyMTggOTguNSAyMjIuNVE5NCAyMjcgOTQgMjM0VjM0M1pNMTE1IDMxVjg4UTExNSA5NSAxMTkuNSA5OS41UTEyNCAxMDQgMTMxIDEwNEgyMjRRMjMxIDEwNCAyMzUuNSA5OS41UTI0MCA5NSAyNDAgODhWMzFaIi8+PC9zdmc+">
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
@@ -57,7 +58,6 @@ public static class SaveHelperPage
   .item b { color: #dfe4ec; font-weight: 600; }
   .item span.meta { color: #8d94a1; }
   .item input[type=checkbox] { width: 16px; height: 16px; accent-color: #5c9dff; flex: none; }
-  a.back { color: #7fb3ff; }
   input[type=file] { color: #b8c0cd; font-size: 12px; }
   button:disabled { opacity: .45; cursor: not-allowed; }
   .status { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid #3d4351; color: #9aa1ad; flex: none; }
@@ -128,6 +128,7 @@ public static class SaveHelperPage
       <button id="btnSelectAll">全选</button>
       <button id="btnSelectNone">清空选择</button>
       <button class="primary" id="btnExportSlots" disabled>导出选中槽</button>
+      <button id="btnExportSaveFile" disabled>导出为 .save</button>
       <button id="btnVarsSlots" disabled>编辑变量</button>
       <button class="danger" id="btnDeleteSlots" disabled>删除选中槽</button>
       <span id="slotSelInfo" class="hint" style="margin:0">已选 0 个</span>
@@ -139,13 +140,13 @@ public static class SaveHelperPage
       <button class="mini" id="bulkCancel">取消</button>
       <span class="meta" id="bulkInfo"></span>
     </div>
-    <div class="hint">选中 1 个槽时可直接改名称 / 标题；导出、删除支持多选，编辑变量只支持单选；选中多个时只保留导出与删除可用。拖动某一槽放到另一槽上，可把两者槽位互换。修改前建议先备份。</div>
+    <div class="hint">选中 1 个槽时可直接改名称 / 标题；导出、删除支持多选，编辑变量只支持单选；选中多个时只保留导出与删除可用。拖动某一槽放到另一槽上，可把两者槽位互换。修改前建议先备份。「导出为 .save」只支持单选，导出的是游戏原生存档格式，可直接在游戏里「Load from file」载入。</div>
   </div>
 
   <div class="card">
     <h2>4. 导入存档槽（支持多槽）</h2>
     <div class="row">
-      <input type="file" id="slotFile" accept=".json,application/json">
+      <input type="file" id="slotFile" accept=".json,.save,application/json">
       <button id="btnReadSlotFile">读取槽文件</button>
       <button class="primary" id="btnImportSlots" disabled>开始导入</button>
     </div>
@@ -155,7 +156,7 @@ public static class SaveHelperPage
       <label class="radio"><input type="radio" name="importMode" value="remap"> 导入到空槽（自动换槽）</label>
     </div>
     <div id="importPreview"></div>
-    <div class="hint">支持单槽文件 <code>dol-slot/1</code> 和多槽文件 <code>dol-slots/1</code>；切换上面的策略会立即刷新每个槽的处理结果。</div>
+    <div class="hint">支持单槽文件 <code>dol-slot/1</code>、多槽文件 <code>dol-slots/1</code>，以及游戏原生存档 <code>.save</code>；切换上面的策略会立即刷新每个槽的处理结果。</div>
   </div>
 
   <div class="card">
@@ -190,7 +191,6 @@ public static class SaveHelperPage
   <div class="card">
     <h2>运行记录</h2>
     <pre id="log"></pre>
-    <p class="hint"><a class="back" href="/">← 返回游戏</a></p>
   </div>
 </div>
 
@@ -205,6 +205,7 @@ const fileInput = document.getElementById('fileInput');
 const slotFile = document.getElementById('slotFile');
 const slotSelInfo = document.getElementById('slotSelInfo');
 const btnExportSlots = document.getElementById('btnExportSlots');
+const btnExportSaveFile = document.getElementById('btnExportSaveFile');
 const btnDeleteSlots = document.getElementById('btnDeleteSlots');
 const btnVarsSlots = document.getElementById('btnVarsSlots');
 const slotInfoEditor = document.getElementById('slotInfoEditor');
@@ -345,12 +346,254 @@ function stamp() {
 }
 
 function download(text, name) {
+  // Android WebView 不支持 a[download] + blob，改用原生保存桥（SAF 系统保存对话框）。
+  if (window.DoLSave && typeof window.DoLSave.saveText === 'function') {
+    try {
+      window.DoLSave.saveText(name, text);
+      log('已转交系统保存对话框：' + name);
+      return;
+    } catch (e) {
+      log('调用系统保存失败，回退到浏览器下载：' + e.message);
+    }
+  }
   const blob = new Blob([text], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+// ---------- DoL 原生 .save 文件（LZString base64 文本）----------
+
+// 游戏存档里的 id 就是 Story.domId，DoL 固定为这个字符串；载入时会校验，不一致会报错。
+const DOL_SAVE_ID = 'degrees-of-lewdity';
+
+const DolLz = (function () {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+  const rev = {};
+  for (let i = 0; i < chars.length; i++) rev[chars.charAt(i)] = i;
+
+  function compressToBase64(input) {
+    if (input == null) return '';
+    const out = [];
+    let val = 0;
+    let pos = 0;
+    const bits = (value, count) => {
+      for (let i = 0; i < count; i++) {
+        val = (val << 1) | (value & 1);
+        value >>= 1;
+        if (++pos === 6) {
+          out.push(chars.charAt(val));
+          val = 0;
+          pos = 0;
+        }
+      }
+    };
+    const dict = Object.create(null);
+    const create = Object.create(null);
+    let enlarge = 2;
+    let dictSize = 3;
+    let numBits = 2;
+    let w = '';
+    const emitPending = ch => {
+      if (ch.charCodeAt(0) < 256) {
+        bits(0, numBits);
+        bits(ch.charCodeAt(0), 8);
+      } else {
+        bits(1, numBits);
+        bits(ch.charCodeAt(0), 16);
+      }
+      if (--enlarge === 0) {
+        enlarge = 1 << numBits;
+        numBits++;
+      }
+      delete create[ch];
+    };
+    for (let i = 0; i < input.length; i++) {
+      const c = input.charAt(i);
+      if (!(c in dict)) {
+        dict[c] = dictSize++;
+        create[c] = 1;
+      }
+      const wc = w + c;
+      if (wc in dict) {
+        w = wc;
+        continue;
+      }
+      if (w in create) emitPending(w); else bits(dict[w], numBits);
+      if (--enlarge === 0) {
+        enlarge = 1 << numBits;
+        numBits++;
+      }
+      dict[wc] = dictSize++;
+      w = c;
+    }
+    if (w !== '') {
+      if (w in create) emitPending(w); else bits(dict[w], numBits);
+      if (--enlarge === 0) {
+        enlarge = 1 << numBits;
+        numBits++;
+      }
+    }
+    bits(2, numBits);
+    do { bits(0, 1); } while (pos !== 0);
+    return out.join('');
+  }
+
+  function decompressFromBase64(input) {
+    if (input == null) return '';
+    if (input === '') return null;
+    return decompress(input.length, 32, index => rev[input.charAt(index)]);
+  }
+
+  function decompress(length, resetValue, getNextValue) {
+    const dictionary = [];
+    let enlargeIn = 4;
+    let dictSize = 4;
+    let numBits = 3;
+    let entry = '';
+    const result = [];
+    let i;
+    let w;
+    let bits;
+    let resb;
+    let power;
+    const data = { val: getNextValue(0), position: resetValue, index: 1 };
+    for (i = 0; i < 3; i += 1) dictionary[i] = i;
+    const read = count => {
+      bits = 0;
+      let maxpower = 1 << count;
+      power = 1;
+      while (power !== maxpower) {
+        resb = data.val & data.position;
+        data.position >>= 1;
+        if (data.position === 0) {
+          data.position = resetValue;
+          data.val = getNextValue(data.index++);
+        }
+        bits |= (resb > 0 ? 1 : 0) * power;
+        power <<= 1;
+      }
+      return bits;
+    };
+    const first = read(2);
+    if (first === 2) return '';
+    let c = String.fromCharCode(read(first === 0 ? 8 : 16));
+    dictionary[3] = c;
+    w = c;
+    result.push(c);
+    for (;;) {
+      if (data.index > length) return '';
+      c = read(numBits);
+      if (c === 0) {
+        dictionary[dictSize++] = String.fromCharCode(read(8));
+        c = dictSize - 1;
+        enlargeIn--;
+      } else if (c === 1) {
+        dictionary[dictSize++] = String.fromCharCode(read(16));
+        c = dictSize - 1;
+        enlargeIn--;
+      } else if (c === 2) {
+        return result.join('');
+      }
+      if (enlargeIn === 0) {
+        enlargeIn = 1 << numBits;
+        numBits++;
+      }
+      if (dictionary[c]) entry = dictionary[c];
+      else if (c === dictSize) entry = w + w.charAt(0);
+      else return null;
+      result.push(entry);
+      dictionary[dictSize++] = w + entry.charAt(0);
+      enlargeIn--;
+      w = entry;
+      if (enlargeIn === 0) {
+        enlargeIn = 1 << numBits;
+        numBits++;
+      }
+    }
+  }
+
+  return { compressToBase64: compressToBase64, decompressFromBase64: decompressFromBase64 };
+})();
+
+// 把游戏原生存档文本解析成一个导入条目；不是 .save 时返回 null。
+function parseDolSaveFile(text, dbName) {
+  const raw = String(text || '').trim();
+  if (!raw || raw.charAt(0) === '{') return null;
+  let obj;
+  try {
+    const json = DolLz.decompressFromBase64(raw);
+    if (!json) return null;
+    obj = JSON.parse(json, reviver);
+  } catch (e) {
+    return null;
+  }
+  if (!obj || typeof obj !== 'object' || !obj.state || typeof obj.state !== 'object') return null;
+  if (!Array.isArray(obj.state.history) && !Array.isArray(obj.state.delta)) return null;
+
+  let title = '';
+  let saveName = '';
+  let saveId;
+  let decoded = null;
+  try { decoded = decodeSaveHistory(obj.state); } catch (e) { decoded = null; }
+  if (decoded && decoded.history.length > 0) {
+    const index = Number.isInteger(obj.state.index)
+      ? Math.max(0, Math.min(obj.state.index, decoded.history.length - 1))
+      : decoded.history.length - 1;
+    const moment = decoded.history[index] || {};
+    if (typeof moment.title === 'string') title = moment.title;
+    const vars = (moment.variables && typeof moment.variables === 'object') ? moment.variables : {};
+    if (typeof vars.saveName === 'string') saveName = vars.saveName;
+    if (vars.saveId !== undefined && vars.saveId !== null) saveId = vars.saveId;
+  }
+
+  const slot = 0;
+  return {
+    db: dbName,
+    slot: slot,
+    name: saveName || title || 'DoL 存档',
+    time: '',
+    saves: { slot: slot, data: obj.state },
+    details: {
+      slot: slot,
+      data: {
+        id: typeof obj.id === 'string' && obj.id ? obj.id : DOL_SAVE_ID,
+        idx: obj.idx,
+        title: title || saveName || 'DoL 存档',
+        date: Date.now(),
+        metadata: { saveId: saveId, saveName: saveName }
+      }
+    }
+  };
+}
+
+// 把选中的单个槽导出成游戏可直接「Load from file」的 .save 文件。
+function exportSlotAsDolSave() {
+  const picked = pickedItems();
+  if (picked.length !== 1) { log('请勾选 1 个存档槽再导出 .save。'); return; }
+  const item = picked[0];
+  const data = item.save && item.save.data && typeof item.save.data === 'object' ? item.save.data : null;
+  if (!data || (!Array.isArray(data.history) && !Array.isArray(data.delta))) {
+    log('槽 ' + item.slot + ' 没有可导出的存档数据。');
+    return;
+  }
+  const body = slotBody(item.detail);
+  const idx = Number.isFinite(Number(body.idx))
+    ? Number(body.idx)
+    : (Number.isInteger(data.index) ? data.index : 0);
+  const payload = {
+    id: typeof body.id === 'string' && body.id ? body.id : DOL_SAVE_ID,
+    state: data,
+    idx: idx
+  };
+  let text;
+  try { text = DolLz.compressToBase64(JSON.stringify(payload)); }
+  catch (e) { log('压缩存档失败：' + e.message); return; }
+  const safe = slotName(item.detail, item.slot).replace(/[\\/:*?"<>|]+/g, '_').slice(0, 40) || 'save';
+  download(text, safe + '-' + stamp() + '.save');
+  log('已把槽 ' + item.slot + ' 导出为 ' + safe + '.save。');
 }
 
 // 存档库名：优先游戏运行时的 window.idb.dbName，其次启动器清单，最后回退默认库名。
@@ -573,6 +816,7 @@ function updateSlotSelection() {
   const none = picked === 0;
   const single = picked === 1;
   btnExportSlots.disabled = none;
+  btnExportSaveFile.disabled = !single;
   btnDeleteSlots.disabled = none;
   btnVarsSlots.disabled = !single;
   slotInfoEditor.hidden = !single;
@@ -1097,13 +1341,38 @@ function readSlotEntries(payload) {
 async function readImportFile() {
   const file = slotFile.files && slotFile.files[0];
   if (!file) { log('请先选择一个槽文件。'); return; }
-  let payload;
-  try { payload = JSON.parse(await file.text(), reviver); }
+  let text;
+  try { text = await file.text(); }
   catch (e) { log('读取失败：' + e.message); return; }
 
   importState = null;
   btnImportSlots.disabled = true;
   importModes.style.display = 'none';
+  importPreview.innerHTML = '';
+
+  let payload = null;
+  if (text.trim().charAt(0) === '{') {
+    try { payload = JSON.parse(text, reviver); }
+    catch (e) { log('读取失败：' + e.message); return; }
+  }
+  if (!payload) {
+    // 不是 JSON：按游戏原生 .save（LZString base64）解析。
+    const dbName = await resolveSaveDb();
+    const entry = parseDolSaveFile(text, dbName);
+    if (!entry) {
+      importPreview.innerHTML = '<div class="warn">无法识别这个文件（支持 dol-slot/1、dol-slots/1 与游戏原生 .save）。</div>';
+      return;
+    }
+    importState = { fileName: file.name, sourceVersion: '', entries: [entry] };
+    // .save 里没有槽位号，默认导入到空槽，避免覆盖现有的 1 号槽或自动存档。
+    const remapRadio = document.querySelector('input[name=importMode][value=remap]');
+    if (remapRadio) remapRadio.checked = true;
+    importModes.style.display = 'flex';
+    btnImportSlots.disabled = false;
+    await renderImportPreview();
+    log('已读取游戏存档 ' + file.name + '：' + entry.name + '。');
+    return;
+  }
   if (payload && payload.format === 'dol-saves/1') {
     importPreview.innerHTML = '<div class="warn">这是存档库备份文件，请用第 5 节的「导入存档库到当前版本」。</div>';
     return;
@@ -1458,6 +1727,7 @@ document.getElementById('btnSelectNone').addEventListener('click', () => {
   updateSlotSelection();
 });
 btnExportSlots.addEventListener('click', () => exportSelectedSlots().catch(e => log(e.message)));
+btnExportSaveFile.addEventListener('click', () => exportSlotAsDolSave());
 btnDeleteSlots.addEventListener('click', () => deleteSelectedSlots().catch(e => log(e.message)));
 
 if (AUTO_ONLY) {

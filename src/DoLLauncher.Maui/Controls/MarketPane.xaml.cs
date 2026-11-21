@@ -462,7 +462,8 @@ public partial class MarketPane : ContentView
         row.Syncing = true;
         try
         {
-            row.SelectedEditionIndex = -1;
+            // 换版本后包型仍保留「默认第一个」，不要重置成空白。
+            row.SelectedEditionIndex = row.HasEditions ? 0 : -1;
             row.Assets.Clear();
             row.SelectedAssetIndex = -1;
         }
@@ -1120,6 +1121,8 @@ public sealed class MarketRow : INotifyPropertyChanged
     {
         Mod = mod;
         Editions = new ObservableCollection<MarketEdition>(mod.Editions);
+        // 多包型时默认选中第一个：否则下拉框空白，而下载实际又按第一个包型走。
+        _selectedEditionIndex = Editions.Count > 1 ? 0 : -1;
     }
 
     public MarketMod Mod { get; }

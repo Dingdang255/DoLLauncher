@@ -24,6 +24,9 @@ public sealed class AndroidBrowserHost : IBrowserHost
     }
 
     public void Close(string versionFolder) => SessionClosed?.Invoke(versionFolder);
+
+    /// <summary>Android 的游戏页在应用内，由页面自行切换，不存在外部窗口可聚焦。</summary>
+    public bool TryFocus(string versionFolder) => false;
 }
 
 /// <summary>

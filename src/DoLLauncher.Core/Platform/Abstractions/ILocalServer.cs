@@ -24,6 +24,9 @@ public interface ILocalServer : IDisposable
     /// <summary>是否还有页面开着。</summary>
     bool HasPages { get; }
 
+    /// <summary>是否还有游戏页面在发心跳（不含存档助手页）。</summary>
+    bool HasGamePage { get; }
+
     /// <summary>最后一个页面主动上报关闭的时间（UTC）。</summary>
     DateTime? PageClosedUtc { get; }
 

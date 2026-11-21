@@ -68,6 +68,9 @@ public interface IBrowserHost
     /// <summary>按请求打开页面；无法打开时返回 null。</summary>
     Task<BrowserSession?> OpenAsync(BrowserLaunchRequest request, CancellationToken ct = default);
 
+    /// <summary>把该版本已打开的页面窗口切到前台；没有存活窗口时返回 false。</summary>
+    bool TryFocus(string versionFolder);
+
     /// <summary>关闭指定版本对应的会话。</summary>
     void Close(string versionFolder);
 

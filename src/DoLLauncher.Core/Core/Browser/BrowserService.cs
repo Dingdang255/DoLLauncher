@@ -43,6 +43,25 @@ public static class BrowserService
         Log($"已登记关页检测（{version.Folder}）。");
     }
 
+    /// <summary>
+    /// 把该版本上一次打开的游戏页面窗口切到前台；游戏页已经关闭（只剩存档助手页或其它页面）
+    /// 或找不到窗口时返回 false，调用方据此重新打开游戏页面。
+    /// </summary>
+    public static bool TryFocus(string folder)
+    {
+        try
+        {
+            // 必须确认是这个版本端口上的游戏页还活着，不能聚焦存档助手或别的窗口。
+            if (!ServerManager.HasGamePage(folder)) return false;
+            return PlatformServices.Browser.TryFocus(folder);
+        }
+        catch (Exception ex)
+        {
+            LogError($"聚焦页面失败（{folder}）", ex);
+            return false;
+        }
+    }
+
     /// <summary>关闭指定版本的页面（同时停止关页监听）。</summary>
     public static void Close(string folder)
     {
