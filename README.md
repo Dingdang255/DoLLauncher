@@ -1,18 +1,22 @@
 # DoL 多版本启动器（DoLLauncher）
 
-面向 Degrees of Lewdity 的多版本管理工具：把不同版本的游戏、各自的模组、存档与设置收在一个界面里，互不干扰。界面布局参考 PCL，桌面端采用 WPF，Android 端采用 .NET MAUI；发布版无需预装 Python，桌面版是单文件 exe，**也不需要预装 .NET 运行时**。
+面向 [Degrees of Lewdity](https://www.vrelnir.com/) 的多版本管理工具：把不同版本的游戏、各自的模组、存档与设置收在一个界面里，互不干扰。
+
+桌面端采用 WPF，Android 端采用 .NET MAUI；发布版无需预装 Python，桌面版是单文件 exe，**也不需要预装 .NET 运行时**。
 
 > 本仓库只包含启动器源码。游戏本体、模组、图片包与汉化资源不随仓库分发，版权归各自作者所有。
 
 ## 它解决什么问题
 
-直接用 `file://` 打开不同版本的游戏 HTML 时，浏览器会把它们视为同一个 origin，存档、模组开关、游戏设置全部共享，换版本就容易串数据。启动器给每个版本分配一个固定的本地端口，用内置静态服务器在 `127.0.0.1:<端口>` 打开游戏 —— **不同端口即不同 origin**，IndexedDB 从此按版本隔离。
+直接打开不同版本的游戏 HTML 时 *(也就是用 `file://` 打开)* ，浏览器会把它们视为同一个 origin，存档、模组开关、游戏设置全部共享，换版本就容易串数据。
+
+而启动器会给每个版本分配一个固定的本地端口，用内置静态服务器在 `127.0.0.1:<端口>` 打开游戏 —— **不同端口即不同 origin**，IndexedDB 从此按版本隔离。
 
 ## 主要功能
 
 | 模块 | 能力 |
 | --- | --- |
-| 版本管理 | 扫描、添加、启动 / 停止、导出与导入 `.dolpack`；卡片式列表与运行状态 |
+| 版本管理 | 扫描、添加、启动 / 停止、导出与导入 `.dolpack` / `.zip`；卡片式列表与运行状态 |
 | 模组管理 | 导入或拖拽安装、启停、排序、详情与 README、同名 / 缺前置 / 版本不满足提示 |
 | 下载中心 | 游戏本体支持汉化整包 / ModLoader Neo 两种来源，镜像测速与分块并行下载；模组市场按索引搜索、筛选、选资产版本并一键装到选中版本 |
 | 存档助手 | 同源页面导出 / 导入 / 删除单个存档槽，备份到 `backups/`；支持 DoL 原生 `.save` 存档的导入 / 导出，Android 端导出走系统保存对话框 |
@@ -49,18 +53,30 @@
 
 ## 构建
 
-需要 .NET 10 SDK：
+### Windows
+
+需要 `.NET 10 SDK`：
 
 ```powershell
 cd dev
 .\build.ps1                  # 生成 exe + 只有启动器的分发包
-.\build.ps1 -IncludeVersions # 连本机 versions 一起打包（体积很大）
+.\build.ps1 -IncludeVersions # 连本机 versions 一起打包（谁会这样做?）
 .\build.ps1 -NoZip           # 只生成 exe
 ```
 
-产物写入 `_publish/`；本地的 `build.ps1` 会把 exe 复制到同级运行时目录 `DoLLauncher/`（该目录不属于仓库），并从 `tools/scripts/` 取脚本打包分发 zip。CI 只构建单文件 exe，连带 README、LICENSE、`DoL.bat` 与 `launcher.ps1` 打成 `DoL-Launcher-win-x64.zip`；推送 `v*` 标签会自动创建 Release（见 `.github/workflows/build.yml`）。开发者可用 `DoLLauncher.exe --selftest` 跑一次自检，结果写入 `self-test.log`。
+ - 产物会写入 `_publish/`
+ - 本地的 `build.ps1` 会把 exe 复制到同级运行时目录 `DoLLauncher/`（该目录不属于仓库），并从 `tools/scripts/` 取脚本打包分发 zip
+ - CI 只构建单文件 exe，连带 README、LICENSE、`DoL.bat` 与 `launcher.ps1` 打成 `DoL-Launcher-win-x64.zip`
+ - 推送 `v*` 标签会自动创建 Release（见 `.github/workflows/build.yml`）
+ - 开发者可用 `DoLLauncher.exe --selftest` 跑一次自检，结果会写入 `self-test.log`
 
-Android 端需要 Android SDK、JDK 17 与 MAUI 工作负载（脚本会自动探测 `ANDROID_HOME` / `ANDROID_SDK_ROOT` 及常见安装路径，找不到时按提示设置环境变量）：
+---
+
+### Android
+
+需要 `Android SDK`、`JDK 17` 与 `MAUI 工作负载`
+
+> 脚本会自动探测 `ANDROID_HOME` / `ANDROID_SDK_ROOT` 及常见安装路径，找不到时按提示设置环境变量
 
 ```powershell
 cd dev
@@ -71,35 +87,61 @@ dotnet workload install maui-android
 .\build-android.ps1 -NoCopy         # 只构建，不复制产物
 ```
 
-未提供签名密码时，本地产物是 debug 签名的测试包（可安装，不能用于发版）；正式签名包由 CI 在 main / `v*` 标签上生成。本地需要正式签名时，把 keystore 放到 `keys/dol-release.keystore`，再传 `-KeyAlias` / `-KeyPass` / `-StorePass`（或设置 `DOL_KEYSTORE`、`DOL_KEY_ALIAS`、`DOL_KEY_PASS`、`DOL_STORE_PASS` 环境变量）。
-
-`android.yml` 在 main 与 `v*` 标签上构建签名 Release APK，`android/**`、`feat/android*` 分支只构建 Debug 包；签名所需 keystore 通过仓库 Secrets（`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`、`ANDROID_STORE_PASSWORD`）注入，未配置时自动退回调试签名。
+ - 未提供签名密码时，本地产物是 debug 签名的测试包（可安装，不能用于发版）
+ - 正式签名包由 CI *(`android.yml`)* 在 main / `v*` 标签上生成
+  > 签名所需 keystore 通过仓库 Secrets 注入，未配置时自动退回调试签名
+  >
+  > `android/**`、`feat/android*` 分支推送时只构建 Debug 包
+ - 本地需要正式签名时，把 keystore 放到 `keys/dol-release.keystore`，再传 `-KeyAlias` / `-KeyPass` / `-StorePass`
+  > 或设置 `DOL_KEYSTORE`、`DOL_KEY_ALIAS`、`DOL_KEY_PASS`、`DOL_STORE_PASS` 环境变量
 
 ## 运行
 
-1. 从 Release 下载 `DoL-Launcher-win-x64.zip`，解压到**没有中文和空格的路径**；
-2. 双击 `DoLLauncher.exe`，左侧选中版本后点「启动游戏」；
-3. 启动器在 `127.0.0.1:<端口>` 起内置服务器并用默认浏览器打开，关闭启动器时会询问是否一并停止服务器；服务器仍在运行时再次点击「打开游戏页面」会先聚焦上次打开的游戏窗口，页面确实关掉了才重新打开。
+### Windows
 
-Android 端从 Release 下载 `DoL-Launcher-android.apk` 安装（与调试包签名不同，覆盖安装前需先卸载旧包）。进入版本详情后「启动游戏」会在应用内 WebView 打开，返回启动器时游戏保留在后台，需要退出时在版本页点「停止」。数据目录位于 `/storage/emulated/0/Android/media/com.dol.launcher/DoL`，版本详情与关于页的「打开」按钮可直接用文件管理器定位。
+1. 从 Release 下载 `DoL-Launcher-win-x64.zip`，解压到**没有中文和空格的路径**
+2. 双击 `DoLLauncher.exe` 打开启动器，在「版本管理」页选中已有版本后点「启动游戏」
+ > 也可以直接使用仓库里的 `tools/scripts/DoL.bat` 与同目录的 `launcher.ps1` 脚本打开启动器 *（需 Python 3 在 PATH 中）*
+3. 启动器在 `127.0.0.1:<端口>` 起内置服务器并用默认浏览器打开，关闭启动器时会询问是否一并停止服务器；服务器仍在运行时再次点击「打开游戏页面」会先聚焦上次打开的游戏窗口，页面确实关掉了才重新打开
 
-自行构建的用户可直接使用仓库里的 `tools/scripts/DoL.bat` 与 `launcher.ps1`（需 Python 3 在 PATH 中）；打包时会被放到分发包根目录。
+---
+
+### Android
+
+1. Android 端从 Release 下载 `DoL-Launcher-android.apk` 安装
+ > Release包与Debug包签名不同，覆盖安装前需先卸载旧包
+2. 进入某游戏版本的详情页后点「启动游戏」，游戏会在应用内 WebView 打开
+3. 返回启动器时游戏会留在后台，需要退出时在版本详情页点「停止」即可
+ > 其它：
+ >
+ > 数据目录位于 `手机存储根目录/Android/media/com.dol.launcher/DoL`，部分路径旁的「打开文件夹」按钮可直接用文件管理器定位
 
 ## 说明与边界
 
-- 启动器只管理本地文件与本地服务器，不抓取、不分发游戏本体或模组资源。
-- 浏览器存档只能通过同源页面读写，因此存档相关操作会短暂打开一个页面。
-- 启动器无法实时感知外部对 `mods/` 的修改；换端口也不会自动迁移旧的 `file://` 存档，需要用存档助手。
-- 仅支持 Windows 与 Android（WPF + DWM / MAUI Android），未适配 macOS / Linux。
-- Android 端固定使用应用内 WebView（系统 WebView），不使用外部浏览器；旧版 WebView 的 JS 堆上限较低，模组较大时可能渲染失败，建议保持系统 WebView 为较新版本。
+- 启动器只管理本地文件与本地服务器，不抓取、不分发游戏本体或模组资源
+- 浏览器存档只能通过同源页面读写，因此存档相关操作会短暂打开一个页面
+- 启动器有时可能无法实时感知外部对 `mods/` 的修改，可手动刷新
+- 换端口不会自动迁移旧的 `file://` 存档，可以用存档助手操作
+- Android 端固定使用应用内 WebView（系统 WebView），不使用外部浏览器
+ > 旧版 WebView 的 JS 堆上限较低，模组较大时可能渲染失败，建议保持系统 WebView 为较新版本
+
+平台支持现状：
+
+| 平台 | 支持 | 说明 |
+| --- | :---: | --- |
+| Windows 10 / 11（x64） | ✅ | WPF + WebView2，功能完整 |
+| Android 7.0+ | ✅ | MAUI + 应用内 WebView，功能完整 |
+| Linux | ⚠️ | 暂未开发；业务逻辑已集中在跨平台 Core，可在此基础上适配 |
+| macOS / iOS | ❌ | 不计划支持 |
 
 ## 第三方资源与致谢
 
-- 本项目为非官方工具，与 Vrelnir 及 DoL 中文维基无隶属关系。
-- 启动器图标（`Assets/dol.ico`、`Assets/dol-favicon.png`）由 Degrees of Lewdity（作者 Vrelnir）游戏美术资源中的网页小图标，与 DoL 中文维基使用的站点图标去背景合成，仅用于标识本项目。相关图像版权归原权利方所有，**不包含在本仓库的 MIT 许可范围内**。
-- 游戏本体、模组、图片包与汉化资源均由各自作者发布，本仓库不再分发。
-- 下载中心引用的仓库与市场索引归各自维护者所有。
+- 本项目为非官方工具，与 Vrelnir 及 DoL 中文维基无隶属关系
+- 启动器图标（`Assets/dol.ico`、`Assets/dol-favicon.png`）由 Degrees of Lewdity（作者 [Vrelnir](https://www.vrelnir.com/)）游戏美术资源中的网页小图标，与 [DoL 中文维基](https://degreesoflewditycn.miraheze.org/) 使用的站点图标去背景合成，仅用于标识本项目
+- 相关图像版权所有者所有，**不包含在本仓库的 MIT 许可范围内**
+- 游戏本体、模组、图片包与汉化资源均由各自作者发布，本仓库不分发
+- 下载中心引用的仓库与市场索引归各自维护者所有
 
 ## 许可证
 
-[MIT](LICENSE)，仅覆盖本仓库源码。游戏本体、模组、图标等第三方资源不在许可范围内，详见上一节。
+[MIT](LICENSE)，仅覆盖本仓库源码。游戏本体、模组、图标等第三方资源不在许可范围内，详见上一节
