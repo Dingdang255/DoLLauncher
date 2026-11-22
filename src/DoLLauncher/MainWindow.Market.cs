@@ -607,8 +607,12 @@ public partial class MainWindow
         if (_downloadBusy) return;
         // 手动刷新绕过 CDN / 本地缓存，确保拿到最新的自有市场列表
         if (ModPane.Visibility == Visibility.Visible) _ = RefreshMarketAsync(forceRefresh: true);
-        else if (PackPane.Visibility == Visibility.Visible) _ = RefreshPackAsync(forceReload: true);
-        else _ = RefreshGameReleasesAsync();
+        else if (PackPane.Visibility == Visibility.Visible) _ = RefreshPackAsync(forceReload: true, page: _packPage);
+        else
+        {
+            _gameAllReleases = null;
+            _ = RefreshGameReleasesAsync(_gamePage);
+        }
     }
 
     /// <summary>按设置里的「启动时预取索引」时序，在后台拉取游戏本体、模组市场与整合包索引。</summary>
@@ -661,7 +665,7 @@ public partial class MainWindow
         return list;
     }
 
-    private async Task RefreshGameReleasesAsync()
+    private async Task RefreshGameReleasesAsync(int page = 1)
     {
         if (_gameLoading) return;
         _gameLoading = true;
@@ -669,14 +673,26 @@ public partial class MainWindow
         GameStatusText.Text = "正在获取 Release 列表…";
         try
         {
-            var list = await DownloadService.FetchGameReleasesAsync(source);
+            if (_gameAllReleases == null || _gameAllSourceId != source.Id)
+            {
+                var all = await DownloadService.FetchAllGameReleasesAsync(source);
+                _gameAllReleases = all.Where(r => r.HasInstallableAsset).ToList();
+                _gameAllSourceId = source.Id;
+            }
+
+            const int pageSize = 20;
+            _gameLastPage = Math.Max(1, (_gameAllReleases.Count + pageSize - 1) / pageSize);
+            _gamePage = Math.Clamp(page, 1, _gameLastPage);
             _gameReleases.Clear();
-            foreach (var release in list.Where(r => r.HasInstallableAsset))
+            foreach (var release in _gameAllReleases.Skip((_gamePage - 1) * pageSize).Take(pageSize))
                 _gameReleases.Add(release);
             if (_gameReleases.Count > 0) GameReleaseList.SelectedIndex = 0;
             _gameLoaded = true;
-            GameStatusText.Text = $"共 {_gameReleases.Count} 个 Release";
-            Log($"已获取 {_gameReleases.Count} 个 Release（{source.Name}）");
+            UpdateGamePager();
+            GameStatusText.Text = _gameLastPage > 1
+                ? $"共 {_gameAllReleases.Count} 个版本 · 第 {_gamePage} / {_gameLastPage} 页"
+                : $"共 {_gameAllReleases.Count} 个版本";
+            Log($"已获取 {_gameAllReleases.Count} 个可安装版本（{source.Name}，第 {_gamePage}/{_gameLastPage} 页）");
         }
         catch (Exception ex)
         {
@@ -690,6 +706,50 @@ public partial class MainWindow
         }
     }
 
+    private void UpdateGamePager()
+    {
+        GamePager.Visibility = _gameLastPage > 1 ? Visibility.Visible : Visibility.Collapsed;
+        GamePageBox.Text = _gamePage.ToString();
+        GamePageTotal.Text = $"/ {_gameLastPage}";
+    }
+
+    private async void GamePagePrev_Click(object sender, RoutedEventArgs e)
+    {
+        if (_gameLoading || _gamePage <= 1) return;
+        await RefreshGameReleasesAsync(_gamePage - 1);
+    }
+
+    private async void GamePageNext_Click(object sender, RoutedEventArgs e)
+    {
+        if (_gameLoading || _gamePage >= _gameLastPage) return;
+        await RefreshGameReleasesAsync(_gamePage + 1);
+    }
+
+    private void GamePageBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        e.Handled = true;
+        CommitGamePageInput();
+    }
+
+    private void GamePageBox_LostFocus(object sender, RoutedEventArgs e) => CommitGamePageInput();
+
+    private void CommitGamePageInput()
+    {
+        if (_gameLoading)
+        {
+            GamePageBox.Text = _gamePage.ToString();
+            return;
+        }
+        if (!int.TryParse(GamePageBox.Text.Trim(), out var page) || page < 1 || page > _gameLastPage)
+        {
+            GamePageBox.Text = _gamePage.ToString();
+            return;
+        }
+        if (page == _gamePage) return;
+        _ = RefreshGameReleasesAsync(page);
+    }
+
     private void GameSource_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (GameSourceBox.SelectedItem is not GameSource source) return;
@@ -700,6 +760,7 @@ public partial class MainWindow
             AppConfig.Save(cfg);
         }
         ApplyGameSourceUi(source);
+        _gameAllReleases = null;
         if (_gameLoaded)
         {
             _gameLoaded = false;
@@ -721,46 +782,55 @@ public partial class MainWindow
         ImagePackCheck.ToolTip = extraTip;
     }
 
-    /// <summary>拉取 Lyra 整合包最新 Release，并把资产展开成可选组合。</summary>
-    private async Task RefreshPackAsync(bool forceReload = false)
+    /// <summary>拉取 Lyra 整合包 Release 列表，按页展示，默认最新一页。</summary>
+    private async Task RefreshPackAsync(bool forceReload = false, int page = 1)
     {
         if (_packLoading || (_packLoaded && !forceReload)) return;
         _packLoading = true;
         PackStatusText.Text = "正在获取 Lyra 整合包列表…";
         try
         {
-            var releases = await DownloadService.FetchLyraReleasesAsync();
-            var release = releases.FirstOrDefault(r => r.Assets.Count > 0);
-            _packOptions.Clear();
-
-            if (release != null)
+            var requested = Math.Max(1, page);
+            var target = requested;
+            var apiLast = 1;
+            List<GameRelease> releases;
+            while (true)
             {
-                foreach (var asset in release.Assets.OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase))
-                {
-                    var label = asset.Name;
-                    var detail = $"{asset.SizeText} · {release.Tag}";
-                    if (LyraPackName.TryParse(asset.Name, out var info))
-                    {
-                        label = $"Lyra {info.ComboLabel} · 游戏 {info.GameVersion} · 汉化 {info.ChsVersion}";
-                        detail = $"{asset.SizeText} · {asset.Name}";
-                    }
-
-                    _packOptions.Add(new PackOption
-                    {
-                        Label = label,
-                        Detail = detail,
-                        Asset = asset,
-                        Release = release,
-                    });
-                }
+                var (list, lastPage) = await DownloadService.FetchLyraReleasesPageAsync(target);
+                apiLast = Math.Max(1, lastPage);
+                releases = list.Where(r => r.Assets.Count > 0).ToList();
+                if (releases.Count > 0 || target <= 1) break;
+                target--;
             }
 
+            _packPage = target;
+            _packLastPage = target < requested ? target : apiLast;
+            var keepTag = (PackReleaseBox.SelectedItem as GameRelease)?.Tag;
+
+            _packFilling = true;
+            try
+            {
+                _packReleases.Clear();
+                foreach (var release in releases)
+                    _packReleases.Add(release);
+
+                var keepIndex = keepTag == null
+                    ? -1
+                    : _packReleases.ToList().FindIndex(r => r.Tag == keepTag);
+                PackReleaseBox.SelectedIndex = _packReleases.Count > 0
+                    ? (keepIndex >= 0 ? keepIndex : 0)
+                    : -1;
+            }
+            finally
+            {
+                _packFilling = false;
+            }
+
+            ApplyPackRelease(PackReleaseBox.SelectedItem as GameRelease);
+            UpdatePackPager();
             _packLoaded = true;
-            PackStatusText.Text = _packOptions.Count > 0
-                ? $"共 {_packOptions.Count} 个整合包"
-                : "没有找到 Lyra 整合包";
-            if (_packOptions.Count > 0) PackVariantList.SelectedIndex = 0;
-            Log($"已获取 {_packOptions.Count} 个 Lyra 整合包（{release?.Tag ?? "无 Release"}）");
+            var current = (PackReleaseBox.SelectedItem as GameRelease)?.Tag ?? "无 Release";
+            Log($"已获取 {_packReleases.Count} 个 Lyra Release（第 {_packPage}/{_packLastPage} 页，当前 {current}）");
         }
         catch (Exception ex)
         {
@@ -772,6 +842,95 @@ public partial class MainWindow
         {
             _packLoading = false;
         }
+    }
+
+    /// <summary>把某个 Release 的资产展开成可选的整合包组合。</summary>
+    private void ApplyPackRelease(GameRelease? release)
+    {
+        _packOptions.Clear();
+        if (release == null)
+        {
+            PackStatusText.Text = "没有找到 Lyra 整合包";
+            return;
+        }
+
+        foreach (var asset in release.Assets.OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var label = asset.Name;
+            var detail = $"{asset.SizeText} · {release.Tag}";
+            if (LyraPackName.TryParse(asset.Name, release.Tag, out var info))
+            {
+                label = string.IsNullOrEmpty(info.GameVersion)
+                    ? $"Lyra {info.ComboLabel} · 汉化 {info.ChsVersion}"
+                    : $"Lyra {info.ComboLabel} · 游戏 {info.GameVersion} · 汉化 {info.ChsVersion}";
+                detail = $"{asset.SizeText} · {asset.Name}";
+            }
+
+            _packOptions.Add(new PackOption
+            {
+                Label = label,
+                Detail = detail,
+                Asset = asset,
+                Release = release,
+            });
+        }
+
+        PackStatusText.Text = _packOptions.Count > 0
+            ? (_packLastPage > 1
+                ? $"共 {_packOptions.Count} 个整合包 · 第 {_packPage} / {_packLastPage} 页"
+                : $"共 {_packOptions.Count} 个整合包")
+            : "该版本没有可用的整合包";
+        if (_packOptions.Count > 0) PackVariantList.SelectedIndex = 0;
+    }
+
+    private void UpdatePackPager()
+    {
+        PackPager.Visibility = _packLastPage > 1 ? Visibility.Visible : Visibility.Collapsed;
+        PackPageBox.Text = _packPage.ToString();
+        PackPageTotal.Text = $"/ {_packLastPage}";
+    }
+
+    private async void PackPagePrev_Click(object sender, RoutedEventArgs e)
+    {
+        if (_packLoading || _packPage <= 1) return;
+        await RefreshPackAsync(forceReload: true, page: _packPage - 1);
+    }
+
+    private async void PackPageNext_Click(object sender, RoutedEventArgs e)
+    {
+        if (_packLoading || _packPage >= _packLastPage) return;
+        await RefreshPackAsync(forceReload: true, page: _packPage + 1);
+    }
+
+    private void PackPageBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        e.Handled = true;
+        CommitPackPageInput();
+    }
+
+    private void PackPageBox_LostFocus(object sender, RoutedEventArgs e) => CommitPackPageInput();
+
+    private void CommitPackPageInput()
+    {
+        if (_packLoading)
+        {
+            PackPageBox.Text = _packPage.ToString();
+            return;
+        }
+        if (!int.TryParse(PackPageBox.Text.Trim(), out var page) || page < 1 || page > _packLastPage)
+        {
+            PackPageBox.Text = _packPage.ToString();
+            return;
+        }
+        if (page == _packPage) return;
+        _ = RefreshPackAsync(forceReload: true, page: page);
+    }
+
+    private void PackRelease_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_packFilling) return;
+        ApplyPackRelease(PackReleaseBox.SelectedItem as GameRelease);
     }
 
     private void PackType_Changed(object sender, SelectionChangedEventArgs e)

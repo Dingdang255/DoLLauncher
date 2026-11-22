@@ -13,6 +13,7 @@ using System.Windows.Threading;
 using Shapes = System.Windows.Shapes;
 using DoLLauncher.Controls;
 using DoLLauncher.Core.Browser;
+using DoLLauncher.Core.Import;
 using DoLLauncher.Core.Search;
 using DoLLauncher.Core.Theme;
 using DoLLauncher.Core.Versions;
@@ -40,8 +41,10 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<string> _categories = new();
     private readonly ObservableCollection<GameRelease> _marketReleases = new();
     private readonly ObservableCollection<PackOption> _packOptions = new();
+    private readonly ObservableCollection<GameRelease> _packReleases = new();
     private bool _packLoaded;
     private bool _packLoading;
+    private bool _packFilling;
     private readonly ObservableCollection<BackupEntry> _backupEntries = new();
     private readonly Dictionary<string, List<GameRelease>> _releaseCache = new();
     private readonly Dictionary<string, string> _readmeCache = new();
@@ -58,6 +61,13 @@ public partial class MainWindow : Window
     private bool _loadingMarketPrefs = true;
     private string _projectUrl = "";
     private bool _gameLoading;
+    private int _gamePage = 1;
+    private int _gameLastPage = 1;
+    /// <summary>某个本体源全部可安装版本的本地缓存，用于精确分页；切源或手动刷新时清空。</summary>
+    private List<GameRelease>? _gameAllReleases;
+    private string? _gameAllSourceId;
+    private int _packPage = 1;
+    private int _packLastPage = 1;
     private MarketCatalog? _marketCatalog;
     private List<ModConflict> _conflicts = new();
     private List<ModMissingDependency> _missingDeps = new();
@@ -110,6 +120,7 @@ public partial class MainWindow : Window
         GameReleaseList.ItemsSource = _gameReleases;
         PackTypeBox.ItemsSource = new[] { DownloadService.LyraSource };
         PackTypeBox.SelectedIndex = 0;
+        PackReleaseBox.ItemsSource = _packReleases;
         PackVariantList.ItemsSource = _packOptions;
         MarketList.ItemsSource = _marketView;
         MarketTargetBox.ItemsSource = _targets;
@@ -286,6 +297,7 @@ public partial class MainWindow : Window
             TitleText.Text = "未选择版本";
             SubText.Text = "在左侧选择一个版本，或点「添加版本」把已有的游戏目录加进来。";
             BadgeMode.Text = string.Empty;
+            OldVersionBadge.Visibility = Visibility.Collapsed;
             PathText.Text = string.Empty;
             ModCountText.Text = string.Empty;
             LegacyTargetPanel.Visibility = Visibility.Collapsed;
@@ -301,6 +313,9 @@ public partial class MainWindow : Window
             ? "用 file:// 直接打开：浏览器会把所有本地网页算作同一个来源，存档与模组开关无法和其它版本隔离，仅用于找回旧数据。"
             : $"游戏版本 {version.GameVersion ?? "未知"} · 本地端口 {version.Port}";
         BadgeMode.Text = version.IsFileMode ? "file:// 共享" : "127.0.0.1:" + version.Port;
+        OldVersionBadge.Visibility = !version.IsFileMode && !VersionAge.FolderSupportsModLoader(version.Folder)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         PathText.Text = version.IsFileMode ? version.HtmlPath : version.FullPath;
 
         // file:// 伪版本可以改指向哪个版本的 html

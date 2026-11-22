@@ -230,6 +230,23 @@ public static class IdbMirrorStore
     /// <summary>端口归属记录目录：同一端口被另一个版本接管时，首次打开会先清空旧版本留下的数据。</summary>
     public static string PortDir => Path.Combine(PlatformServices.Paths.ProfilesDir, ".dol-ports");
 
+    /// <summary>读取该端口当前登记的版本目录名；没有记录或记录损坏时返回 null。</summary>
+    public static string? ReadPortOwner(int port)
+    {
+        if (port <= 0) return null;
+        try
+        {
+            var file = Path.Combine(PortDir, $"port-{port}.json");
+            if (!File.Exists(file)) return null;
+            using var doc = JsonDocument.Parse(File.ReadAllText(file, Utf8));
+            return doc.RootElement.TryGetProperty("folder", out var value) ? value.GetString() : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public static PortClaim ClaimPort(string versionDir, int port)
     {
         if (port <= 0) return PortClaim.FirstUse;

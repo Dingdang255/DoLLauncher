@@ -100,11 +100,29 @@
                         </Grid>
 
                         <VerticalStackLayout x:Name="OptionsBody" Spacing="8">
-                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
                                 <Label Grid.Column="0" Text="游戏源" FontSize="13" VerticalOptions="Center"
                                        TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
                                 <Picker x:Name="GameSourcePicker" Grid.Column="1" FontSize="13"
                                         VerticalOptions="Center" SelectedIndexChanged="OnGameSourceChanged" />
+                                <HorizontalStackLayout Grid.Column="2" x:Name="GamePager" Spacing="2"
+                                                       IsVisible="False" VerticalOptions="Center">
+                                    <Button Text="◀" FontSize="10" Padding="0" WidthRequest="30" HeightRequest="30"
+                                            CornerRadius="6" Clicked="OnGamePagePrevClicked"
+                                            BackgroundColor="Transparent"
+                                            TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                    <Entry x:Name="GamePageBox" Text="1" FontSize="11" WidthRequest="44"
+                                           HorizontalTextAlignment="Center" Keyboard="Numeric"
+                                           Completed="OnGamePageBoxCompleted" Unfocused="OnGamePageBoxUnfocused"
+                                           TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+                                    <Label x:Name="GamePageTotal" Text="/ 1" FontSize="11"
+                                           VerticalOptions="Center"
+                                           TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                    <Button Text="▶" FontSize="10" Padding="0" WidthRequest="30" HeightRequest="30"
+                                            CornerRadius="6" Clicked="OnGamePageNextClicked"
+                                            BackgroundColor="Transparent"
+                                            TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                </HorizontalStackLayout>
                             </Grid>
 
                             <Label x:Name="SourceHintLabel" FontSize="10" MaxLines="2"
@@ -164,10 +182,17 @@
                                         <VerticalStackLayout Spacing="6">
                                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                                                 <Grid Grid.Column="0" RowDefinitions="Auto,Auto,Auto" RowSpacing="3">
-                                                    <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                                    <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
                                                         <Label Grid.Column="0" Text="{Binding Title}" FontSize="17"
                                                                FontAttributes="Bold" LineBreakMode="TailTruncation" />
-                                                        <Border Grid.Column="1" IsVisible="{Binding Prerelease}"
+                                                        <Border Grid.Column="1" IsVisible="{Binding IsLegacy}"
+                                                                Padding="6,1" StrokeThickness="0"
+                                                                StrokeShape="RoundRectangle 4" VerticalOptions="Center"
+                                                                BackgroundColor="{AppThemeBinding Light=#FFE0B2, Dark=#5A3E1A}">
+                                                            <Label Text="版本过旧" FontSize="10"
+                                                                   TextColor="{AppThemeBinding Light=#B25B00, Dark=#FFCC80}" />
+                                                        </Border>
+                                                        <Border Grid.Column="2" IsVisible="{Binding Prerelease}"
                                                                 Padding="6,1" StrokeThickness="0"
                                                                 StrokeShape="RoundRectangle 4" VerticalOptions="Center"
                                                                 BackgroundColor="{AppThemeBinding Light=#FFE0B2, Dark=#5A3E1A}">
@@ -238,6 +263,30 @@
                             <Picker x:Name="PackTypePicker" Grid.Column="1" FontSize="13"
                                     VerticalOptions="Center" ItemDisplayBinding="{Binding Name}" />
                         </Grid>
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                            <Label Grid.Column="0" Text="整合包版本" FontSize="13" VerticalOptions="Center"
+                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                            <Picker x:Name="PackReleasePicker" Grid.Column="1" FontSize="13"
+                                    VerticalOptions="Center" SelectedIndexChanged="OnPackReleaseChanged" />
+                            <HorizontalStackLayout Grid.Column="2" x:Name="PackPager" Spacing="2"
+                                                   IsVisible="False" VerticalOptions="Center">
+                                <Button Text="◀" FontSize="10" Padding="0" WidthRequest="30" HeightRequest="30"
+                                        CornerRadius="6" Clicked="OnPackPagePrevClicked"
+                                        BackgroundColor="Transparent"
+                                        TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                <Entry x:Name="PackPageBox" Text="1" FontSize="11" WidthRequest="44"
+                                       HorizontalTextAlignment="Center" Keyboard="Numeric"
+                                       Completed="OnPackPageBoxCompleted" Unfocused="OnPackPageBoxUnfocused"
+                                       TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+                                <Label x:Name="PackPageTotal" Text="/ 1" FontSize="11"
+                                       VerticalOptions="Center"
+                                       TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                <Button Text="▶" FontSize="10" Padding="0" WidthRequest="30" HeightRequest="30"
+                                        CornerRadius="6" Clicked="OnPackPageNextClicked"
+                                        BackgroundColor="Transparent"
+                                        TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                            </HorizontalStackLayout>
+                        </Grid>
                         <Label Text="目前支持 Lyra 整合包。下载后自动生成独立版本，可再选择把普通模组解压到 mods/ 以便启停和排序。"
                                FontSize="10" LineBreakMode="WordWrap"
                                TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
@@ -263,8 +312,17 @@
                                         BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                                         <VerticalStackLayout Grid.Column="0" Spacing="3">
-                                            <Label Text="{Binding Label}" FontSize="14" FontAttributes="Bold"
-                                                   LineBreakMode="TailTruncation" />
+                                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                                <Label Grid.Column="0" Text="{Binding Label}" FontSize="14"
+                                                       FontAttributes="Bold" LineBreakMode="TailTruncation" />
+                                                <Border Grid.Column="1" IsVisible="{Binding IsLegacy}"
+                                                        Padding="6,1" StrokeThickness="0"
+                                                        StrokeShape="RoundRectangle 4" VerticalOptions="Center"
+                                                        BackgroundColor="{AppThemeBinding Light=#FFE0B2, Dark=#5A3E1A}">
+                                                    <Label Text="版本过旧" FontSize="10"
+                                                           TextColor="{AppThemeBinding Light=#B25B00, Dark=#FFCC80}" />
+                                                </Border>
+                                            </Grid>
                                             <Label Text="{Binding Detail}" FontSize="10"
                                                    LineBreakMode="WordWrap"
                                                    TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />

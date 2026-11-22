@@ -1,3 +1,4 @@
+using DoLLauncher.Core.Import;
 using DoLLauncher.Models;
 using DoLLauncher.Maui.Controls;
 using DoLLauncher.Maui.Platform;
@@ -46,6 +47,7 @@ public partial class VersionDetailPage : ContentPage
         GameVersionLabel.Text = string.IsNullOrWhiteSpace(_version.GameVersion) ? "未知" : _version.GameVersion;
         ModeLabel.Text = _version.IsFileMode ? "file（共享 origin）" : "http（本地服务器）";
         PortLabel.Text = _version.Port > 0 ? $"127.0.0.1:{_version.Port}" : "未分配";
+        LegacyBadge.IsVisible = !_version.IsFileMode && !VersionAge.FolderSupportsModLoader(_version.Folder);
 
         StatusLabel.Text = running ? (helperOnly ? "运行中（存档助手）" : "运行中") : "未运行";
         StatusLabel.TextColor = running ? Color.FromArgb("#2E7D32") : Color.FromArgb("#808080");

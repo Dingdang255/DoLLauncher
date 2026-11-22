@@ -192,16 +192,30 @@ public static class BrowserService
         try
         {
             var marker = Path.Combine(profileDir, ".dol-hardened");
-            if (File.Exists(marker)) return;
+            if (File.Exists(marker))
+            {
+                Log("浏览器 Profile 的扩展与同步残留已清理过，跳过。");
+                return;
+            }
 
+            Log($"开始清理浏览器 Profile 的扩展与同步残留：{profileDir}");
             var defaultDir = Path.Combine(profileDir, "Default");
+            var removed = 0;
             foreach (var name in ProfileHardeningTargets)
             {
                 var path = Path.Combine(defaultDir, name);
                 try
                 {
-                    if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
-                    else if (File.Exists(path)) File.Delete(path);
+                    if (Directory.Exists(path))
+                    {
+                        Directory.Delete(path, recursive: true);
+                        removed++;
+                    }
+                    else if (File.Exists(path))
+                    {
+                        File.Delete(path);
+                        removed++;
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -212,6 +226,7 @@ public static class BrowserService
             }
 
             File.WriteAllText(marker, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+            Log($"浏览器 Profile 清理完成，移除 {removed} 项扩展与同步残留。");
         }
         catch (Exception ex)
         {

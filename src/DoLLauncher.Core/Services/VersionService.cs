@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
+using DoLLauncher.Core.Data;
 using DoLLauncher.Core.Import;
 using DoLLauncher.Core.Versions;
 using DoLLauncher.Models;
@@ -62,6 +63,29 @@ public static class VersionService
                 GameVersion = candidate.Version,
                 DisplayName = Prettify(candidate.Folder, candidate.Version),
             });
+        }
+
+        // 端口必须唯一：历史配置或手工改端口会让两个版本共用同一端口，
+        // 而同一端口等于同一浏览器 origin，切换版本时会互相清空浏览器数据。
+        // 冲突时优先保留端口归属记录里的版本，其余重新分配。
+        foreach (var group in cfg.Versions.Where(v => v.Port > 0).GroupBy(v => v.Port).Where(g => g.Count() > 1))
+        {
+            var owner = IdbMirrorStore.ReadPortOwner(group.Key);
+            var keep = group.FirstOrDefault(v =>
+                           string.Equals(v.Folder, owner, StringComparison.OrdinalIgnoreCase))
+                       ?? group.First();
+
+            foreach (var entry in group.Where(v => !ReferenceEquals(v, keep)))
+            {
+                var oldPort = entry.Port;
+                entry.Port = AppConfig.AllocatePort(cfg.Versions, entry.Folder);
+                changed = true;
+                foreach (var info in list.Where(v => v.Folder == entry.Folder))
+                {
+                    info.Port = entry.Port;
+                }
+                Log($"端口冲突已修正：{entry.Folder} 从 {oldPort} 改为 {entry.Port}");
+            }
         }
 
         // 旧的 file:// 数据条目：共享浏览器 origin，单独列出以便管理
@@ -196,7 +220,12 @@ public static class VersionService
     public static string Prettify(string folder, string? gameVersion)
     {
         if (LyraPackName.TryParse(folder, out var lyra))
-            return $"DoL {lyra.GameVersion} · Lyra {lyra.ComboLabel} ({lyra.ChsVersion})";
+        {
+            var game = string.IsNullOrEmpty(lyra.GameVersion) ? gameVersion : lyra.GameVersion;
+            return string.IsNullOrEmpty(game)
+                ? $"Lyra {lyra.ComboLabel} ({lyra.ChsVersion})"
+                : $"DoL {game} · Lyra {lyra.ComboLabel} ({lyra.ChsVersion})";
+        }
 
         var neo = Regex.Match(folder, @"^Neo-(.+)$", RegexOptions.IgnoreCase);
         if (neo.Success)
@@ -213,4 +242,9 @@ public static class VersionService
 
     private static bool IsNeoFolder(string folder) =>
         folder.StartsWith("Neo-", StringComparison.OrdinalIgnoreCase);
+
+    private static void Log(string message)
+    {
+        try { LogService.Append("[版本] " + message); } catch { }
+    }
 }

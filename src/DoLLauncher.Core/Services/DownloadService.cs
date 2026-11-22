@@ -135,6 +135,60 @@ public static class DownloadService
         throw last!;
     }
 
+    /// <summary>GitHub 接口的一页数据：JSON 正文与 Link 头解析出的末页页码。</summary>
+    public sealed class GithubApiPage
+    {
+        public string Json { get; init; } = "";
+        public int LastPage { get; init; } = 1;
+    }
+
+    /// <summary>与 <see cref="GetGithubApiAsync"/> 相同的线路回退，但保留响应头以读取分页信息。</summary>
+    public static async Task<GithubApiPage> GetGithubApiPageAsync(string path)
+    {
+        var urls = ApiRoutes(path);
+        Exception? last = null;
+        for (var i = 0; i < urls.Count; i++)
+        {
+            LogService.Append($"[网络] GitHub 接口请求：{urls[i]}");
+            try
+            {
+                using var cts = new CancellationTokenSource(RouteTimeout);
+                using var resp = await Http.GetAsync(urls[i], cts.Token);
+                if (!resp.IsSuccessStatusCode)
+                    throw new HttpRequestException($"GitHub 接口返回 {(int)resp.StatusCode}");
+                var text = await resp.Content.ReadAsStringAsync(cts.Token);
+                var head = text.TrimStart();
+                if (head.StartsWith("<"))
+                    throw new InvalidOperationException("接口返回了网页而不是 JSON。");
+                LogService.Append($"[网络] GitHub 接口成功：{urls[i]}");
+                return new GithubApiPage { Json = text, LastPage = ParseLastPage(resp) };
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                LogService.Error($"[网络] GitHub 接口失败：{urls[i]}", ex);
+                if (i == urls.Count - 1) break;
+            }
+        }
+        throw last!;
+    }
+
+    private static readonly Regex LastPageRegex = new(
+        @"<[^>]*[?&]page=(\d+)[^>]*>;\s*rel=""last""", RegexOptions.Compiled);
+
+    /// <summary>从 Link 头取末页；没有 Link（单页）时返回 1。</summary>
+    private static int ParseLastPage(HttpResponseMessage resp)
+    {
+        if (!resp.Headers.TryGetValues("Link", out var values)) return 1;
+        foreach (var value in values)
+        {
+            var match = LastPageRegex.Match(value);
+            if (match.Success && int.TryParse(match.Groups[1].Value, out var page) && page > 0)
+                return page;
+        }
+        return 1;
+    }
+
     private static List<string> ApiRoutes(string path)
     {
         var api = $"https://api.github.com/{path}";
@@ -153,11 +207,34 @@ public static class DownloadService
         return ParseReleases(text, source);
     }
 
-    /// <summary>Lyra 整合包 Release；列表按发布时间倒序，最新版通常含全部组合资产。</summary>
-    public static async Task<List<GameRelease>> FetchLyraReleasesAsync()
+    /// <summary>
+    /// 一次取回某个本体源的全部 Release（每页 100 条，顺着 Link 翻到底）。
+    /// 本体源版本数量有限，这样调用方可以按「实际可安装的版本」本地分页，页码不会虚报。
+    /// </summary>
+    public static async Task<List<GameRelease>> FetchAllGameReleasesAsync(GameSource source)
     {
-        var text = await GetGithubApiAsync($"repos/{LyraSource.Repo}/releases?per_page=10");
-        return ParseReleases(text, LyraSource);
+        var all = new List<GameRelease>();
+        for (var page = 1; page <= 20; page++)
+        {
+            var res = await GetGithubApiPageAsync($"repos/{source.Repo}/releases?per_page=100&page={page}");
+            var list = ParseReleases(res.Json, source);
+            if (list.Count == 0) break;
+            all.AddRange(list);
+            if (page >= res.LastPage) break;
+        }
+        return all;
+    }
+
+    /// <summary>分页拉取 Lyra 整合包 Release；返回本页数据与总页数。</summary>
+    public static async Task<(List<GameRelease> Releases, int LastPage)> FetchLyraReleasesPageAsync(
+        int page, int perPage = 10)
+    {
+        var res = await GetGithubApiPageAsync(
+            $"repos/{LyraSource.Repo}/releases?per_page={perPage}&page={Math.Max(1, page)}");
+        var list = ParseReleases(res.Json, LyraSource);
+        var lastPage = res.LastPage;
+        if (lastPage <= 1 && list.Count >= perPage) lastPage = page + 1;
+        return (list, lastPage);
     }
 
     private static List<GameRelease> ParseReleases(string json, GameSource? source = null)
@@ -205,12 +282,22 @@ public static class DownloadService
     /// <summary>游戏源认哪些资产：整包源取模组包，单 HTML 源只取 Neo 的 html（APK 不入库）。</summary>
     private static bool IsGameAssetName(string name, GameSource source)
     {
-        if (source.Id == "lyra")
-            return name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) &&
-                   name.Contains("-Lyra-", StringComparison.OrdinalIgnoreCase);
+        if (source.Id == "lyra") return IsLyraPackAssetName(name);
         if (source.IsZip) return IsModPackageName(name);
         return name.EndsWith(".html", StringComparison.OrdinalIgnoreCase) &&
                name.Contains("neo", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Lyra 整合包资产名，兼容历史命名：
+    /// 新命名 <c>DoL-{游戏版本}-Lyra-…</c>；中段 <c>DoL-{游戏版本}-chsmods-…</c>；
+    /// 早期 <c>dol-{游戏版本}-chs-…</c>、<c>dol-chs-…</c>、<c>dol-we-chs-…</c>。
+    /// </summary>
+    public static bool IsLyraPackAssetName(string name)
+    {
+        if (!name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) return false;
+        var lower = name.ToLowerInvariant();
+        return lower.Contains("-lyra-") || lower.Contains("-chsmods-") || lower.Contains("-chs-");
     }
 
     /// <summary>下载本体并安装成 versions 下的新版本，返回新目录名。</summary>
@@ -254,8 +341,7 @@ public static class DownloadService
     /// <summary>下载一个 Lyra 整合包 zip 并解压成 versions 下的新版本。</summary>
     public static async Task<string> InstallLyraAsync(GameAsset asset, Action<string> log, Action<double> progress)
     {
-        if (!asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
-            !asset.Name.Contains("-Lyra-", StringComparison.OrdinalIgnoreCase))
+        if (!IsLyraPackAssetName(asset.Name))
             throw new InvalidOperationException("这个文件不是 Lyra 整合包。");
 
         BeginRound();

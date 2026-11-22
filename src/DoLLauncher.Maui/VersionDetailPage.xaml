@@ -38,7 +38,16 @@
 
                                 <Label Grid.Row="2" Grid.Column="0" Text="本地端口" FontSize="13"
                                        TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
-                                <Label x:Name="PortLabel" Grid.Row="2" Grid.Column="1" FontSize="13" />
+                                <HorizontalStackLayout Grid.Row="2" Grid.Column="1" Spacing="6">
+                                    <Border x:Name="LegacyBadge" IsVisible="False"
+                                            Padding="6,1" StrokeThickness="0" StrokeShape="RoundRectangle 4"
+                                            VerticalOptions="Center"
+                                            BackgroundColor="{AppThemeBinding Light=#FFE0B2, Dark=#5A3E1A}">
+                                        <Label Text="版本过旧" FontSize="10"
+                                               TextColor="{AppThemeBinding Light=#B25B00, Dark=#FFCC80}" />
+                                    </Border>
+                                    <Label x:Name="PortLabel" FontSize="13" VerticalOptions="Center" />
+                                </HorizontalStackLayout>
 
                                 <Label Grid.Row="3" Grid.Column="0" Text="运行状态" FontSize="13"
                                        TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />

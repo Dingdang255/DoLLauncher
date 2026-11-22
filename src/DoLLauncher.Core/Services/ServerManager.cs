@@ -55,7 +55,7 @@ public static class ServerManager
             return existing;
         }
 
-        var candidate = version.Port > 0 ? version.Port : FindFreePort(8701);
+        var candidate = version.Port > 0 ? version.Port : FindFreePort(8701, version.Folder);
         Exception? lastError = null;
 
         for (var attempt = 0; attempt < 5; attempt++)
@@ -79,7 +79,7 @@ public static class ServerManager
             catch (Exception ex)
             {
                 lastError = ex;
-                candidate = FindFreePort(candidate + 1);
+                candidate = FindFreePort(candidate + 1, version.Folder);
             }
         }
 
@@ -104,10 +104,21 @@ public static class ServerManager
         }
     }
 
-    public static int FindFreePort(int start)
+    /// <summary>
+    /// 找一个既能绑定、也没被配置里其它版本占用的端口；
+    /// 只判断能否绑定会让两个版本拿到同一个端口（未运行时端口是「空闲」的），共享 origin 后互相清数据。
+    /// </summary>
+    public static int FindFreePort(int start, string? excludeFolder = null)
     {
+        var reserved = AppConfig.Load().Versions
+            .Where(v => excludeFolder == null || !string.Equals(v.Folder, excludeFolder, StringComparison.OrdinalIgnoreCase))
+            .Select(v => v.Port)
+            .Where(p => p > 0)
+            .ToHashSet();
+
         for (var port = Math.Max(1024, start); port < 8900; port++)
         {
+            if (reserved.Contains(port)) continue;
             if (Running.Values.Any(s => s.Port == port && s.IsListening)) continue;
             if (AppConfig.IsPortFree(port)) return port;
         }

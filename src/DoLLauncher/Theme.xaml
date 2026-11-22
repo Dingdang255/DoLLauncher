@@ -169,6 +169,29 @@
         <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
     </Style>
 
+    <!-- 黄色提示徽标（版本过旧等）；LegacyBadge 默认显示，数据项带 ModLoader 时隐藏 -->
+    <Style x:Key="WarnBadge" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource WarnPaleBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource WarnBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Padding" Value="7,2" />
+        <Setter Property="Margin" Value="8,0,0,0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Cursor" Value="Help" />
+        <Setter Property="ToolTip"
+                Value="这是早期构建的版本：未内置 ModLoader，无法安装或加载外部模组，只能按包原样运行。建议下载较新的版本。" />
+    </Style>
+
+    <Style x:Key="LegacyBadge" TargetType="Border" BasedOn="{StaticResource WarnBadge}">
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding SupportsModLoader}" Value="True">
+                <Setter Property="Visibility" Value="Collapsed" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+
     <Style x:Key="ModCheck" TargetType="CheckBox">
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Template">

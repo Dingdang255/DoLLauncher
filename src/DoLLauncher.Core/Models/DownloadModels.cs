@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
+using DoLLauncher.Core.Import;
 
 namespace DoLLauncher.Models;
 
@@ -78,7 +79,14 @@ public sealed class GameRelease
     /// <summary>这个 Release 来自哪个游戏源（决定安装形态与目录命名）。</summary>
     public GameSource Source { get; set; } = new();
 
-    public GameAsset? StandardAsset => Source.IsZip ? Find("DoL-ModLoader-", polyfill: false) : null;
+    public GameAsset? StandardAsset => Source.IsZip
+        ? Find("DoL-ModLoader-", polyfill: false) ??
+          (Source.Id.Length > 0 ? LegacyGameAsset : null)
+        : null;
+
+    /// <summary>该版本是否带 ModLoader；早期构建没有，无法加载外部模组。</summary>
+    public bool SupportsModLoader => VersionAge.SupportsModLoader(StandardAsset?.Name);
+    public bool IsLegacy => !SupportsModLoader;
     public GameAsset? PolyfillAsset => Source.IsZip ? Find("DoL-ModLoader-", polyfill: true) : null;
     public GameAsset? I18nAsset => Assets.FirstOrDefault(a => a.Name.Contains("ModI18N", StringComparison.OrdinalIgnoreCase));
     public GameAsset? ImagePackAsset => Assets.FirstOrDefault(a => a.Name.Contains("GameOriginalImagePack", StringComparison.OrdinalIgnoreCase));
@@ -109,6 +117,19 @@ public sealed class GameRelease
         }.Where(s => s.Length > 0))
         : HtmlAsset == null ? "无可用 HTML" : "单 HTML · 自动建 mods 目录";
 
+    /// <summary>
+    /// 旧汉化产物：0.4.3.3-chs-alpha2.2.0 之前的 Release 以 <c>dol-</c> 开头的整包 zip，
+    /// 没有 ModLoader 前缀，作为标准本体的兼容候选。
+    /// </summary>
+    public GameAsset? LegacyGameAsset => Assets.FirstOrDefault(a => IsLegacyGameZip(a.Name));
+
+    /// <summary>判断是否为旧命名的游戏整包（dol-*.zip，排除汉化 / 图片包）。</summary>
+    public static bool IsLegacyGameZip(string name) =>
+        name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) &&
+        name.StartsWith("dol", StringComparison.OrdinalIgnoreCase) &&
+        !name.Contains("ModI18N", StringComparison.OrdinalIgnoreCase) &&
+        !name.Contains("GameOriginalImagePack", StringComparison.OrdinalIgnoreCase);
+
     public GameAsset? PickAsset(bool polyfill)
     {
         if (!Source.IsZip) return HtmlAsset;
@@ -133,6 +154,10 @@ public sealed class PackOption
     public string Detail { get; set; } = "";
     public GameAsset Asset { get; set; } = new();
     public GameRelease Release { get; set; } = new();
+
+    /// <summary>该整合包是否带 ModLoader；早期整合包没有，无法加载外部模组。</summary>
+    public bool SupportsModLoader => VersionAge.SupportsModLoader(Asset.Name);
+    public bool IsLegacy => !SupportsModLoader;
 }
 
 public sealed class MarketDependency
