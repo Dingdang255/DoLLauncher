@@ -11,6 +11,7 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using DoLLauncher.Core.Import;
 using Shapes = System.Windows.Shapes;
 using DoLLauncher.Controls;
 using DoLLauncher.Core.Browser;
@@ -579,13 +580,16 @@ public partial class MainWindow
 
     private void DownloadNav_Checked(object sender, RoutedEventArgs e)
     {
-        if (GamePane == null || ModPane == null) return;
+        if (GamePane == null || ModPane == null || PackPane == null) return;
         var showMod = DownloadNavMod.IsChecked == true;
-        GamePane.Visibility = showMod ? Visibility.Collapsed : Visibility.Visible;
+        var showPack = DownloadNavPack.IsChecked == true;
+        GamePane.Visibility = !showMod && !showPack ? Visibility.Visible : Visibility.Collapsed;
         ModPane.Visibility = showMod ? Visibility.Visible : Visibility.Collapsed;
+        PackPane.Visibility = showPack ? Visibility.Visible : Visibility.Collapsed;
         MarketTargetPanel.Visibility = showMod ? Visibility.Visible : Visibility.Collapsed;
-        UiAnimations.ShowPage(showMod ? ModPane : GamePane);
+        UiAnimations.ShowPage(showMod ? ModPane : showPack ? PackPane : GamePane);
         if (showMod && !_marketLoaded) _ = RefreshMarketAsync();
+        if (showPack && !_packLoaded) _ = RefreshPackAsync();
     }
 
     private void SyncMarketTarget()
@@ -603,27 +607,58 @@ public partial class MainWindow
         if (_downloadBusy) return;
         // 手动刷新绕过 CDN / 本地缓存，确保拿到最新的自有市场列表
         if (ModPane.Visibility == Visibility.Visible) _ = RefreshMarketAsync(forceRefresh: true);
+        else if (PackPane.Visibility == Visibility.Visible) _ = RefreshPackAsync(forceReload: true);
         else _ = RefreshGameReleasesAsync();
     }
 
-    /// <summary>按设置里的「启动时预取索引」时序，在后台拉取游戏本体与模组市场索引。</summary>
+    /// <summary>按设置里的「启动时预取索引」时序，在后台拉取游戏本体、模组市场与整合包索引。</summary>
     private async Task PrefetchIndexesAsync()
     {
-        var mode = AppConfig.Load().General.Prefetch;
+        var cfg = AppConfig.Load();
+        var mode = cfg.General.Prefetch;
         if (mode == "none") return;
-        if (mode == "modFirst")
+
+        if (mode == "parallel")
         {
-            await RefreshMarketAsync();
-            await RefreshGameReleasesAsync();
+            await Task.WhenAll(RefreshMarketAsync(), RefreshGameReleasesAsync(), RefreshPackAsync());
             return;
         }
-        if (mode == "gameFirst")
+
+        // 兼容旧配置；新配置统一用 custom + prefetchOrder
+        var order = mode == "modFirst"
+            ? new List<string> { "market", "game", "pack" }
+            : mode == "gameFirst"
+                ? new List<string> { "game", "market", "pack" }
+                : ParsePrefetchOrder(cfg.General.PrefetchOrder);
+
+        foreach (var key in order)
         {
-            await RefreshGameReleasesAsync();
-            await RefreshMarketAsync();
-            return;
+            switch (key)
+            {
+                case "market":
+                    await RefreshMarketAsync();
+                    break;
+                case "pack":
+                    await RefreshPackAsync();
+                    break;
+                default:
+                    await RefreshGameReleasesAsync();
+                    break;
+            }
         }
-        await Task.WhenAll(RefreshMarketAsync(), RefreshGameReleasesAsync());
+    }
+
+    private static List<string> ParsePrefetchOrder(string? value)
+    {
+        var known = new[] { "game", "market", "pack" };
+        var list = (value ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(known.Contains)
+            .Distinct()
+            .ToList();
+        foreach (var key in known)
+            if (!list.Contains(key)) list.Add(key);
+        return list;
     }
 
     private async Task RefreshGameReleasesAsync()
@@ -684,6 +719,126 @@ public partial class MainWindow
         var extraTip = isZip ? null : "该源从汉化仓库获取与游戏版本匹配的附带模组";
         I18nCheck.ToolTip = extraTip;
         ImagePackCheck.ToolTip = extraTip;
+    }
+
+    /// <summary>拉取 Lyra 整合包最新 Release，并把资产展开成可选组合。</summary>
+    private async Task RefreshPackAsync(bool forceReload = false)
+    {
+        if (_packLoading || (_packLoaded && !forceReload)) return;
+        _packLoading = true;
+        PackStatusText.Text = "正在获取 Lyra 整合包列表…";
+        try
+        {
+            var releases = await DownloadService.FetchLyraReleasesAsync();
+            var release = releases.FirstOrDefault(r => r.Assets.Count > 0);
+            _packOptions.Clear();
+
+            if (release != null)
+            {
+                foreach (var asset in release.Assets.OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    var label = asset.Name;
+                    var detail = $"{asset.SizeText} · {release.Tag}";
+                    if (LyraPackName.TryParse(asset.Name, out var info))
+                    {
+                        label = $"Lyra {info.ComboLabel} · 游戏 {info.GameVersion} · 汉化 {info.ChsVersion}";
+                        detail = $"{asset.SizeText} · {asset.Name}";
+                    }
+
+                    _packOptions.Add(new PackOption
+                    {
+                        Label = label,
+                        Detail = detail,
+                        Asset = asset,
+                        Release = release,
+                    });
+                }
+            }
+
+            _packLoaded = true;
+            PackStatusText.Text = _packOptions.Count > 0
+                ? $"共 {_packOptions.Count} 个整合包"
+                : "没有找到 Lyra 整合包";
+            if (_packOptions.Count > 0) PackVariantList.SelectedIndex = 0;
+            Log($"已获取 {_packOptions.Count} 个 Lyra 整合包（{release?.Tag ?? "无 Release"}）");
+        }
+        catch (Exception ex)
+        {
+            _packLoaded = false;
+            PackStatusText.Text = "获取失败：" + ex.Message;
+            LogError("获取 Lyra 整合包列表失败", ex);
+        }
+        finally
+        {
+            _packLoading = false;
+        }
+    }
+
+    private void PackType_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        // 目前只有 Lyra 一个来源；保留事件以便后续扩展
+    }
+
+    private async void DownloadPack_Click(object sender, RoutedEventArgs e)
+    {
+        if (_downloadBusy) return;
+        if (PackVariantList.SelectedItem is not PackOption option)
+        {
+            AppDialog.Info("请先选择一个整合包版本。", "整合包下载");
+            return;
+        }
+
+        if (!AppDialog.Confirm(
+                $"将下载「{option.Label}」（{option.Asset.SizeText}）并安装为独立版本。\n\n" +
+                "安装后可以选择把普通模组解压到 mods/，ModLoader 必需组件会保留在内置。继续吗？",
+                "下载整合包", "开始下载")) return;
+
+        SetDownloadBusy(true);
+        PackProgress.Visibility = Visibility.Visible;
+        PackProgress.Value = 0;
+        PackStatusText.Text = "0%";
+        try
+        {
+            Log($"开始下载整合包：{option.Asset.Name}");
+            var folder = await DownloadService.InstallLyraAsync(option.Asset, Log, p =>
+            {
+                PackProgress.Value = p;
+                PackStatusText.Text = $"{p:P0}";
+            });
+            PackProgress.Value = 1;
+            PackStatusText.Text = "安装完成";
+            Log($"整合包安装完成：versions\\{folder}");
+            ReloadVersions(folder);
+            NavVersions.IsChecked = true;
+
+            var versionDir = Path.Combine(Paths.VersionsDir, folder);
+            var embedded = await Task.Run(() => LyraPackService.ReadEmbeddedMods(versionDir, Log));
+            var extractable = embedded.Count(m => !m.IsBuiltin);
+            if (extractable > 0 && AppDialog.Confirm(
+                    $"整合包已安装，其中 {extractable} 个普通模组可以解压到 mods/ 以便启停和排序。\n" +
+                    $"ModLoader 必需组件（{embedded.Count - extractable} 个）会保留在内置。现在解压吗？",
+                    "解压内置模组", "解压到 mods"))
+            {
+                var result = await Task.Run(() => LyraPackService.ExtractToMods(versionDir, Log));
+                ReloadVersions(folder);
+                Log($"内置模组已解压：{result.Extracted} 个；{result.Skipped} 个必需组件保留内置。");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            PackStatusText.Text = "已取消";
+            Log("整合包下载已取消");
+        }
+        catch (Exception ex)
+        {
+            PackStatusText.Text = "安装失败";
+            LogError("整合包下载/安装失败", ex);
+            AppDialog.Error(ex.Message, "下载失败");
+        }
+        finally
+        {
+            SetDownloadBusy(false);
+        }
     }
 
     private async Task RefreshMarketAsync(bool forceRefresh = false)
@@ -1754,6 +1909,7 @@ public partial class MainWindow
         _downloadBusy = busy;
         GameDownloadBtn.IsEnabled = !busy;
         MarketDownloadBtn.IsEnabled = !busy;
+        PackDownloadBtn.IsEnabled = !busy;
         RefreshMarketBtn.IsEnabled = !busy;
     }
 

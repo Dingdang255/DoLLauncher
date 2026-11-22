@@ -1,0 +1,55 @@
+/* dolskin/3 安卓示例样式表：只使用安卓端已支持的白名单属性。 */
+
+:root {
+  --accent: #FF2BA79B;
+  --note: #FF5F6B7A;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent: #FF35E8D5;
+    --note: #FF9FB4D8;
+  }
+}
+
+/* 版本 / 模组统计文字 */
+.skin-note {
+  color: var(--note);
+  font-size: 11;
+}
+
+/* 主题切换按钮：基础色 + 按压反馈（:pressed 仅 Button 生效） */
+.skin-action {
+  background: var(--accent);
+  color: #FF06131C;
+  corner-radius: 8;
+  padding: 6 10;
+  transition: background 160ms ease-out;
+}
+
+.skin-action:pressed {
+  background: #FF6CF3E4;
+  opacity: 0.85;
+}
+
+/* 呼吸徽标：关键帧动画演示 */
+.skin-breath {
+  corner-radius: 10;
+  padding: 6 10;
+  animation: breathe 3.2s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0% {
+    opacity: 0.6;
+    transform: scale(0.97);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0.6;
+    transform: scale(0.97);
+  }
+}

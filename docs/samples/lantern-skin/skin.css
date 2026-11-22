@@ -1,0 +1,180 @@
+/* 灯台示例皮肤（dolskin/3）：配合 docs/UI美化包格式.md 阅读。
+   主题变量写在 skin.json 的 themes[] 里，这里只保留变量兜底与动效演示。 */
+
+:root {
+  --accent: #ff35e8d5;
+  --accent-hover: #ff6cf3e4;
+  --bg: #ff0b1220;
+  --card: #ff13203a;
+  --text: #ffe8fbff;
+  --muted: #ff9fb4d8;
+  --border: #ff2b4468;
+  --radius: 12px;
+}
+
+Window {
+  font-family: "Microsoft YaHei UI";
+}
+
+/* 呼吸灯：只动 opacity 与 transform，不触发布局 */
+@keyframes lantern-breathe {
+  from {
+    opacity: 0.5;
+    transform: scale(0.97);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+  to {
+    opacity: 0.5;
+    transform: scale(0.97);
+  }
+}
+
+.SectionTitle {
+  color: var(--accent);
+  animation: lantern-breathe 3.2s ease-in-out infinite;
+}
+
+/* 启动器首页固定元素：让动效加载后立刻可见 */
+#TitleText {
+  animation: lantern-breathe 3.6s ease-in-out infinite;
+}
+
+@keyframes lantern-glow {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .78; transform: scale(1.03); }
+}
+
+#LaunchBtn {
+  animation: lantern-glow 2.8s ease-in-out infinite;
+}
+
+Button {
+  corner-radius: var(--radius);
+}
+
+/* 通用悬停：换一层浅色底 */
+Button:hover {
+  background: #1f35e8d5;
+}
+
+.PrimaryButton {
+  background: var(--accent);
+  border-color: var(--accent);
+  transition: background 180ms ease-out, transform 120ms ease-out;
+}
+
+.PrimaryButton:hover {
+  background: var(--accent-hover);
+}
+
+.PrimaryButton:pressed {
+  transform: scale(.96);
+}
+
+.IconButton {
+  corner-radius: 999px;
+  transition: background 160ms ease-out, transform 120ms ease-out;
+}
+
+.IconButton:hover {
+  background: #3335e8d5;
+}
+
+.IconButton:pressed {
+  transform: scale(.96);
+}
+
+.SettingsItemCard {
+  background: #cc13203a;
+  border-color: var(--border);
+  corner-radius: var(--radius);
+}
+
+.MutedText {
+  color: var(--muted);
+}
+
+/* 声明式组件（skin.json 的 components[]）：插入到 #LaunchBtn 之后的角标。
+   类同时挂在 Border 与其 TextBlock 上，故颜色与字号可作用到文字；
+   padding 在 Border 与 TextBlock 各生效一次，这里取较小的值。 */
+.skin-badge {
+  background: var(--accent);
+  color: #ff0b1220;
+  corner-radius: 999px;
+  padding: 1px 5px;
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: center;
+}
+
+/* Card 演示：浅一层的卡片容器，供自定义包复制使用 */
+.skin-card {
+  background: #cc13203a;
+  border-color: var(--border);
+  corner-radius: var(--radius);
+  padding: 8px 10px;
+  margin: 6px 0;
+}
+
+/* 交互组件（skin.json 的 Button，class=skin-action）：
+   状态 animation 只在 hover / pressed 成立期间播放，退出后回到基础样式。 */
+.skin-action {
+  background: var(--card);
+  border-color: var(--border);
+  color: var(--text);
+  corner-radius: 8px;
+  padding: 2px 8px;
+  font-size: 12px;
+  transition: background 160ms ease-out;
+}
+
+/* 关键帧只动 opacity 与 transform，不触发布局 */
+@keyframes skin-lift {
+  from {
+    opacity: 0.86;
+    transform: translateY(1px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.03);
+  }
+}
+
+@keyframes skin-press {
+  from {
+    opacity: 0.9;
+    transform: scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: scale(0.96);
+  }
+}
+
+.skin-action:hover {
+  background: var(--card-hover);
+  border-color: var(--accent);
+  animation: skin-lift 0.18s ease-out;
+}
+
+.skin-action:pressed {
+  background: var(--accent);
+  color: var(--bg);
+  animation: skin-press 0.1s ease-out forwards;
+}
+
+/* 浅色模式下换一套配色，避免深底浅字 */
+@media (prefers-color-scheme: light) {
+  :root {
+    --accent: #ff0f8f80;
+    --accent-hover: #ff2fb3a2;
+    --bg: #fff6faff;
+    --card: #ffffffff;
+    --text: #ff16202f;
+    --muted: #ff5d6b86;
+    --border: #ffd7e2f2;
+  }
+}

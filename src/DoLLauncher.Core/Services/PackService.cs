@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using DoLLauncher.Core.Import;
 using DoLLauncher.Models;
 
 namespace DoLLauncher.Services;
@@ -147,6 +148,13 @@ public static class PackService
                 return new PackInspection
                 {
                     Game = new PackGameDetection { Kind = PackGameKind.Exact, HtmlEntry = exact },
+                };
+
+            // Lyra 资产名本身就是版本包；HTML 被改名时也直接按本体导入，不再弹 SingleHtml 确认
+            if (LyraPackName.TryParse(Path.GetFileName(packPath), out _) && htmlEntries.Count == 1)
+                return new PackInspection
+                {
+                    Game = new PackGameDetection { Kind = PackGameKind.Exact, HtmlEntry = htmlEntries[0] },
                 };
 
             // 精确名称缺失时先看模组结构，避免把带 readme.html 的模组错判成游戏

@@ -1,0 +1,176 @@
+{
+  "format": "dolskin/3",
+  "id": "lantern-skin",
+  "name": "灯台夜幕",
+  "author": "DoL Launcher",
+  "version": "1.0.0",
+  "description": "dolskin/3 示例：两套主题、呼吸灯、按压反馈、环境粒子与九宫格边饰（PNG / SVG 各一）。",
+  "styleSheet": "skin.css",
+  "defaultTheme": "cyberpunk",
+  "themes": [
+    {
+      "id": "cyberpunk",
+      "name": "赛博夜",
+      "variables": {
+        "accent": "#FF35E8D5",
+        "accent-hover": "#FF6CF3E4",
+        "bg": "#FF0B1220",
+        "card": "#FF13203A",
+        "card-hover": "#FF1B2C4C",
+        "text": "#FFE8FBFF",
+        "muted": "#FF9FB4D8",
+        "border": "#FF2B4468"
+      },
+      "ornament": "ornaments/lantern.svg",
+      "slice": 24
+    },
+    {
+      "id": "amber",
+      "name": "琥珀灯",
+      "variables": {
+        "accent": "#FFFFB74A",
+        "accent-hover": "#FFFFD08A",
+        "bg": "#FF1A1206",
+        "card": "#FF2A1E0C",
+        "card-hover": "#FF3A2A11",
+        "text": "#FFFFF4E2",
+        "muted": "#FFD3BC96",
+        "border": "#FF5A4520"
+      },
+      "ornament": "ornaments/lantern.png",
+      "slice": 24
+    }
+  ],
+  "effects": {
+    "ambient": {
+      "particles": 24,
+      "veil": true,
+      "sky": true,
+      "opacity": 0.8
+    },
+    "motion": {
+      "panelIn": true,
+      "breathe": true,
+      "hairline": true,
+      "ripple": true
+    }
+  },
+  "settings": [
+    {
+      "key": "theme",
+      "type": "select",
+      "label": "主题",
+      "default": "cyberpunk",
+      "optionsFromThemes": true
+    },
+    {
+      "key": "motion",
+      "type": "toggle",
+      "label": "动效",
+      "default": true
+    },
+    {
+      "key": "particles",
+      "type": "select",
+      "label": "环境粒子",
+      "default": "24",
+      "options": ["0", "8", "16", "24"]
+    },
+    {
+      "key": "ornament",
+      "type": "toggle",
+      "label": "主题边饰",
+      "default": true
+    }
+  ],
+  "components": [
+    {
+      "id": "lantern-badge",
+      "host": "#LaunchBtn",
+      "slot": "after",
+      "widget": "Badge",
+      "class": "skin-badge",
+      "props": {
+        "text": "灯台",
+        "margin": "0 0 8 8"
+      }
+    },
+    {
+      "id": "lantern-icon",
+      "host": "#ConflictBtn",
+      "slot": "before",
+      "widget": "Image",
+      "props": {
+        "src": "ornaments/lantern.svg",
+        "width": "24",
+        "height": "24",
+        "margin": "4,0,0,8"
+      }
+    },
+    {
+      "id": "version-label",
+      "host": "#LaunchBtn",
+      "slot": "before",
+      "widget": "Label",
+      "class": "skin-card",
+      "props": {
+        "margin": "0 8 0 0"
+      },
+      "bind": {
+        "text": "版本 {{ version.count }} 个 · 模组 {{ mods.enabled }}/{{ mods.total }}"
+      }
+    },
+    {
+      "id": "theme-switch",
+      "host": "#LaunchBtn",
+      "slot": "after",
+      "widget": "Button",
+      "class": "skin-action",
+      "props": {
+        "text": "切换主题",
+        "margin": "0 8 6 0"
+      },
+      "bind": {
+        "text": "主题：{{ theme.name }}"
+      },
+      "events": {
+        "click": "if (theme.id == 'cyberpunk') { setTheme('amber'); toast('已切换到琥珀灯'); } else { setTheme('cyberpunk'); toast('已切换到赛博夜'); }"
+      }
+    },
+    {
+      "id": "motion-toggle",
+      "host": "#LaunchBtn",
+      "slot": "after",
+      "widget": "Toggle",
+      "props": {
+        "text": "动效",
+        "bindTo": "settings.motion",
+        "margin": "0 8 6 0"
+      },
+      "bind": {
+        "value": "{{ motion }}"
+      },
+      "events": {
+        "changed": "toast('动效设置已更新');"
+      }
+    },
+    {
+      "id": "particles-slider",
+      "host": "#LaunchBtn",
+      "slot": "after",
+      "widget": "Slider",
+      "props": {
+        "min": "0",
+        "max": "24",
+        "step": "8",
+        "value": "24",
+        "bindTo": "settings.particles",
+        "width": "120",
+        "margin": "0 8 6 0"
+      },
+      "bind": {
+        "value": "{{ particles }}"
+      }
+    }
+  ]
+}

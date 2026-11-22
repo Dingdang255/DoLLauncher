@@ -39,6 +39,9 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<VersionVm> _targets = new();
     private readonly ObservableCollection<string> _categories = new();
     private readonly ObservableCollection<GameRelease> _marketReleases = new();
+    private readonly ObservableCollection<PackOption> _packOptions = new();
+    private bool _packLoaded;
+    private bool _packLoading;
     private readonly ObservableCollection<BackupEntry> _backupEntries = new();
     private readonly Dictionary<string, List<GameRelease>> _releaseCache = new();
     private readonly Dictionary<string, string> _readmeCache = new();
@@ -105,6 +108,9 @@ public partial class MainWindow : Window
         GameSourceBox.ItemsSource = DownloadService.GameSources;
         GameSourceBox.SelectedItem = DownloadService.CurrentGameSource();
         GameReleaseList.ItemsSource = _gameReleases;
+        PackTypeBox.ItemsSource = new[] { DownloadService.LyraSource };
+        PackTypeBox.SelectedIndex = 0;
+        PackVariantList.ItemsSource = _packOptions;
         MarketList.ItemsSource = _marketView;
         MarketTargetBox.ItemsSource = _targets;
         MarketCategoryBox.ItemsSource = _categories;
@@ -167,6 +173,7 @@ public partial class MainWindow : Window
             SyncMarketTarget();
             SyncBackupTarget();
             SyncDiagTarget();
+            SkinService.NotifyBindingsChanged();
         }
         catch (Exception ex)
         {
@@ -177,6 +184,7 @@ public partial class MainWindow : Window
     private void VersionList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         RefreshDetail();
+        SkinService.NotifyBindingsChanged();
         // 等布局完成后按选中项定位左侧小三角
         Dispatcher.BeginInvoke(new Action(() => UpdateVersionIndicator(true)), DispatcherPriority.Loaded);
     }
@@ -380,6 +388,16 @@ public partial class MainWindow : Window
     {
         var infos = _mods.Select(m => m.Info).ToList();
         var threshold = ProblemService.NormalizeThreshold(AppConfig.Load().General.VersionGapThreshold);
+
+        // 只有存在磁盘模组时才需要内置模组名做前置/重复检查；空列表不去解码 27 MB HTML
+        var embedded = _selected != null && infos.Count > 0 &&
+                       LyraPackService.IsLyraPackName(_selected.Info.Folder)
+            ? LyraPackService.ReadEmbeddedMods(_selected.Info.FullPath)
+            : new List<LyraEmbeddedMod>();
+        var embeddedKeys = embedded
+            .Select(m => ModService.NormalizeModName(m.Name))
+            .Where(k => k.Length > 0)
+            .ToHashSet(StringComparer.Ordinal);
         // 运行日志里实际出现的补丁失败，按当前启用模组过滤后并入版本不匹配列表
         var runtime = _selected == null
             ? new List<ModVersionMismatch>()
@@ -407,6 +425,10 @@ public partial class MainWindow : Window
             if (normalized.Length > 0 && byName.TryGetValue(normalized, out var count) && count > 1)
                 issues.Add($"与其它 {count - 1} 个模组同名");
 
+            var embeddedKey = ModService.NormalizeModName(vm.Info.Name);
+            if (embeddedKey.Length > 0 && embeddedKeys.Contains(embeddedKey))
+                issues.Add("整合包已内置同名模组，重复加载会冲突");
+
             foreach (var dep in vm.Info.Dependencies)
             {
                 if (ModService.IsGameVersion(dep.Name))
@@ -421,6 +443,7 @@ public partial class MainWindow : Window
                 }
 
                 if (ModService.IsBuiltin(dep.Name)) continue;
+                if (embeddedKeys.Contains(ModService.NormalizeModName(dep.Name))) continue;
                 var target = _mods.FirstOrDefault(m => string.Equals(m.Info.Name, dep.Name,
                     StringComparison.OrdinalIgnoreCase));
                 if (target == null || !target.Enabled)
@@ -439,7 +462,7 @@ public partial class MainWindow : Window
             vm.IssueText = string.Join("；", issues);
         }
 
-        _missingDeps = ProblemService.MissingDependencies(infos);
+        _missingDeps = ProblemService.MissingDependencies(infos, embedded.Select(m => m.Name));
         _versionMismatches = ProblemService.VersionMismatches(infos, _selected?.Info.GameVersion, threshold);
         foreach (var issue in runtime)
         {
@@ -739,6 +762,7 @@ public partial class MainWindow : Window
         ModCountText.Text = _mods.Count == 0
             ? "（mods 目录为空）"
             : $"共 {_mods.Count} 个 · 启用 {enabled} 个";
+        SkinService.NotifyBindingsChanged();
     }
 
     private void UpdateButtons()
@@ -1208,6 +1232,70 @@ public partial class MainWindow : Window
         Log("已重新读取磁盘模组。");
     }
 
+    /// <summary>只读展示整合包 HTML 里内置的模组。</summary>
+    private async void EmbeddedMods_Click(object sender, RoutedEventArgs e)
+    {
+        var version = _selected?.Info;
+        if (version == null || version.IsFileMode) return;
+
+        List<LyraEmbeddedMod> mods;
+        try
+        {
+            mods = await Task.Run(() => LyraPackService.ReadEmbeddedMods(version.FullPath));
+        }
+        catch (Exception ex)
+        {
+            LogError("读取内置模组失败", ex);
+            AppDialog.Error("读取内置模组失败：" + ex.Message, "内置模组");
+            return;
+        }
+
+        if (mods.Count == 0)
+        {
+            AppDialog.Info("当前版本没有内置模组；如果之前解压过，它们已经出现在下方模组列表里。", "内置模组");
+            return;
+        }
+
+        var lines = mods.Select((m, i) =>
+            $"{i + 1}. [{(m.IsBuiltin ? "必需" : "可解压")}] {m.Name}  {m.Version}".TrimEnd());
+        var list = $"共 {mods.Count} 个，来自整合包 HTML：\n\n" + string.Join("\n", lines);
+        var extractable = mods.Count(m => !m.IsBuiltin);
+
+        if (extractable == 0)
+        {
+            AppDialog.Info(list + "\n\n没有可解压的普通模组，ModLoader 必需组件会继续保留在内置。", "内置模组");
+            return;
+        }
+
+        if (ServerManager.IsRunning(version.Folder))
+        {
+            AppDialog.Warn("这个版本正在运行，请先停止游戏再解压内置模组。", "内置模组");
+            return;
+        }
+
+        if (!AppDialog.Confirm(
+                list + $"\n\n是否把其中 {extractable} 个可解压模组写入 mods/？" +
+                "解压后可以在下方列表里启停和排序，ModLoader 必需组件仍保留在内置。",
+                "内置模组", "解压到 mods"))
+            return;
+
+        try
+        {
+            var result = await Task.Run(() => LyraPackService.ExtractToMods(version.FullPath, Log));
+            LoadMods(version);
+            var skipped = result.Skipped > 0 ? $"，{result.Skipped} 个必需组件保留内置" : "";
+            Log($"内置模组已解压：{result.Extracted} 个{skipped}。");
+            AppDialog.Info(
+                $"已解压 {result.Extracted} 个模组到 mods/{skipped}。",
+                "解压完成");
+        }
+        catch (Exception ex)
+        {
+            LogError("解压内置模组失败", ex);
+            AppDialog.Error("解压内置模组失败：" + ex.Message, "解压内置模组");
+        }
+    }
+
     private void ModList_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateModButtons();
 
     private void ModList_MouseDoubleClick(object sender, MouseButtonEventArgs e) => ModDetail_Click(sender, e);
@@ -1561,6 +1649,12 @@ public partial class MainWindow : Window
         foreach (var path in paths)
         {
             var name = Path.GetFileName(path);
+            if (path.EndsWith(".apk", StringComparison.OrdinalIgnoreCase))
+            {
+                failed.Add($"{name}（APK 是独立应用，请直接在设备上安装，不能作为版本导入）");
+                continue;
+            }
+
             var inspection = PackService.Inspect(path);
             if (inspection.IsUnknown)
             {
@@ -1631,10 +1725,11 @@ public partial class MainWindow : Window
                     var result = await Task.Run(() => PackService.Import(path, inspection, targetPath, Log));
 
                     imported++;
-                    if (result.NewVersionFolder != null)
+                    if (result.NewVersionFolder is { } newFolder)
                     {
-                        lastFolder = result.NewVersionFolder;
-                        Log($"导入完成，新版本目录：{result.NewVersionFolder}（模组 {result.ModCount} 个）");
+                        lastFolder = newFolder;
+                        Log($"导入完成，新版本目录：{newFolder}（模组 {result.ModCount} 个）");
+                        await OfferLyraExtractAsync(Path.Combine(Paths.VersionsDir, newFolder), name);
                     }
                     else
                     {
@@ -1663,6 +1758,61 @@ public partial class MainWindow : Window
         {
             ImportPackBtn.IsEnabled = true;
             AddVersionBtn.IsEnabled = true;
+        }
+    }
+
+    /// <summary>Lyra 版本导入完成后，询问是否把内置模组解压到 mods/。</summary>
+    private async Task OfferLyraExtractAsync(string versionDir, string packName)
+    {
+        if (!LyraPackService.IsLyraPackName(packName) &&
+            !LyraPackService.IsLyraPackName(Path.GetFileName(versionDir))) return;
+
+        List<LyraEmbeddedMod> embedded;
+        try
+        {
+            embedded = await Task.Run(() => LyraPackService.ReadEmbeddedMods(versionDir, Log));
+        }
+        catch (Exception ex)
+        {
+            LogError("读取内置模组失败", ex);
+            return;
+        }
+
+        var extractable = embedded.Count(m => !m.IsBuiltin);
+        if (extractable <= 0)
+        {
+            if (embedded.Count > 0)
+                Log($"内置条目均为 ModLoader 必需组件（{embedded.Count} 个），无需解压。");
+            return;
+        }
+
+        var builtinCount = embedded.Count - extractable;
+        var builtinNote = builtinCount > 0
+            ? $"\n其中 {builtinCount} 个是 ModLoader 必需组件，会继续保留在内置，不搬进 mods/。"
+            : "";
+        if (!AppDialog.Confirm(
+                $"「{packName}」共有 {embedded.Count} 个内置条目，可解压 {extractable} 个普通模组。{builtinNote}\n\n" +
+                "是否解压到版本的 mods/ 目录？解压后可以在启动器里启停、排序和替换这些模组。",
+                "解压内置模组", "解压到 mods"))
+        {
+            Log("已保留内置模组，未解压。");
+            return;
+        }
+
+        Log("正在解压整合包内置模组…");
+        try
+        {
+            var result = await Task.Run(() => LyraPackService.ExtractToMods(versionDir, Log));
+            var skipped = result.Skipped > 0 ? $"，{result.Skipped} 个必需组件保留内置" : "";
+            Log($"内置模组已解压：{result.Extracted} 个{skipped}。");
+            AppDialog.Info(
+                $"已解压 {result.Extracted} 个模组到 mods/{skipped}，可以在模组页启停和排序。",
+                "解压完成");
+        }
+        catch (Exception ex)
+        {
+            LogError("解压内置模组失败", ex);
+            AppDialog.Error("解压内置模组失败：" + ex.Message, "解压内置模组");
         }
     }
 

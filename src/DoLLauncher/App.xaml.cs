@@ -26,6 +26,49 @@ public partial class App : Application
             args.SetObserved();
         };
 
+        if (e.Args.Length >= 2 && e.Args[0].Equals("--skin-diag", StringComparison.OrdinalIgnoreCase))
+        {
+            PlatformServices.Initialize(new WindowsPlatformBundle());
+            LogService.Configure("detailed");
+            UiAnimations.Enabled = true;
+            UiAnimations.Initialize();
+            TextToolTip.Initialize();
+            ThemeService.Initialize();
+            LogService.Append($"DIAG 启动：皮肤={e.Args[1]}");
+            SkinService.Activate(e.Args[1]);
+            var diag = new Window
+            {
+                Width = 1280,
+                Height = 820,
+                ShowActivated = false,
+                ShowInTaskbar = false,
+                WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                Content = new System.Windows.Controls.Grid(),
+            };
+            Application.Current.MainWindow = diag;
+            diag.Show();
+            diag.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+            SkinService.ApplyToWindow(diag);
+            diag.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+            SkinService.DumpAmbientDiagnostics(diag);
+            var sample1 = SkinService.SampleAmbientParticle(diag);
+            LogService.Append($"DIAG 粒子采样1 X={sample1.X:0.##}，透明度={sample1.Opacity:0.##}");
+            var frame = new DispatcherFrame();
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
+            timer.Tick += (_, _) =>
+            {
+                timer.Stop();
+                frame.Continue = false;
+            };
+            timer.Start();
+            Dispatcher.PushFrame(frame);
+            var sample2 = SkinService.SampleAmbientParticle(diag);
+            LogService.Append($"DIAG 粒子采样2 X={sample2.X:0.##}，透明度={sample2.Opacity:0.##}");
+            diag.Close();
+            Shutdown();
+            return;
+        }
+
         if (e.Args.Any(a => a.Equals("--selftest", StringComparison.OrdinalIgnoreCase)))
         {
             PlatformServices.Initialize(new WindowsPlatformBundle());
@@ -52,6 +95,10 @@ public partial class App : Application
         // 美化包需要先于主题初始化，才能让包内主色参与调色板计算
         SkinService.Initialize();
         ThemeService.Initialize();
+
+        // 启动时清理一次独立 Profile 的扩展与同步残留，避免同步进来的插件占空间；
+        // 放后台执行，不阻塞启动界面。
+        _ = Task.Run(Core.Browser.BrowserService.HardenProfileOnStartup);
     }
 
     private void OnUnhandled(object sender, DispatcherUnhandledExceptionEventArgs e)

@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using DoLLauncher.Core.Import;
 using DoLLauncher.Maui.Controls;
 using DoLLauncher.Maui.Platform;
 using DoLLauncher.Models;
@@ -403,6 +404,19 @@ public partial class BackupPage : ContentView
     {
         var version = _version;
         if (version == null || _busy) return;
+
+        // Lyra 的内置模组写在 HTML 里，mods/ 为空时“仅导出模组”会得到空包
+        if (!includeGame && LyraPackName.TryParse(version.Folder, out _))
+        {
+            var diskMods = await Task.Run(() => ModService.Load(version.FullPath));
+            if (diskMods.Count == 0)
+            {
+                includeGame = true;
+                await PlatformServices.Dialogs.InfoAsync(
+                    "Lyra 整合包的内置模组写在 HTML 里，仅导出模组会得到空包，已改为包含游戏本体。",
+                    "创建快照");
+            }
+        }
 
         var message = $"为「{version.DisplayName}」创建快照？\n" +
                       (includeGame ? "包含游戏本体，体积较大。\n" : "只包含模组与配置，体积较小。\n") +

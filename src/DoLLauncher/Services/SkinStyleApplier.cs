@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
@@ -32,6 +33,61 @@ public static class SkinStyleApplier
         public HashSet<Panel> GapPanels { get; } = new();
         public HashSet<Panel> AlignPanels { get; } = new();
         public ImageBrush? BackgroundImage { get; set; }
+
+        /// <summary>命中的基础规则（不含状态伪类），供过渡声明收集使用。</summary>
+        public List<SkinStyleRule> BaseRules { get; } = new();
+
+        /// <summary>命中但带状态伪类的规则，只在状态成立时生效。</summary>
+        public List<SkinStyleRule> StateRules { get; } = new();
+
+        /// <summary>该元素需要监听的状态集合（hover / pressed / selected / checked / disabled）。</summary>
+        public HashSet<string> WatchedStates { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>当前激活的状态集合，用于避免重复应用。</summary>
+        public HashSet<string> ActiveStates { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public bool StatesApplied { get; set; }
+
+        public bool BaselineCaptured { get; set; }
+
+        /// <summary>状态规则会触及的属性的“基础快照”（基础规则应用后的值）。</summary>
+        public Dictionary<(FrameworkElement Target, DependencyProperty Property), Baseline> Baselines { get; } = new();
+
+        /// <summary>基础层的 transform，状态退出时据此还原。</summary>
+        public SkinTransformSpec? BaseTransform { get; set; }
+
+        public bool HasBaseTransform { get; set; }
+
+        /// <summary>是否有状态规则声明了 transform。</summary>
+        public bool HasStateTransform { get; set; }
+
+        /// <summary>基础层（无状态伪类）的动画，状态退出时重播。</summary>
+        public SkinAnimationSpec? BaseAnimation { get; set; }
+
+        public bool HasBaseAnimation { get; set; }
+
+        /// <summary>上一次重算是否实际播放了状态动画，退出时需要停掉。</summary>
+        public bool StateAnimationApplied { get; set; }
+
+        public StateHandlers? Handlers { get; set; }
+    }
+
+    /// <summary>某个属性在基础层上的值，状态退出时据此还原。</summary>
+    private readonly record struct Baseline(object? Original, BaseValueSource Source, bool IsExpression);
+
+    /// <summary>元素上挂载的状态事件处理器，卸载时统一解绑。</summary>
+    private sealed class StateHandlers
+    {
+        public MouseEventHandler? Enter;
+        public MouseEventHandler? Leave;
+        public MouseEventHandler? CaptureLost;
+        public MouseButtonEventHandler? Down;
+        public MouseButtonEventHandler? Up;
+        public DependencyPropertyChangedEventHandler? EnabledChanged;
+        public RoutedEventHandler? Selected;
+        public RoutedEventHandler? Unselected;
+        public RoutedEventHandler? Checked;
+        public RoutedEventHandler? Unchecked;
     }
 
     /// <summary>面板级布局：间距、主轴方向与交叉轴对齐（WPF 没有真正的 flex）。</summary>
@@ -135,7 +191,48 @@ public static class SkinStyleApplier
     private static Dictionary<string, string> _variables = new(StringComparer.OrdinalIgnoreCase);
     private static string _baseDir = string.Empty;
 
+    /// <summary>按下状态（非 ButtonBase 元素只能用事件自己跟踪）。</summary>
+    private static readonly HashSet<FrameworkElement> PressedElements = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>order 重排：面板的原始子元素顺序。</summary>
+    private static readonly Dictionary<Panel, List<UIElement>> OrderBaselines = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>order 重排：元素声明的 order 值。</summary>
+    private static readonly Dictionary<FrameworkElement, int> OrderValues = new(ReferenceEqualityComparer.Instance);
+
+    private static readonly HashSet<Panel> OrderWarnedPanels = new(ReferenceEqualityComparer.Instance);
+    private static readonly HashSet<string> WarnedMessages = new(StringComparer.OrdinalIgnoreCase);
+
     public static bool HasRules => _sheet is { Rules.Count: > 0 };
+
+    /// <summary>皮肤附加样式类（空格分隔），供声明式组件与 <c>.类名</c> 选择器匹配。</summary>
+    public static readonly DependencyProperty SkinClassesProperty =
+        DependencyProperty.RegisterAttached("SkinClasses", typeof(string), typeof(SkinStyleApplier),
+            new PropertyMetadata(string.Empty));
+
+    public static void SetSkinClasses(DependencyObject element, string? value)
+        => element.SetValue(SkinClassesProperty, value ?? string.Empty);
+
+    public static string GetSkinClasses(DependencyObject element)
+        => element.GetValue(SkinClassesProperty) as string ?? string.Empty;
+
+    /// <summary>元素是否命中某个皮肤类（样式键或附加类）。</summary>
+    public static bool HasSkinClass(FrameworkElement element, string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+
+        var key = StyleKeyOf(element);
+        if (key != null && key.Equals(name, StringComparison.OrdinalIgnoreCase)) return true;
+
+        foreach (var cls in SplitSkinClasses(GetSkinClasses(element)))
+            if (cls.Equals(name, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+    private static IEnumerable<string> SplitSkinClasses(string? text)
+        => (text ?? string.Empty).Split(new[] { ' ', '\t', '\r', '\n', ',' },
+            StringSplitOptions.RemoveEmptyEntries);
+
 
     /// <summary>注册全局 Loaded 钩子：新窗口、动态创建的控件与模板内元素都会按规则上色。</summary>
     public static void Initialize()
@@ -148,23 +245,28 @@ public static class SkinStyleApplier
 
     public static void Load(SkinStyleSheet? sheet, string baseDir)
     {
+        SkinAnimationRunner.StopAll();
         RestoreAll();
         _sheet = sheet;
         _variables = sheet?.VariablesFor(ThemeService.IsDark) ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         _baseDir = baseDir ?? string.Empty;
+        SkinAnimationRunner.ValueResolver = value => ResolveValue(value);
         ApplyAll();
     }
 
     public static void Unload()
     {
+        SkinAnimationRunner.StopAll();
         RestoreAll();
         _sheet = null;
         _variables.Clear();
         _baseDir = string.Empty;
+        SkinAnimationRunner.ValueResolver = null;
     }
 
     public static void Reapply()
     {
+        SkinAnimationRunner.StopAll();
         RestoreAll();
         if (_sheet != null) _variables = _sheet.VariablesFor(ThemeService.IsDark);
         ApplyAll();
@@ -198,9 +300,17 @@ public static class SkinStyleApplier
 
     private static void OnElementLoaded(object sender, RoutedEventArgs e)
     {
-        if (!HasRules) return;
-        if (sender is FrameworkElement element) ApplyElement(element);
+        if (sender is not FrameworkElement element) return;
+        if (HasRules) ApplyElement(element);
+        SkinService.ApplyButtonSurface(element);
+        SkinComponentService.TryApplyHost(element);
     }
+
+    /// <summary>对单个元素应用样式（供声明式组件插入后立即上色）。</summary>
+    public static void ApplyToElement(FrameworkElement element) => ApplyElement(element);
+
+    /// <summary>把 <c>var(--xxx)</c> 解析成具体值；没有样式表时原样返回。</summary>
+    public static string ResolveSkinValue(string raw) => ResolveValue(raw ?? string.Empty);
 
     private static void ApplyTree(FrameworkElement root)
     {
@@ -234,150 +344,243 @@ public static class SkinStyleApplier
         var sheet = _sheet;
         if (sheet == null) return;
 
-        ElementState? state = null;
+        // 三层值模型：基础规则（无状态伪类）与状态规则分开收集
+        var baseRules = new List<SkinStyleRule>();
+        var stateRules = new List<SkinStyleRule>();
+
         foreach (var rule in sheet.Rules)
         {
-            if (!RuleMatches(rule, element)) continue;
-            state ??= GetState(element);
-            foreach (var declaration in rule.Declarations)
+            if (rule.RequiresDark.HasValue && ThemeService.IsDark != rule.RequiresDark.Value) continue;
+
+            var hasBase = false;
+            var hasState = false;
+            foreach (var selector in rule.Selectors)
             {
-                var property = declaration.Property.Trim().ToLowerInvariant();
-                var value = declaration.Value.Trim();
-
-                switch (property)
-                {
-                    case "corner-radius":
-                    case "border-radius":
-                    case "radius":
-                        if (TryParseCornerRadius(ResolveValue(value), out var radius))
-                            ApplyCornerRadius(element, state, radius);
-                        break;
-
-                    case "background-image":
-                        if (TryReadUrl(value, out var imagePath)) ApplyBackgroundImage(element, state, imagePath);
-                        break;
-
-                    case "background-size":
-                        ApplyBackgroundSize(state, ResolveValue(value));
-                        break;
-
-                    case "background-repeat":
-                        ApplyBackgroundRepeat(state, ResolveValue(value));
-                        break;
-
-                    case "background":
-                    case "background-color":
-                    case "bg":
-                        if (TryReadUrl(value, out var backgroundPath)) ApplyBackgroundImage(element, state, backgroundPath);
-                        else ApplyBrush(element, state, "Background", value);
-                        break;
-
-                    case "color":
-                    case "foreground":
-                        ApplyBrush(element, state, "Foreground", value);
-                        break;
-
-                    case "border-color":
-                        ApplyBrush(element, state, "BorderBrush", value);
-                        break;
-
-                    case "fill":
-                        ApplyBrush(element, state, "Fill", value);
-                        break;
-
-                    case "stroke":
-                        ApplyBrush(element, state, "Stroke", value);
-                        break;
-
-                    case "border":
-                    case "border-width":
-                    case "border-thickness":
-                        ApplyBorder(element, state, property, value);
-                        break;
-
-                    case "box-shadow":
-                    case "shadow":
-                        ApplyShadow(element, state, ResolveValue(value));
-                        break;
-
-                    case "flex-direction":
-                        ApplyFlexDirection(element, ResolveValue(value));
-                        break;
-
-                    case "gap":
-                        ApplyGap(element, ResolveValue(value), true, true);
-                        break;
-
-                    case "row-gap":
-                        ApplyGap(element, ResolveValue(value), true, false);
-                        break;
-
-                    case "column-gap":
-                        ApplyGap(element, ResolveValue(value), false, true);
-                        break;
-
-                    case "align-items":
-                        ApplyAlignItems(element, ResolveValue(value));
-                        break;
-
-                    case "white-space":
-                        ApplyTextWrapping(element, state, ResolveValue(value), true);
-                        break;
-
-                    case "overflow-wrap":
-                    case "word-break":
-                        // WPF 只能在正常断点换行，break-all/anywhere 仅作近似
-                        ApplyTextWrapping(element, state, ResolveValue(value), false);
-                        break;
-
-                    case "text-overflow":
-                        ApplyTextTrimming(element, state, ResolveValue(value));
-                        break;
-
-                    case "overflow":
-                    case "overflow-x":
-                    case "overflow-y":
-                        ApplyOverflow(element, state, ResolveValue(value));
-                        break;
-
-                    case "z-index":
-                        ApplyZIndex(element, state, ResolveValue(value));
-                        break;
-
-                    case "border-left":
-                    case "border-right":
-                    case "border-top":
-                    case "border-bottom":
-                    case "border-left-width":
-                    case "border-right-width":
-                    case "border-top-width":
-                    case "border-bottom-width":
-                        ApplySideBorder(element, state, SideOf(property), ResolveValue(value));
-                        break;
-
-                    case "border-left-color":
-                    case "border-right-color":
-                    case "border-top-color":
-                    case "border-bottom-color":
-                        // WPF 的 Border 只有一种描边颜色，这里按整体边框色处理
-                        ApplyBrush(element, state, "BorderBrush", value);
-                        break;
-
-                    case "letter-spacing":
-                        // WPF 的 TextBlock 没有字距属性，忽略即可
-                        break;
-
-                    default:
-                        ApplySimpleProperty(element, state, property, value);
-                        break;
-                }
+                if (!Matches(selector, element)) continue;
+                if (selector.HasStates) hasState = true;
+                else hasBase = true;
             }
+
+            if (hasBase) baseRules.Add(rule);
+            if (hasState) stateRules.Add(rule);
+        }
+
+        var state = baseRules.Count > 0 || stateRules.Count > 0 ? GetState(element) : null;
+        if (state != null)
+        {
+            var animationBuilder = new AnimationBuilder();
+            foreach (var rule in baseRules)
+            {
+                foreach (var declaration in rule.Declarations)
+                    ApplyDeclaration(element, state, declaration, null, animationBuilder);
+            }
+            AttachAnimation(element, animationBuilder);
+
+            // 基础动画留一份快照：状态动画结束后据此恢复
+            state.BaseAnimation = animationBuilder.HasValue ? animationBuilder.ToSpec() : null;
+            state.HasBaseAnimation = animationBuilder.HasValue;
+
+            if (stateRules.Count > 0) SetupStates(element, state, baseRules, stateRules);
+            else if (state.Handlers != null) ClearStates(element, state);
         }
 
         // 面板自身的 gap/align 需要作用到子元素；子元素加载时也要回查父面板
         if (element is Panel panel && PanelLayouts.TryGetValue(panel, out var layout))
             ApplyLayoutToChildren(panel, layout);
         ApplyParentLayout(element);
+    }
+
+    private static void ApplyDeclaration(FrameworkElement element, ElementState state,
+        SkinDeclaration declaration, TransitionMap? transitions, AnimationBuilder animationBuilder)
+    {
+        var property = declaration.Property.Trim().ToLowerInvariant();
+        var value = declaration.Value.Trim();
+
+        switch (property)
+        {
+            case "corner-radius":
+            case "border-radius":
+            case "radius":
+                if (TryParseCornerRadius(ResolveValue(value), out var radius))
+                    ApplyCornerRadius(element, state, radius, transitions);
+                break;
+
+            case "background-image":
+                if (TryReadUrl(value, out var imagePath)) ApplyBackgroundImage(element, state, imagePath);
+                break;
+
+            case "background-size":
+                ApplyBackgroundSize(state, ResolveValue(value));
+                break;
+
+            case "background-repeat":
+                ApplyBackgroundRepeat(state, ResolveValue(value));
+                break;
+
+            case "background":
+            case "background-color":
+            case "bg":
+                if (TryReadUrl(value, out var backgroundPath)) ApplyBackgroundImage(element, state, backgroundPath);
+                else ApplyBrush(element, state, "Background", value, transitions, "background");
+                break;
+
+            case "color":
+            case "foreground":
+                ApplyBrush(element, state, "Foreground", value, transitions, "color");
+                break;
+
+            case "border-color":
+                ApplyBrush(element, state, "BorderBrush", value, transitions, "border-color");
+                break;
+
+            case "fill":
+                ApplyBrush(element, state, "Fill", value, transitions, "fill");
+                break;
+
+            case "stroke":
+                ApplyBrush(element, state, "Stroke", value, transitions, "stroke");
+                break;
+
+            case "border":
+            case "border-width":
+            case "border-thickness":
+                ApplyBorder(element, state, property, value);
+                break;
+
+            case "box-shadow":
+            case "shadow":
+                ApplyShadow(element, state, ResolveValue(value));
+                break;
+
+            case "flex-direction":
+                ApplyFlexDirection(element, ResolveValue(value));
+                break;
+
+            case "gap":
+                ApplyGap(element, ResolveValue(value), true, true);
+                break;
+
+            case "row-gap":
+                ApplyGap(element, ResolveValue(value), true, false);
+                break;
+
+            case "column-gap":
+                ApplyGap(element, ResolveValue(value), false, true);
+                break;
+
+            case "align-items":
+                ApplyAlignItems(element, ResolveValue(value));
+                break;
+
+            case "opacity":
+                ApplyOpacity(element, state, ResolveValue(value), transitions);
+                break;
+
+            case "transform":
+                ApplyTransform(element, state, value, transitions);
+                break;
+
+            case "order":
+                ApplyOrder(element, value);
+                break;
+
+            case "transition":
+            case "transition-property":
+            case "transition-duration":
+            case "transition-delay":
+            case "transition-timing-function":
+                // 过渡声明在状态重算时统一收集，这里不需要直接应用
+                break;
+
+            case "animation":
+                if (SkinAnimationSpec.TryParse(value, out var animationSpec)) animationBuilder.Apply(animationSpec);
+                break;
+
+            case "animation-name":
+                animationBuilder.Name = value;
+                break;
+
+            case "animation-duration":
+                if (TryParseTimeMs(value, out var animationDuration))
+                    animationBuilder.DurationMs = animationDuration;
+                break;
+
+            case "animation-delay":
+                if (TryParseTimeMs(value, out var animationDelay))
+                    animationBuilder.DelayMs = animationDelay;
+                break;
+
+            case "animation-timing-function":
+                animationBuilder.Timing = value;
+                break;
+
+            case "animation-iteration-count":
+                animationBuilder.IterationCount = value.Equals("infinite", StringComparison.OrdinalIgnoreCase)
+                    ? double.PositiveInfinity
+                    : double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var count)
+                        ? Math.Max(0, count)
+                        : 1;
+                break;
+
+            case "animation-direction":
+                animationBuilder.Direction = value.ToLowerInvariant();
+                break;
+
+            case "animation-fill-mode":
+                animationBuilder.FillMode = value.ToLowerInvariant();
+                break;
+
+            case "white-space":
+                ApplyTextWrapping(element, state, ResolveValue(value), true);
+                break;
+
+            case "overflow-wrap":
+            case "word-break":
+                // WPF 只能在正常断点换行，break-all/anywhere 仅作近似
+                ApplyTextWrapping(element, state, ResolveValue(value), false);
+                break;
+
+            case "text-overflow":
+                ApplyTextTrimming(element, state, ResolveValue(value));
+                break;
+
+            case "overflow":
+            case "overflow-x":
+            case "overflow-y":
+                ApplyOverflow(element, state, ResolveValue(value));
+                break;
+
+            case "z-index":
+                ApplyZIndex(element, state, ResolveValue(value));
+                break;
+
+            case "border-left":
+            case "border-right":
+            case "border-top":
+            case "border-bottom":
+            case "border-left-width":
+            case "border-right-width":
+            case "border-top-width":
+            case "border-bottom-width":
+                ApplySideBorder(element, state, SideOf(property), ResolveValue(value));
+                break;
+
+            case "border-left-color":
+            case "border-right-color":
+            case "border-top-color":
+            case "border-bottom-color":
+                // WPF 的 Border 只有一种描边颜色，这里按整体边框色处理
+                ApplyBrush(element, state, "BorderBrush", value, transitions, "border-color");
+                break;
+
+            case "letter-spacing":
+                // WPF 的 TextBlock 没有字距属性，忽略即可
+                break;
+
+            default:
+                ApplySimpleProperty(element, state, property, value);
+                break;
+        }
     }
 
     private static void ApplySimpleProperty(FrameworkElement element, ElementState state, string property, string value)
@@ -643,7 +846,8 @@ public static class SkinStyleApplier
             SetLocal(element, state, brushProperty, SkinColors.ToBrush(color.Value));
     }
 
-    private static void ApplyBrush(FrameworkElement element, ElementState state, string clrName, string raw)
+    private static void ApplyBrush(FrameworkElement element, ElementState state, string clrName, string raw,
+        TransitionMap? transitions, string cssProperty)
     {
         var property = FindProperty(element.GetType(), clrName);
         if (property == null) return;
@@ -656,13 +860,18 @@ public static class SkinStyleApplier
         }
 
         var value = ResolveValue(raw);
-        if (IsNone(value))
+        if (!SkinColors.TryParse(value, out var color)) return;
+
+        var transition = transitions?.For(cssProperty);
+        if (transition is { DurationMs: > 0 })
         {
-            SetLocal(element, state, property, Brushes.Transparent);
-            return;
+            Remember(element, state, property);
+            var currentBrush = element.GetValue(property) as Brush;
+            if (SkinAnimationRunner.Animate(element, property, currentBrush, SkinColors.ToBrush(color), transition))
+                return;
         }
 
-        if (SkinColors.TryParse(value, out var color)) SetLocal(element, state, property, SkinColors.ToBrush(color));
+        SetLocal(element, state, property, SkinColors.ToBrush(color));
     }
 
     private static void ApplyBorder(FrameworkElement element, ElementState state, string property, string raw)
@@ -697,10 +906,19 @@ public static class SkinStyleApplier
         }
     }
 
-    private static void ApplyCornerRadius(FrameworkElement element, ElementState state, CornerRadius radius)
+    private static void ApplyCornerRadius(FrameworkElement element, ElementState state, CornerRadius radius,
+        TransitionMap? transitions)
     {
         if (element is Border border)
         {
+            var transition = transitions?.For("corner-radius");
+            if (transition is { DurationMs: > 0 })
+            {
+                Remember(border, state, Border.CornerRadiusProperty);
+                if (SkinAnimationRunner.Animate(border, Border.CornerRadiusProperty,
+                        border.CornerRadius, radius, transition)) return;
+            }
+
             SetLocal(border, state, Border.CornerRadiusProperty, radius);
             return;
         }
@@ -718,6 +936,54 @@ public static class SkinStyleApplier
                 SetLocal(templateBorder, GetState(templateBorder), Border.CornerRadiusProperty, radius);
             }
         }
+    }
+
+    private static void ApplyOpacity(FrameworkElement element, ElementState state, string raw,
+        TransitionMap? transitions)
+    {
+        var text = raw.Trim();
+        double opacity;
+        if (text.EndsWith('%'))
+        {
+            if (!double.TryParse(text[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out var percent))
+                return;
+            opacity = percent / 100;
+        }
+        else if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out opacity))
+        {
+            return;
+        }
+
+        opacity = Math.Clamp(opacity, 0, 1);
+
+        var transition = transitions?.For("opacity");
+        if (transition is { DurationMs: > 0 })
+        {
+            Remember(element, state, UIElement.OpacityProperty);
+            if (SkinAnimationRunner.Animate(element, UIElement.OpacityProperty,
+                    element.Opacity, opacity, transition)) return;
+        }
+
+        SetLocal(element, state, UIElement.OpacityProperty, opacity);
+    }
+
+    private static void ApplyTransform(FrameworkElement element, ElementState state, string raw,
+        TransitionMap? transitions)
+    {
+        if (!SkinTransformSpec.TryParse(ResolveValue(raw), out var spec))
+        {
+            WarnOnce("transform:" + raw, $"无法解析 transform：{raw}，已忽略。");
+            return;
+        }
+
+        // 基础层（无过渡）记录一份，状态退出时回到基础变换
+        if (transitions == null)
+        {
+            state.BaseTransform = spec;
+            state.HasBaseTransform = true;
+        }
+
+        SkinAnimationRunner.SetTransform(element, spec, transitions?.For("transform"));
     }
 
     private static void ApplyBackgroundImage(FrameworkElement element, ElementState state, string relativePath)
@@ -824,12 +1090,733 @@ public static class SkinStyleApplier
         SetLocal(element, state, effectProperty, effect);
     }
 
-    private static bool RuleMatches(SkinStyleRule rule, FrameworkElement element)
+    // ---------- 三层值模型：状态监听与状态重算 ----------
+
+    private static void SetupStates(FrameworkElement element, ElementState state,
+        List<SkinStyleRule> baseRules, List<SkinStyleRule> stateRules)
     {
-        if (rule.RequiresDark.HasValue && ThemeService.IsDark != rule.RequiresDark.Value) return false;
-        foreach (var selector in rule.Selectors)
-            if (Matches(selector, element)) return true;
+        state.BaseRules.Clear();
+        state.BaseRules.AddRange(baseRules);
+        state.StateRules.Clear();
+        state.StateRules.AddRange(stateRules);
+
+        state.WatchedStates.Clear();
+        foreach (var rule in stateRules)
+        {
+            foreach (var selector in rule.Selectors)
+            {
+                if (!Matches(selector, element)) continue;
+                foreach (var name in selector.States) state.WatchedStates.Add(name);
+            }
+        }
+
+        if (state.WatchedStates.Count == 0) return;
+
+        state.HasStateTransform = stateRules.Any(rule => rule.Declarations
+            .Any(declaration => declaration.Property.Trim().Equals("transform", StringComparison.OrdinalIgnoreCase)));
+
+        EnsureStateHooks(element, state);
+        if (!state.BaselineCaptured)
+        {
+            state.BaselineCaptured = true;
+            CaptureStateBaseline(element, state);
+        }
+
+        // 基础规则刚重新写入过本地值，强制按当前状态再应用一次
+        state.StatesApplied = false;
+        RecomputeStates(element);
+    }
+
+    private static void ClearStates(FrameworkElement element, ElementState state)
+    {
+        SkinAnimationRunner.StopTransitions(element);
+        SkinAnimationRunner.StopKeyframes(element);
+        UnhookState(element, state);
+        RestoreStateBaseline(state);
+        ResetTransformToBase(element, state, true);
+
+        var baseAnimation = state.BaseAnimation;
+        var hasBaseAnimation = state.HasBaseAnimation;
+
+        state.Handlers = null;
+        state.BaseRules.Clear();
+        state.StateRules.Clear();
+        state.WatchedStates.Clear();
+        state.Baselines.Clear();
+        state.ActiveStates.Clear();
+        state.BaseTransform = null;
+        state.HasBaseTransform = false;
+        state.HasStateTransform = false;
+        state.BaseAnimation = null;
+        state.HasBaseAnimation = false;
+        state.StateAnimationApplied = false;
+        state.BaselineCaptured = false;
+        state.StatesApplied = false;
+
+        // 回到基础层：有基础动画则重新播放，没有则保持停止
+        if (hasBaseAnimation && baseAnimation != null) AttachAnimation(element, baseAnimation);
+    }
+
+    /// <summary>状态退出时把 transform 恢复成基础层的值（没有基础声明则还原原始变换）。</summary>
+    private static void ResetTransformToBase(FrameworkElement element, ElementState state,
+        bool resetWhenNoBase)
+    {
+        // 必须发生在应用状态声明之前：随后命中的 transform 会重新创建变换组
+        if (state.HasBaseTransform && state.BaseTransform != null)
+            SkinAnimationRunner.SetTransform(element, state.BaseTransform, null);
+        else if (resetWhenNoBase || state.HasStateTransform)
+            SkinAnimationRunner.ResetTransform(element);
+    }
+
+    private static void EnsureStateHooks(FrameworkElement element, ElementState state)
+    {
+        var handlers = state.Handlers ??= new StateHandlers();
+
+        if (state.WatchedStates.Contains("hover") || state.WatchedStates.Contains("pressed"))
+        {
+            if (handlers.Enter == null)
+            {
+                handlers.Enter = (_, _) => RecomputeStates(element);
+                element.MouseEnter += handlers.Enter;
+            }
+            if (handlers.Leave == null)
+            {
+                handlers.Leave = (_, _) =>
+                {
+                    PressedElements.Remove(element);
+                    RecomputeStates(element);
+                };
+                element.MouseLeave += handlers.Leave;
+            }
+        }
+
+        if (state.WatchedStates.Contains("pressed"))
+        {
+            if (handlers.Down == null)
+            {
+                handlers.Down = (_, _) =>
+                {
+                    PressedElements.Add(element);
+                    RecomputeStates(element);
+                };
+                element.PreviewMouseLeftButtonDown += handlers.Down;
+            }
+            if (handlers.Up == null)
+            {
+                handlers.Up = (_, _) =>
+                {
+                    PressedElements.Remove(element);
+                    RecomputeStates(element);
+                };
+                element.PreviewMouseLeftButtonUp += handlers.Up;
+            }
+            if (handlers.CaptureLost == null)
+            {
+                handlers.CaptureLost = (_, _) =>
+                {
+                    PressedElements.Remove(element);
+                    RecomputeStates(element);
+                };
+                element.LostMouseCapture += handlers.CaptureLost;
+            }
+        }
+
+        if (state.WatchedStates.Contains("disabled") && handlers.EnabledChanged == null)
+        {
+            handlers.EnabledChanged = (_, _) => RecomputeStates(element);
+            element.IsEnabledChanged += handlers.EnabledChanged;
+        }
+
+        if (state.WatchedStates.Contains("selected") && element is ListBoxItem item)
+        {
+            if (handlers.Selected == null)
+            {
+                handlers.Selected = (_, _) => RecomputeStates(element);
+                item.Selected += handlers.Selected;
+            }
+            if (handlers.Unselected == null)
+            {
+                handlers.Unselected = (_, _) => RecomputeStates(element);
+                item.Unselected += handlers.Unselected;
+            }
+        }
+
+        if (state.WatchedStates.Contains("checked") && element is ToggleButton toggle)
+        {
+            if (handlers.Checked == null)
+            {
+                handlers.Checked = (_, _) => RecomputeStates(element);
+                toggle.Checked += handlers.Checked;
+            }
+            if (handlers.Unchecked == null)
+            {
+                handlers.Unchecked = (_, _) => RecomputeStates(element);
+                toggle.Unchecked += handlers.Unchecked;
+            }
+        }
+    }
+
+    private static void UnhookState(FrameworkElement element, ElementState state)
+    {
+        var handlers = state.Handlers;
+        if (handlers == null) return;
+
+        if (handlers.Enter != null) element.MouseEnter -= handlers.Enter;
+        if (handlers.Leave != null) element.MouseLeave -= handlers.Leave;
+        if (handlers.Down != null) element.PreviewMouseLeftButtonDown -= handlers.Down;
+        if (handlers.Up != null) element.PreviewMouseLeftButtonUp -= handlers.Up;
+        if (handlers.CaptureLost != null) element.LostMouseCapture -= handlers.CaptureLost;
+        if (handlers.EnabledChanged != null) element.IsEnabledChanged -= handlers.EnabledChanged;
+        if (handlers.Selected != null && element is ListBoxItem item) item.Selected -= handlers.Selected;
+        if (handlers.Unselected != null && element is ListBoxItem unselectedItem)
+            unselectedItem.Unselected -= handlers.Unselected;
+        if (handlers.Checked != null && element is ToggleButton toggle) toggle.Checked -= handlers.Checked;
+        if (handlers.Unchecked != null && element is ToggleButton uncheckedToggle)
+            uncheckedToggle.Unchecked -= handlers.Unchecked;
+
+        PressedElements.Remove(element);
+    }
+
+    /// <summary>记录状态规则会触及属性在“基础层”上的值，状态退出时据此还原。</summary>
+    private static void CaptureStateBaseline(FrameworkElement element, ElementState state)
+    {
+        foreach (var rule in state.StateRules)
+        {
+            var matched = false;
+            foreach (var selector in rule.Selectors)
+            {
+                if (!Matches(selector, element)) continue;
+                matched = true;
+                break;
+            }
+            if (!matched) continue;
+
+            foreach (var declaration in rule.Declarations)
+            {
+                foreach (var (target, property) in ResolveStateTargets(element, declaration.Property))
+                {
+                    if (state.Baselines.ContainsKey((target, property))) continue;
+                    var original = target.ReadLocalValue(property);
+                    state.Baselines[(target, property)] = new Baseline(
+                        original,
+                        DependencyPropertyHelper.GetValueSource(target, property).BaseValueSource,
+                        original is System.Windows.Expression);
+                }
+            }
+        }
+    }
+
+    private static void RestoreStateBaseline(ElementState state)
+    {
+        foreach (var pair in state.Baselines)
+        {
+            var (target, property) = pair.Key;
+            var baseline = pair.Value;
+
+            try
+            {
+                if (baseline.IsExpression && TryRestoreResourceReference(target, property, baseline.Original))
+                    continue;
+
+                if (baseline.Source == BaseValueSource.Local && baseline.Original != DependencyProperty.UnsetValue)
+                    target.SetValue(property, baseline.Original);
+                else
+                    target.ClearValue(property);
+            }
+            catch
+            {
+                // 少数属性只读或原始值无法回写时忽略
+            }
+        }
+    }
+
+    /// <summary>状态变化后统一重算：先还原基础快照，再按当前激活状态集合重新应用状态声明。</summary>
+    private static void RecomputeStates(FrameworkElement element)
+    {
+        if (!Applied.TryGetValue(element, out var state)) return;
+        if (state.StateRules.Count == 0) return;
+
+        var active = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (element.IsMouseOver) active.Add("hover");
+        if (!element.IsEnabled) active.Add("disabled");
+        if (IsPressed(element)) active.Add("pressed");
+        if (element is ListBoxItem { IsSelected: true }) active.Add("selected");
+        if (element is ToggleButton { IsChecked: true }) active.Add("checked");
+
+        if (state.StatesApplied && state.ActiveStates.SetEquals(active)) return;
+
+        state.StatesApplied = true;
+        state.ActiveStates.Clear();
+        foreach (var name in active) state.ActiveStates.Add(name);
+
+        // 只有本次状态涉及动画、或上次确实播放过状态动画时才动关键帧；
+        // 否则保持原有过渡逻辑，避免无状态动画的皮肤被重启动画。
+        var animationPath = state.StateAnimationApplied || ActiveStatesDeclareAnimation(state);
+
+        SkinAnimationRunner.StopTransitions(element);
+        if (animationPath)
+        {
+            // 顺序：先停关键帧，再回到基础快照，最后才应用当前状态声明
+            SkinAnimationRunner.StopKeyframes(element);
+            ResetTransformToBase(element, state, true);
+        }
+        else
+        {
+            ResetTransformToBase(element, state, false);
+        }
+        RestoreStateBaseline(state);
+
+        // 状态声明的动画统一收集到 builder；同一元素命中多条状态动画时，
+        // AnimationBuilder 按声明顺序逐条覆盖，因此以最后一条有效声明为准（后声明覆盖先声明）。
+        var animationBuilder = new AnimationBuilder();
+        var transitions = BuildTransitions(state);
+        foreach (var rule in state.StateRules)
+        {
+            if (!RuleActiveForStates(rule, state.ActiveStates)) continue;
+            foreach (var declaration in rule.Declarations)
+                ApplyDeclaration(element, state, declaration, transitions, animationBuilder);
+        }
+
+        if (!animationPath) return;
+
+        var sheet = _sheet;
+        if (sheet == null) return;
+
+        // animation: none 或缺少 @keyframes 都视为无状态动画，回落到基础层
+        var stateSpec = animationBuilder.HasValue ? animationBuilder.ToSpec() : null;
+        state.StateAnimationApplied = stateSpec != null && sheet.Keyframes.ContainsKey(stateSpec.Name);
+
+        if (state.StateAnimationApplied && stateSpec != null)
+        {
+            // 状态动画替换基础动画
+            SkinAnimationRunner.Attach(element, sheet, stateSpec);
+        }
+        else if (state.HasBaseAnimation && state.BaseAnimation != null)
+        {
+            AttachAnimation(element, state.BaseAnimation);
+        }
+        // 既没有状态动画也没有基础动画：保持停止（StopKeyframes 已完成）
+    }
+
+    /// <summary>当前激活的状态规则里是否有 animation 声明（含 <c>animation: none</c>）。</summary>
+    private static bool ActiveStatesDeclareAnimation(ElementState state)
+    {
+        foreach (var rule in state.StateRules)
+        {
+            if (!RuleActiveForStates(rule, state.ActiveStates)) continue;
+
+            foreach (var declaration in rule.Declarations)
+            {
+                var property = declaration.Property.Trim().ToLowerInvariant();
+                if (property is "animation" or "animation-name" or "animation-duration" or "animation-delay"
+                    or "animation-timing-function" or "animation-iteration-count"
+                    or "animation-direction" or "animation-fill-mode") return true;
+            }
+        }
         return false;
+    }
+
+    private static bool IsPressed(FrameworkElement element)
+        => element is ButtonBase button ? button.IsPressed : PressedElements.Contains(element);
+
+    private static bool RuleActiveForStates(SkinStyleRule rule, HashSet<string> active)
+    {
+        foreach (var selector in rule.Selectors)
+        {
+            if (!selector.HasStates) return true;
+            if (selector.States.All(active.Contains)) return true;
+        }
+        return false;
+    }
+
+    // ---------- 过渡 ----------
+
+    private sealed class TransitionMap
+    {
+        private readonly List<SkinTransitionSpec> _specs = new();
+
+        public void Add(SkinTransitionSpec spec)
+        {
+            if (spec.DurationMs > 0) _specs.Add(spec);
+        }
+
+        /// <summary>查找某个 CSS 属性的过渡；<c>all</c> 兜底。</summary>
+        public SkinTransitionSpec? For(string property)
+        {
+            var normalized = NormalizeCssProperty(property);
+            foreach (var spec in _specs)
+            {
+                foreach (var candidate in spec.Properties)
+                {
+                    var name = NormalizeCssProperty(candidate);
+                    if (name == "all" || name == normalized) return spec;
+                }
+            }
+            return null;
+        }
+    }
+
+    /// <summary>把 transition 长写（property/duration/delay/timing-function）拼成一条过渡。</summary>
+    private sealed class TransitionBuilder
+    {
+        public List<string> Properties { get; } = new();
+        public double DurationMs { get; set; }
+        public double DelayMs { get; set; }
+        public string Timing { get; set; } = "ease";
+        public bool HasDuration { get; set; }
+
+        public void TryAdd(TransitionMap map)
+        {
+            if (!HasDuration || DurationMs <= 0) return;
+            map.Add(new SkinTransitionSpec
+            {
+                Properties = Properties.Count == 0 ? new[] { "all" } : Properties.ToArray(),
+                DurationMs = DurationMs,
+                DelayMs = DelayMs,
+                TimingFunction = Timing,
+            });
+        }
+    }
+
+    private static TransitionMap BuildTransitions(ElementState state)
+    {
+        var map = new TransitionMap();
+        var builder = new TransitionBuilder();
+
+        foreach (var rule in state.BaseRules) CollectTransitionDeclarations(rule, builder, map);
+        foreach (var rule in state.StateRules)
+        {
+            if (!RuleActiveForStates(rule, state.ActiveStates)) continue;
+            CollectTransitionDeclarations(rule, builder, map);
+        }
+
+        builder.TryAdd(map);
+        return map;
+    }
+
+    private static void CollectTransitionDeclarations(SkinStyleRule rule, TransitionBuilder builder,
+        TransitionMap map)
+    {
+        foreach (var declaration in rule.Declarations)
+        {
+            var property = declaration.Property.Trim().ToLowerInvariant();
+            var value = declaration.Value.Trim();
+
+            switch (property)
+            {
+                case "transition":
+                    if (SkinTransitionSpec.TryParse(value, out var spec)) map.Add(spec);
+                    break;
+                case "transition-property":
+                    builder.Properties.AddRange(SplitTokens(value));
+                    break;
+                case "transition-duration":
+                    if (TryParseTimeMs(value, out var duration))
+                    {
+                        builder.DurationMs = duration;
+                        builder.HasDuration = true;
+                    }
+                    break;
+                case "transition-delay":
+                    if (TryParseTimeMs(value, out var delay)) builder.DelayMs = delay;
+                    break;
+                case "transition-timing-function":
+                    builder.Timing = value;
+                    break;
+            }
+        }
+    }
+
+    private static string NormalizeCssProperty(string? property) => (property ?? string.Empty)
+        .Trim().ToLowerInvariant() switch
+        {
+            "background-color" or "bg" => "background",
+            "foreground" => "color",
+            "border-radius" or "radius" => "corner-radius",
+            var text => text,
+        };
+
+    // ---------- 顺序重排 ----------
+
+    private static void ApplyOrder(FrameworkElement element, string raw)
+    {
+        if (!int.TryParse(raw.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var order)) return;
+
+        var panel = ParentOf(element) as Panel;
+        if (panel is not (StackPanel or WrapPanel))
+        {
+            WarnOnce("order-panel", "order 只支持 StackPanel / WrapPanel 的直接子元素，已忽略。");
+            return;
+        }
+
+        if (HasVirtualizingAncestor(panel))
+        {
+            if (OrderWarnedPanels.Add(panel))
+                LogService.Warn("order：检测到虚拟化列表祖先，已跳过重排（虚拟化会复用容器）。");
+            return;
+        }
+
+        if (!OrderBaselines.TryGetValue(panel, out var baseline))
+        {
+            baseline = panel.Children.OfType<UIElement>().ToList();
+            OrderBaselines[panel] = baseline;
+        }
+
+        OrderValues[element] = order;
+        ReorderPanel(panel, baseline);
+    }
+
+    private static void ReorderPanel(Panel panel, List<UIElement> baseline)
+    {
+        var children = panel.Children.OfType<UIElement>().ToList();
+        var desired = children
+            .OrderBy(child => child is FrameworkElement item && OrderValues.TryGetValue(item, out var order)
+                ? order
+                : 0)
+            .ThenBy(child => baseline.IndexOf(child) is var index && index >= 0 ? index : int.MaxValue)
+            .ToList();
+
+        var same = children.Count == desired.Count;
+        for (var i = 0; i < children.Count && same; i++)
+            if (!ReferenceEquals(children[i], desired[i])) same = false;
+        if (same) return;
+
+        try
+        {
+            panel.Children.Clear();
+            foreach (var child in desired) panel.Children.Add(child);
+        }
+        catch (Exception ex)
+        {
+            LogService.Warn($"order 重排失败：{ex.Message}");
+        }
+    }
+
+    private static bool HasVirtualizingAncestor(DependencyObject node)
+    {
+        if (node is VirtualizingPanel) return true;
+
+        for (var parent = ParentOf(node); parent != null; parent = ParentOf(parent))
+        {
+            if (parent is VirtualizingPanel) return true;
+            if (parent is ItemsControl items && VirtualizingPanel.GetIsVirtualizing(items)) return true;
+        }
+        return false;
+    }
+
+    private static void RestoreOrder()
+    {
+        foreach (var pair in OrderBaselines.ToArray())
+        {
+            var panel = pair.Key;
+            var baseline = pair.Value;
+            var current = panel.Children.OfType<UIElement>().ToList();
+            if (current.Count != baseline.Count) continue;
+
+            var currentSet = new HashSet<UIElement>(current, ReferenceEqualityComparer.Instance);
+            if (!baseline.All(currentSet.Contains)) continue;
+
+            var same = true;
+            for (var i = 0; i < baseline.Count && same; i++)
+                if (!ReferenceEquals(panel.Children[i], baseline[i])) same = false;
+            if (same) continue;
+
+            try
+            {
+                panel.Children.Clear();
+                foreach (var child in baseline) panel.Children.Add(child);
+            }
+            catch
+            {
+                // 面板已卸载时忽略
+            }
+        }
+
+        OrderBaselines.Clear();
+        OrderValues.Clear();
+        OrderWarnedPanels.Clear();
+    }
+
+    // ---------- 状态规则触及的属性解析 ----------
+
+    private static List<(FrameworkElement Target, DependencyProperty Property)> ResolveStateTargets(
+        FrameworkElement element, string cssProperty)
+    {
+        var result = new List<(FrameworkElement, DependencyProperty)>();
+        var property = cssProperty.Trim().ToLowerInvariant();
+
+        switch (property)
+        {
+            case "background":
+            case "background-color":
+            case "bg":
+            case "background-image":
+                AddTarget(result, element, "Background");
+                break;
+            case "color":
+            case "foreground":
+                AddTarget(result, element, "Foreground");
+                break;
+            case "border-color":
+            case "border-left-color":
+            case "border-right-color":
+            case "border-top-color":
+            case "border-bottom-color":
+                AddTarget(result, element, "BorderBrush");
+                break;
+            case "fill":
+                AddTarget(result, element, "Fill");
+                break;
+            case "stroke":
+                AddTarget(result, element, "Stroke");
+                break;
+            case "border":
+            case "border-width":
+            case "border-thickness":
+            case "border-left":
+            case "border-right":
+            case "border-top":
+            case "border-bottom":
+            case "border-left-width":
+            case "border-right-width":
+            case "border-top-width":
+            case "border-bottom-width":
+                AddTarget(result, element, "BorderThickness");
+                break;
+            case "box-shadow":
+            case "shadow":
+                AddTarget(result, element, "Effect");
+                break;
+            case "opacity":
+                result.Add((element, UIElement.OpacityProperty));
+                break;
+            case "transform":
+            case "order":
+            case "transition":
+            case "animation":
+                break;
+            case "corner-radius":
+            case "border-radius":
+            case "radius":
+                if (element is Border border)
+                {
+                    result.Add((border, Border.CornerRadiusProperty));
+                }
+                else if (element is Control control)
+                {
+                    control.ApplyTemplate();
+                    var count = VisualTreeHelper.GetChildrenCount(control);
+                    for (var i = 0; i < count; i++)
+                    {
+                        if (VisualTreeHelper.GetChild(control, i) is Border templateBorder
+                            && ReferenceEquals(templateBorder.TemplatedParent, control))
+                        {
+                            result.Add((templateBorder, Border.CornerRadiusProperty));
+                        }
+                    }
+                }
+                break;
+            default:
+                if (PropertyAliases.TryGetValue(property, out var clrName))
+                    AddTarget(result, element, clrName);
+                break;
+        }
+
+        return result;
+    }
+
+    private static void AddTarget(List<(FrameworkElement Target, DependencyProperty Property)> result,
+        FrameworkElement element, string clrName)
+    {
+        var property = FindProperty(element.GetType(), clrName);
+        if (property != null) result.Add((element, property));
+    }
+
+    // ---------- animation 声明收集 ----------
+
+    private sealed class AnimationBuilder
+    {
+        public string Name { get; set; } = string.Empty;
+        public double DurationMs { get; set; }
+        public double DelayMs { get; set; }
+        public string Timing { get; set; } = "ease";
+        public double IterationCount { get; set; } = 1;
+        public string Direction { get; set; } = "normal";
+        public string FillMode { get; set; } = "none";
+
+        /// <summary>按声明顺序整体覆盖字段：同一元素命中多条 animation 时以最后一条为准。</summary>
+        public void Apply(SkinAnimationSpec spec)
+        {
+            Name = spec.Name;
+            DurationMs = spec.DurationMs;
+            DelayMs = spec.DelayMs;
+            Timing = spec.TimingFunction;
+            IterationCount = spec.IterationCount;
+            Direction = spec.Direction;
+            FillMode = spec.FillMode;
+        }
+
+        public bool HasValue => Name.Length > 0 && DurationMs > 0
+                                && !Name.Equals("none", StringComparison.OrdinalIgnoreCase);
+
+        public SkinAnimationSpec ToSpec() => new()
+        {
+            Name = Name,
+            DurationMs = DurationMs,
+            DelayMs = DelayMs,
+            TimingFunction = Timing,
+            IterationCount = IterationCount,
+            Direction = Direction,
+            FillMode = FillMode,
+        };
+    }
+
+    private static void AttachAnimation(FrameworkElement element, AnimationBuilder builder)
+    {
+        var sheet = _sheet;
+        if (sheet == null || !builder.HasValue) return;
+        SkinAnimationRunner.Attach(element, sheet, builder.ToSpec());
+    }
+
+    private static void AttachAnimation(FrameworkElement element, SkinAnimationSpec spec)
+    {
+        var sheet = _sheet;
+        if (sheet == null) return;
+        SkinAnimationRunner.Attach(element, sheet, spec);
+    }
+
+    private static bool TryParseTimeMs(string text, out double milliseconds)
+    {
+        milliseconds = 0;
+        var raw = text.Trim().ToLowerInvariant();
+        if (raw.Length == 0) return false;
+
+        double value;
+        if (raw.EndsWith("ms", StringComparison.Ordinal))
+        {
+            if (!double.TryParse(raw[..^2], NumberStyles.Float, CultureInfo.InvariantCulture, out value))
+                return false;
+        }
+        else if (raw.EndsWith("s", StringComparison.Ordinal))
+        {
+            if (!double.TryParse(raw[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out value))
+                return false;
+            value *= 1000;
+        }
+        else
+        {
+            return false;
+        }
+
+        if (!double.IsFinite(value) || value < 0) return false;
+        milliseconds = value;
+        return true;
+    }
+
+    private static void WarnOnce(string key, string message)
+    {
+        if (!WarnedMessages.Add(key)) return;
+        LogService.Warn(message);
     }
 
     private static bool Matches(SkinSelector selector, FrameworkElement element)
@@ -857,10 +1844,9 @@ public static class SkinStyleApplier
 
         if (selector.Classes.Count > 0)
         {
-            var key = StyleKeyOf(element);
-            if (key == null) return false;
+            // 样式键（x:Key）与皮肤附加类任一命中即可；.A.B 要求两者都命中
             foreach (var cls in selector.Classes)
-                if (!key.Equals(cls, StringComparison.OrdinalIgnoreCase)) return false;
+                if (!HasSkinClass(element, cls)) return false;
         }
 
         return true;
@@ -968,14 +1954,32 @@ public static class SkinStyleApplier
 
     private static void RestoreAll()
     {
-        if (Applied.Count == 0)
+        if (Applied.Count == 0 && OrderBaselines.Count == 0)
         {
             PanelLayouts.Clear();
+            PressedElements.Clear();
             return;
         }
-        foreach (var pair in Applied.ToArray()) RestoreState(pair.Key, pair.Value);
+
+        foreach (var pair in Applied.ToArray())
+        {
+            UnhookState(pair.Key, pair.Value);
+            try
+            {
+                SkinAnimationRunner.Detach(pair.Key);
+            }
+            catch
+            {
+                // 元素已销毁时忽略
+            }
+            RestoreState(pair.Key, pair.Value);
+        }
+
         Applied.Clear();
         PanelLayouts.Clear();
+        PressedElements.Clear();
+        WarnedMessages.Clear();
+        RestoreOrder();
     }
 
     private static void RestoreState(FrameworkElement element, ElementState state)

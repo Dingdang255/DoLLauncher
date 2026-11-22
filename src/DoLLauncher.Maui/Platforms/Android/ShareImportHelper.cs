@@ -121,6 +121,13 @@ internal static class ShareImportHelper
             {
                 try
                 {
+                    if (pack.Path.EndsWith(".apk", StringComparison.OrdinalIgnoreCase))
+                    {
+                        failed.Add($"{pack.Name}：APK 是独立应用，请直接安装，不能作为版本导入");
+                        LogService.Warn($"导入跳过：{pack.Name} 是 APK。");
+                        continue;
+                    }
+
                     var inspection = await Task.Run(() => PackService.Inspect(pack.Path));
                     if (inspection.IsUnknown)
                     {
@@ -153,6 +160,8 @@ internal static class ShareImportHelper
                         msg => LogService.Append("[分享导入] " + msg)));
                     LogService.Append($"[分享导入] 完成：{info.NewVersionFolder}");
                     imported++;
+                    if (info.NewVersionFolder != null)
+                        await OfferLyraExtractAsync(info.NewVersionFolder, pack.Name);
                 }
                 catch (Exception ex)
                 {
@@ -173,6 +182,61 @@ internal static class ShareImportHelper
 
         await PlatformServices.Dialogs.InfoAsync(BuildSummary(imported, skipped, failed), "导入结果");
         return imported;
+    }
+
+    /// <summary>Lyra 版本导入完成后，询问是否把内置模组解压到 mods/。</summary>
+    private static async Task OfferLyraExtractAsync(string folder, string packName)
+    {
+        if (!LyraPackService.IsLyraPackName(packName) &&
+            !LyraPackService.IsLyraPackName(folder)) return;
+
+        var versionDir = Path.Combine(Paths.VersionsDir, folder);
+        List<LyraEmbeddedMod> embedded;
+        try
+        {
+            embedded = await Task.Run(() => LyraPackService.ReadEmbeddedMods(versionDir));
+        }
+        catch (Exception ex)
+        {
+            LogService.Warn($"读取内置模组失败：{ex.Message}");
+            return;
+        }
+
+        var extractable = embedded.Count(m => !m.IsBuiltin);
+        if (extractable <= 0)
+        {
+            if (embedded.Count > 0)
+                LogService.Append($"内置条目均为 ModLoader 必需组件（{embedded.Count} 个），无需解压。");
+            return;
+        }
+
+        var builtinCount = embedded.Count - extractable;
+        var builtinNote = builtinCount > 0
+            ? $"\n其中 {builtinCount} 个是 ModLoader 必需组件，会继续保留在内置，不搬进 mods/。"
+            : "";
+        var choice = await DolDialog.ChooseAsync("解压内置模组",
+            $"「{packName}」共有 {embedded.Count} 个内置条目，可解压 {extractable} 个普通模组。{builtinNote}\n\n" +
+            "解压后可以在启动器里启停、排序和替换这些模组。",
+            new[] { "解压到 mods（推荐）", "保持内置" }, DolDialogKind.Info, primaryIndex: 0);
+        if (choice != 0) return;
+
+        LogService.Append("[分享导入] 正在解压整合包内置模组…");
+        try
+        {
+            var result = await Task.Run(() => LyraPackService.ExtractToMods(versionDir,
+                msg => LogService.Append("[分享导入] " + msg)));
+            var skipped = result.Skipped > 0 ? $"，{result.Skipped} 个必需组件保留内置" : "";
+            LogService.Append($"[分享导入] 已解压普通模组 {result.Extracted} 个{skipped}。");
+            await PlatformServices.Dialogs.InfoAsync(
+                $"已解压 {result.Extracted} 个模组到 mods/{skipped}，可在模组页启停和排序。",
+                "解压内置模组");
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("解压内置模组失败", ex);
+            await PlatformServices.Dialogs.ErrorAsync(
+                "解压内置模组失败：" + ex.Message, "解压内置模组");
+        }
     }
 
     /// <summary>模组包需要选择目标版本；由用户决定，取消则跳过这个包。</summary>

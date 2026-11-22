@@ -52,6 +52,17 @@ public static class DownloadService
         },
     };
 
+    /// <summary>整合包来源：目前只有 Lyra，按汉化版本自动打包的整包 zip。</summary>
+    public static readonly GameSource LyraSource = new()
+    {
+        Id = "lyra",
+        Name = "Lyra 整合包",
+        Repo = "DoL-Lyra/Lyra",
+        Kind = "zip",
+        Hint = "Lyra 整合包按汉化仓库版本自动打包，内置 ModLoader、汉化与美化组合。" +
+               "下载后安装为独立版本，可再选择把普通模组解压到 mods/ 以便启停和排序。",
+    };
+
     private static readonly HttpClient Http = CreateHttp();
 
     /// <summary>单条下载线路等待响应头的时间，超时就换下一条。</summary>
@@ -142,6 +153,13 @@ public static class DownloadService
         return ParseReleases(text, source);
     }
 
+    /// <summary>Lyra 整合包 Release；列表按发布时间倒序，最新版通常含全部组合资产。</summary>
+    public static async Task<List<GameRelease>> FetchLyraReleasesAsync()
+    {
+        var text = await GetGithubApiAsync($"repos/{LyraSource.Repo}/releases?per_page=10");
+        return ParseReleases(text, LyraSource);
+    }
+
     private static List<GameRelease> ParseReleases(string json, GameSource? source = null)
     {
         var result = new List<GameRelease>();
@@ -187,6 +205,9 @@ public static class DownloadService
     /// <summary>游戏源认哪些资产：整包源取模组包，单 HTML 源只取 Neo 的 html（APK 不入库）。</summary>
     private static bool IsGameAssetName(string name, GameSource source)
     {
+        if (source.Id == "lyra")
+            return name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) &&
+                   name.Contains("-Lyra-", StringComparison.OrdinalIgnoreCase);
         if (source.IsZip) return IsModPackageName(name);
         return name.EndsWith(".html", StringComparison.OrdinalIgnoreCase) &&
                name.Contains("neo", StringComparison.OrdinalIgnoreCase);
@@ -222,6 +243,36 @@ public static class DownloadService
 
             ModService.Apply(dest);
             return plan.FolderName;
+        }
+        catch
+        {
+            TryDelete(dest, recursive: true);
+            throw;
+        }
+    }
+
+    /// <summary>下载一个 Lyra 整合包 zip 并解压成 versions 下的新版本。</summary>
+    public static async Task<string> InstallLyraAsync(GameAsset asset, Action<string> log, Action<double> progress)
+    {
+        if (!asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
+            !asset.Name.Contains("-Lyra-", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("这个文件不是 Lyra 整合包。");
+
+        BeginRound();
+        var folder = GameFolderFromAsset(asset.Name);
+        var dest = Path.Combine(Paths.VersionsDir, folder);
+        if (Directory.Exists(dest)) throw new InvalidOperationException($"版本目录已存在：versions\\{folder}");
+
+        Directory.CreateDirectory(Paths.VersionsDir);
+        try
+        {
+            var plan = new GameInstallPlan { FolderName = folder, ExtractZip = true };
+            plan.Files.Add((asset.DownloadUrl, ""));
+            await InstallZipAsync(plan, dest, log, progress);
+
+            Directory.CreateDirectory(Path.Combine(dest, "mods"));
+            ModService.Apply(dest);
+            return folder;
         }
         catch
         {

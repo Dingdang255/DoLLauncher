@@ -144,7 +144,15 @@ public partial class ModsPage : ContentPage
         var snapshot = new ModSnapshot { Mods = mods };
         var issues = snapshot.Issues;
 
-        foreach (var missing in ProblemService.MissingDependencies(mods))
+        var embeddedNames = mods.Count > 0 && LyraPackService.IsLyraPackName(_version.Folder)
+            ? LyraPackService.EmbeddedModNames(_version.FullPath)
+            : new List<string>();
+        var embeddedKeys = embeddedNames
+            .Select(ModService.NormalizeModName)
+            .Where(k => k.Length > 0)
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (var missing in ProblemService.MissingDependencies(mods, embeddedNames))
         {
             AddIssue(issues, missing.ModFile,
                 missing.LocalVersion.Length == 0
@@ -154,6 +162,15 @@ public partial class ModsPage : ContentPage
                         : $"前置版本不满足「{missing.DependencyName}」",
                 red: false);
             snapshot.Problems.Add(new ProblemItem(missing.Title, missing.Detail));
+        }
+
+        foreach (var mod in mods.Where(m => m.Enabled))
+        {
+            var key = ModService.NormalizeModName(mod.Name);
+            if (key.Length == 0 || !embeddedKeys.Contains(key)) continue;
+            AddIssue(issues, mod.FileName, "整合包已内置同名模组", red: false);
+            snapshot.Problems.Add(new ProblemItem("重复加载内置模组",
+                $"{mod.Name} 已内置在整合包 HTML 中，磁盘版会重复加载。"));
         }
 
         foreach (var duplicate in ProblemService.Duplicates(mods))
@@ -430,6 +447,58 @@ public partial class ModsPage : ContentPage
     {
         LogService.Append("已重新读取磁盘模组。");
         await ReloadAsync();
+    }
+
+    /// <summary>只读展示整合包 HTML 里内置的模组。</summary>
+    private async void OnEmbeddedClicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            var mods = await Task.Run(() => LyraPackService.ReadEmbeddedMods(_version.FullPath));
+            if (mods.Count == 0)
+            {
+                await DolDialog.AlertAsync("内置模组",
+                    "当前版本没有内置模组；如果之前解压过，它们已经出现在下方模组列表里。");
+                return;
+            }
+
+            var lines = mods.Select((m, i) =>
+                $"{i + 1}. [{(m.IsBuiltin ? "必需" : "可解压")}] {m.Name}  {m.Version}".TrimEnd());
+            var list = $"共 {mods.Count} 个，来自整合包 HTML：\n\n" + string.Join("\n", lines);
+            var extractable = mods.Count(m => !m.IsBuiltin);
+
+            if (extractable == 0)
+            {
+                await DolDialog.AlertAsync("内置模组",
+                    list + "\n\n没有可解压的普通模组，ModLoader 必需组件会继续保留在内置。");
+                return;
+            }
+
+            if (ServerManager.IsRunning(_version.Folder))
+            {
+                await DolDialog.AlertAsync("内置模组", "这个版本正在运行，请先停止游戏再解压内置模组。");
+                return;
+            }
+
+            var choice = await DolDialog.ChooseAsync("内置模组",
+                list + $"\n\n是否把其中 {extractable} 个可解压模组写入 mods/？" +
+                "解压后可以在下方列表里启停和排序，ModLoader 必需组件仍保留在内置。",
+                new[] { "解压到 mods", "关闭" }, DolDialogKind.Info, primaryIndex: 0);
+            if (choice != 0) return;
+
+            var result = await Task.Run(() => LyraPackService.ExtractToMods(_version.FullPath,
+                msg => LogService.Append(msg)));
+            await ReloadAsync();
+            var skipped = result.Skipped > 0 ? $"，{result.Skipped} 个必需组件保留内置" : "";
+            LogService.Append($"内置模组已解压：{result.Extracted} 个{skipped}。");
+            await DolDialog.AlertAsync("解压完成",
+                $"已解压 {result.Extracted} 个模组到 mods/{skipped}。");
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("读取内置模组失败", ex);
+            await PlatformServices.Dialogs.ErrorAsync("读取内置模组失败：" + ex.Message, "内置模组");
+        }
     }
 
     private async void OnRefreshing(object? sender, EventArgs e) => await ReloadAsync();
@@ -916,8 +985,14 @@ public partial class ModsPage : ContentPage
 
         var rect = new Android.Graphics.Rect();
         rowView.GetGlobalVisibleRect(rect, new Android.Graphics.Point());
-        if (rect.Width() <= 0 || rect.Height() <= 0 ||
-            Android.OS.Build.VERSION.SdkInt < Android.OS.BuildVersionCodes.O)
+        if (rect.Width() <= 0 || rect.Height() <= 0)
+        {
+            StartLegacyGhost(rowView, activity, host);
+            return;
+        }
+
+        // PixelCopy 需要 API 26：用操作系统判断做守卫，旧设备直接走视图位图兜底
+        if (!System.OperatingSystem.IsAndroidVersionAtLeast(26))
         {
             StartLegacyGhost(rowView, activity, host);
             return;

@@ -126,6 +126,15 @@ public sealed class GameRelease
     }
 }
 
+/// <summary>下载中心「整合包」页的一个可选包。</summary>
+public sealed class PackOption
+{
+    public string Label { get; set; } = "";
+    public string Detail { get; set; } = "";
+    public GameAsset Asset { get; set; } = new();
+    public GameRelease Release { get; set; } = new();
+}
+
 public sealed class MarketDependency
 {
     public string Id { get; set; } = "";

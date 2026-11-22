@@ -19,6 +19,8 @@
                                         Text="游戏本体" Variant="pale" Tapped="OnGameSegmentClicked" />
                     <ctl:IconActionView x:Name="NavMarket" Glyph="{x:Static local:IconGlyph.Apps}"
                                         Text="模组市场" Tapped="OnMarketSegmentClicked" />
+                    <ctl:IconActionView x:Name="NavPack" Glyph="{x:Static local:IconGlyph.Archive}"
+                                        Text="整合包" Tapped="OnPackSegmentClicked" />
 
                     <!-- 仅模组市场需要选择安装目标 -->
                     <VerticalStackLayout x:Name="TargetPanel" Spacing="4" IsVisible="False" Margin="4,4,4,0">
@@ -67,7 +69,7 @@
                         TextColor="#C62828" />
 
                 <Label x:Name="SideHint" Grid.Row="4" FontSize="9" LineBreakMode="WordWrap"
-                       Text="本体可选汉化整包或 ModLoader Neo 单文件，均来自 GitHub Release；模组索引来自 ModHub 市场。安装后会自动重建 modList.json。"
+                       Text="本体可选汉化整包或 ModLoader Neo 单文件，均来自 GitHub Release；整合包目前支持 Lyra；模组索引来自 ModHub 市场。安装后会自动重建 modList.json。"
                        TextColor="{AppThemeBinding Light=#909090, Dark=#909090}" />
             </Grid>
         </Border>
@@ -223,6 +225,70 @@
 
             <!-- 模组市场（同页子面板） -->
             <ctl:MarketPane x:Name="MarketContent" IsVisible="False" />
+
+            <!-- 整合包（目前只有 Lyra） -->
+            <Grid x:Name="PackContent" IsVisible="False" RowDefinitions="Auto,Auto,*" RowSpacing="10">
+                <Border Grid.Row="0" Padding="12" StrokeThickness="0"
+                        StrokeShape="RoundRectangle 12"
+                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                    <VerticalStackLayout Spacing="8">
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                            <Label Grid.Column="0" Text="整合包类型" FontSize="13" VerticalOptions="Center"
+                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                            <Picker x:Name="PackTypePicker" Grid.Column="1" FontSize="13"
+                                    VerticalOptions="Center" ItemDisplayBinding="{Binding Name}" />
+                        </Grid>
+                        <Label Text="目前支持 Lyra 整合包。下载后自动生成独立版本，可再选择把普通模组解压到 mods/ 以便启停和排序。"
+                               FontSize="10" LineBreakMode="WordWrap"
+                               TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <Label x:Name="PackStatusLabel" Grid.Row="1" FontSize="11"
+                       TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+
+                <Grid Grid.Row="2">
+                    <CollectionView x:Name="PackList" SelectionMode="None" ItemSizingStrategy="MeasureAllItems">
+                        <CollectionView.EmptyView>
+                            <VerticalStackLayout Padding="24" Spacing="8" VerticalOptions="Center">
+                                <Label Text="没有找到整合包" FontAttributes="Bold" HorizontalOptions="Center" />
+                                <Label Text="检查网络后刷新列表。" HorizontalTextAlignment="Center" FontSize="13"
+                                       TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                            </VerticalStackLayout>
+                        </CollectionView.EmptyView>
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate>
+                                <Border Padding="14" Margin="0,0,0,10" StrokeThickness="0"
+                                        StrokeShape="RoundRectangle 12"
+                                        BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                        <VerticalStackLayout Grid.Column="0" Spacing="3">
+                                            <Label Text="{Binding Label}" FontSize="14" FontAttributes="Bold"
+                                                   LineBreakMode="TailTruncation" />
+                                            <Label Text="{Binding Detail}" FontSize="10"
+                                                   LineBreakMode="WordWrap"
+                                                   TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                                        </VerticalStackLayout>
+                                        <Button Grid.Column="1" Text="安装" FontSize="13" Padding="14,0"
+                                                HeightRequest="32" WidthRequest="62" CornerRadius="8"
+                                                VerticalOptions="Center" Clicked="OnInstallPackClicked"
+                                                BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                                                TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+
+                    <VerticalStackLayout x:Name="PackBusyPanel" IsVisible="False" Spacing="10"
+                                         VerticalOptions="Center" HorizontalOptions="Center"
+                                         BackgroundColor="{AppThemeBinding Light=#CCFFFFFF, Dark=#CC202020}"
+                                         Padding="20">
+                        <ActivityIndicator x:Name="PackBusyIndicator" IsRunning="False" />
+                        <Label x:Name="PackBusyLabel" Text="正在下载整合包…" FontSize="12" />
+                    </VerticalStackLayout>
+                </Grid>
+            </Grid>
         </Grid>
 
     </Grid>

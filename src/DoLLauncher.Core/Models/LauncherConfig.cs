@@ -28,8 +28,11 @@ public sealed class GeneralSettings
     /// <summary>从市场索引补全作者/主页后，把它们写回模组包里的 boot.json。</summary>
     [JsonPropertyName("writeModMetadata")] public bool WriteModMetadata { get; set; } = true;
 
-    /// <summary>启动时预取索引的顺序：parallel / modFirst / gameFirst / none。</summary>
+    /// <summary>启动时预取索引：parallel（同时）/ none（不预取）/ custom（按 PrefetchOrder 依次）。</summary>
     [JsonPropertyName("prefetch")] public string Prefetch { get; set; } = "parallel";
+
+    /// <summary>自定义预取顺序，逗号分隔：game,market,pack；仅 Prefetch = custom 时生效。</summary>
+    [JsonPropertyName("prefetchOrder")] public string PrefetchOrder { get; set; } = "game,market,pack";
 
     /// <summary>旧版 file:// 数据固定打开哪个版本的 html（空表示跟随最新版本）。</summary>
     [JsonPropertyName("legacyFolder")] public string LegacyFolder { get; set; } = string.Empty;

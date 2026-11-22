@@ -67,9 +67,18 @@ public partial class App : Application
 		var navigation = new NavigationPage(new MainPage());
 		// 美化包样式需要覆盖被 Push 的页面；页面内动态生成的控件由 styler 的 DescendantAdded 兜底
 		navigation.Pushed += (_, e) =>
-			MainThread.BeginInvokeOnMainThread(() => MauiSkinStyler.Attach(e.Page));
+			MainThread.BeginInvokeOnMainThread(() =>
+			{
+				MauiSkinStyler.Attach(e.Page);
+				MauiSkinComponentService.Apply(e.Page);
+				MauiSkinComponentService.RefreshBindings();
+			});
 		navigation.Popped += (_, _) =>
-			MainThread.BeginInvokeOnMainThread(() => MauiSkinStyler.ApplyAll());
+			MainThread.BeginInvokeOnMainThread(() =>
+			{
+				MauiSkinStyler.ApplyAll();
+				MauiSkinComponentService.RefreshBindings();
+			});
 
 		var window = new Window(navigation);
 		// 启动后后台检查更新（AutoCheckUpdate 开启且今日未跳过时）
@@ -77,6 +86,8 @@ public partial class App : Application
 		{
 			MauiSkinStyler.Attach(navigation.CurrentPage);
 			MauiSkinStyler.ApplyAll();
+			MauiSkinComponentService.Apply(navigation.CurrentPage);
+			MauiSkinComponentService.RefreshBindings();
 			UpdateDialogPage.StartAutoCheck(window);
 			StartStatusTimer();
 		};

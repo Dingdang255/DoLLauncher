@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using DoLLauncher.Core.Data;
+using DoLLauncher.Core.Skin;
 using DoLLauncher.Models;
 
 namespace DoLLauncher.Services;
@@ -27,6 +28,7 @@ public static class SelfTest
             var versions = TestScan();
             TestServer(versions);
             TestModsAndPack(temp);
+            TestSkin();
             TestSlotStore(temp);
             TestConflicts();
             TestProblems();
@@ -362,6 +364,352 @@ public static class SelfTest
             throw new InvalidOperationException("界面设置默认值不符合预期");
         W($"界面默认值：动画={general.ShowAnimations}，主题={general.ThemeMode}");
     }
+
+    /// <summary>自检用的脚本宿主：记录动作调用，数据表由测试填入。</summary>
+    private sealed class ScriptHostProbe : ISkinScriptHost
+    {
+        public Dictionary<string, SkinScriptValue> Data { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public List<string> Actions { get; } = new();
+
+        public SkinScriptValue ResolveData(string path)
+            => Data.TryGetValue(path, out var value) ? value : SkinScriptValue.Null;
+
+        public bool InvokeAction(string action, IReadOnlyList<SkinScriptValue> args)
+        {
+            Actions.Add(action.ToLowerInvariant());
+            return true;
+        }
+    }
+
+    /// <summary>美化包 Core 层：关键帧、状态伪类、动画/过渡/变换、dolskin/3 清单校验与旧包兼容。</summary>
+    private static void TestSkin()
+    {
+        var failures = new List<string>();
+        void Check(string name, bool ok, string detail)
+        {
+            W($"美化包 {name}：{detail}");
+            if (!ok) failures.Add(name);
+        }
+
+        // 示例皮肤优先从仓库 docs 读取；发布目录里没有 docs 时退回等价内联内容
+        var cssPath = FindSampleFile("samples/lantern-skin/skin.css");
+        var sheet = SkinStyleSheet.Parse(cssPath != null ? File.ReadAllText(cssPath) : LanternCssFallback);
+        var breathe = sheet.Keyframes.TryGetValue("lantern-breathe", out var breatheFrames)
+            ? breatheFrames
+            : new List<SkinKeyframe>();
+        var offsets = breathe.Select(f => f.Offset).ToArray();
+        var framesOk = offsets.Length == 3
+                       && Math.Abs(offsets[0]) < 1e-6
+                       && Math.Abs(offsets[1] - 0.5) < 1e-6
+                       && Math.Abs(offsets[2] - 1) < 1e-6;
+        Check("关键帧", framesOk,
+            $"来源={(cssPath == null ? "内联" : Path.GetFileName(cssPath))}，lantern-breathe 帧数={offsets.Length}，" +
+            $"偏移={string.Join("/", offsets)}，告警={sheet.Warnings.Count}");
+
+        const string stateCss =
+            "Button:hover { background: #1f35e8d5; }\n" +
+            ".PrimaryButton:pressed { transform: scale(.96); }\n" +
+            ".Card:disabled { opacity: .5; }\n";
+        var stateSheet = SkinStyleSheet.Parse(stateCss);
+        bool HasState(string source, string state) => stateSheet.Rules.Any(rule => rule.Source == source
+            && rule.Selectors.Count == 1
+            && rule.Selectors[0].States.SequenceEqual(new[] { state }));
+        var hoverOk = HasState("Button:hover", "hover");
+        var pressedOk = HasState(".PrimaryButton:pressed", "pressed");
+        var disabledOk = HasState(".Card:disabled", "disabled");
+        Check("状态伪类", hoverOk && pressedOk && disabledOk,
+            $"hover={hoverOk}，pressed={pressedOk}，disabled={disabledOk}，规则={stateSheet.Rules.Count}");
+
+        const string darkCss =
+            "@media (prefers-color-scheme: dark) {\n" +
+            "  @keyframes dark-pulse { from { opacity: 0; } to { opacity: 1; } }\n" +
+            "  .Card { background: #ff0b1220; }\n" +
+            "}\n";
+        var darkSheet = SkinStyleSheet.Parse(darkCss);
+        var darkFrames = darkSheet.Keyframes.TryGetValue("dark-pulse", out var darkPulse)
+            ? darkPulse
+            : new List<SkinKeyframe>();
+        var darkRules = darkSheet.Rules.Count(rule => rule.RequiresDark == true);
+        Check("深色媒体查询", darkFrames.Count == 2 && darkRules > 0,
+            $"dark-pulse 帧数={darkFrames.Count}，深色规则={darkRules}");
+
+        var animationOk = SkinAnimationSpec.TryParse("breathe 3.2s ease-in-out infinite", out var animation)
+                          && animation.Name == "breathe"
+                          && Math.Abs(animation.DurationMs - 3200) < 1e-6
+                          && animation.TimingFunction == "ease-in-out"
+                          && double.IsPositiveInfinity(animation.IterationCount);
+        Check("animation", animationOk,
+            $"name={animation.Name}，时长={animation.DurationMs}ms，缓动={animation.TimingFunction}，" +
+            $"循环={animation.IterationCount}");
+
+        var transitionOk = SkinTransitionSpec.TryParse("background 180ms ease-out", out var transition)
+                           && transition.Properties.Contains("background")
+                           && Math.Abs(transition.DurationMs - 180) < 1e-6
+                           && transition.TimingFunction == "ease-out";
+        Check("transition", transitionOk,
+            $"属性={string.Join("/", transition.Properties)}，时长={transition.DurationMs}ms，" +
+            $"缓动={transition.TimingFunction}");
+
+        var transformOk = SkinTransformSpec.TryParse("translate(4px,-2px) rotate(6deg) scale(1.05)", out var transform)
+                          && transform.Operations.Count == 3
+                          && transform.Operations[0].Kind == SkinTransformKind.Translate
+                          && transform.Operations[1].Kind == SkinTransformKind.Rotate
+                          && transform.Operations[2].Kind == SkinTransformKind.Scale;
+        Check("transform", transformOk,
+            $"操作数={transform.Operations.Count}，类型={string.Join("/", transform.Operations.Select(op => op.Kind))}");
+
+        var manifestPath = FindSampleFile("samples/lantern-skin/skin.json");
+        var manifest = JsonSerializer.Deserialize<SkinManifest>(
+            manifestPath != null ? File.ReadAllText(manifestPath) : LanternManifestFallback) ?? new SkinManifest();
+        var manifestOk = manifest.Themes.Count == 2
+                         && manifest.DefaultTheme == "cyberpunk"
+                         && manifest.Effects != null
+                         && manifest.Effects.Ambient.Particles == 24
+                         && manifest.Settings.Count == 4;
+        Check("清单", manifestOk,
+            $"来源={(manifestPath == null ? "内联" : Path.GetFileName(manifestPath))}，主题={manifest.Themes.Count}，" +
+            $"defaultTheme={manifest.DefaultTheme}，粒子={manifest.Effects?.Ambient.Particles}，" +
+            $"设置项={manifest.Settings.Count}");
+
+        var firstComponent = manifest.Components.FirstOrDefault();
+        // 示例包除角标外还演示了 Image 组件，这里只要求首个组件仍为角标
+        var componentsOk = manifest.Components.Count >= 1
+                           && firstComponent != null
+                           && firstComponent.Widget == "Badge"
+                           && firstComponent.Host == "#LaunchBtn"
+                           && firstComponent.Slot == "after"
+                           && firstComponent.Class == "skin-badge";
+        Check("组件清单", componentsOk,
+            $"组件={manifest.Components.Count}，widget={firstComponent?.Widget}，host={firstComponent?.Host}，" +
+            $"slot={firstComponent?.Slot}，class={firstComponent?.Class}");
+
+        var validComponentManifest = new SkinManifest { Format = "dolskin/3", Name = "组件合法测试" };
+        validComponentManifest.Components.Add(new SkinComponentDefinition
+        {
+            Id = "ok-badge",
+            Host = "#LaunchBtn",
+            Slot = "after",
+            Widget = "Badge",
+            Class = "skin-badge",
+            Props = { ["text"] = "灯台" },
+        });
+        var validComponentWarnings = SkinRules.CollectWarnings(validComponentManifest);
+        Check("组件合法", validComponentWarnings.Count == 0,
+            $"告警={validComponentWarnings.Count}" + (validComponentWarnings.Count > 0
+                ? "：" + string.Join("；", validComponentWarnings)
+                : string.Empty));
+
+        var badComponentManifest = new SkinManifest { Format = "dolskin/3", Name = "组件告警测试" };
+        badComponentManifest.Components.Add(new SkinComponentDefinition
+        {
+            Id = "bad-widget", Host = "#LaunchBtn", Slot = "after", Widget = "Marquee",
+        });
+        badComponentManifest.Components.Add(new SkinComponentDefinition
+        {
+            Id = "bad-slot", Host = "#LaunchBtn", Slot = "middle", Widget = "Label",
+        });
+        badComponentManifest.Components.Add(new SkinComponentDefinition
+        {
+            Id = "dup-component", Host = "#LaunchBtn", Slot = "before", Widget = "Label",
+        });
+        badComponentManifest.Components.Add(new SkinComponentDefinition
+        {
+            Id = "dup-component", Host = "#LaunchBtn", Slot = "end", Widget = "Label",
+        });
+        var deepComponent = new SkinComponentDefinition
+        {
+            Id = "deep-1", Host = "StackPanel", Slot = "end", Widget = "Card",
+        };
+        var deepest = deepComponent;
+        for (var level = 2; level <= 5; level++)
+        {
+            var child = new SkinComponentDefinition
+            {
+                Id = "deep-" + level, Host = "StackPanel", Widget = "Card",
+            };
+            deepest.Children.Add(child);
+            deepest = child;
+        }
+        badComponentManifest.Components.Add(deepComponent);
+
+        var componentWarnings = SkinRules.CollectWarnings(badComponentManifest);
+        bool HasComponentWarning(string keyword) =>
+            componentWarnings.Any(warning => warning.Contains(keyword, StringComparison.Ordinal));
+        var componentWarningOk = HasComponentWarning("widget") && HasComponentWarning("slot")
+                                 && HasComponentWarning("重复") && HasComponentWarning("嵌套");
+        Check("组件告警", componentWarningOk,
+            $"widget={HasComponentWarning("widget")}，slot={HasComponentWarning("slot")}，" +
+            $"重复={HasComponentWarning("重复")}，嵌套={HasComponentWarning("嵌套")}，" +
+            $"共 {componentWarnings.Count} 条");
+        foreach (var warning in componentWarnings) W("  告警：" + warning);
+
+        // 轻量脚本：let / if / 白名单动作 / 数据读取
+        const string scriptSource =
+            "let n = version.count; " +
+            "if (mods.enabled > 0 && n >= 3) { setParticles(clamp(n, 0, 24)); } else { toast('模组不足'); }";
+        var scriptOk = SkinScriptEngine.TryParse(scriptSource, out var script, out var scriptError);
+        var probe = new ScriptHostProbe();
+        probe.Data["version.count"] = SkinScriptValue.From(5d);
+        probe.Data["mods.enabled"] = SkinScriptValue.From(2d);
+        var scriptRun = scriptOk && script.Run(probe) && probe.Actions.SequenceEqual(new[] { "setparticles" });
+        Check("脚本", scriptRun,
+            $"解析={scriptOk}，原因={(scriptOk ? "无" : scriptError)}，动作={string.Join("/", probe.Actions)}");
+
+        var scriptRejected = !SkinScriptEngine.TryParse("while (true) { }", out _, out _)
+                             && !SkinScriptEngine.TryParse("for (;;) { }", out _, out _)
+                             && !SkinScriptEngine.TryParse("network.get('x');", out _, out _);
+        Check("脚本限制", scriptRejected, $"拒绝 while/for/未白名单调用={scriptRejected}");
+
+        var bindingOk = SkinBindingTemplate.TryParse("版本 {{ version.count }} 个（{{ version.name }}）",
+                             out var binding, out var bindingError)
+                         && binding.Render(probe) == "版本 5 个（）";
+        Check("数据绑定", bindingOk,
+            $"解析={binding.IsEmpty == false}，原因={(bindingError.Length == 0 ? "无" : bindingError)}，" +
+            $"渲染={(bindingOk ? "版本 5 个（）" : "失败")}");
+
+        var eventManifest = new SkinManifest { Format = "dolskin/3", Name = "事件绑定测试" };
+        eventManifest.Components.Add(new SkinComponentDefinition
+        {
+            Id = "theme-switch",
+            Host = "#LaunchBtn",
+            Slot = "after",
+            Widget = "Button",
+            Props = { ["text"] = "切换主题" },
+            Events = { ["click"] = "setTheme('cyberpunk');" },
+            Bind = { ["text"] = "版本 {{ version.count }}" },
+        });
+        var eventWarnings = SkinRules.CollectWarnings(eventManifest);
+        Check("事件绑定合法", eventWarnings.Count == 0,
+            $"告警={eventWarnings.Count}" + (eventWarnings.Count > 0
+                ? "：" + string.Join("；", eventWarnings)
+                : string.Empty));
+
+        var badEventManifest = new SkinManifest { Format = "dolskin/3", Name = "事件绑定告警测试" };
+        badEventManifest.Components.Add(new SkinComponentDefinition
+        {
+            Id = "bad-event",
+            Host = "#LaunchBtn",
+            Widget = "Button",
+            Events = { ["tap"] = "toast('x');", ["click"] = "if (" },
+            Bind = { ["style"] = "{{ version.count }}" },
+        });
+        var badEventWarnings = SkinRules.CollectWarnings(badEventManifest);
+        bool HasBadEventWarning(string keyword) =>
+            badEventWarnings.Any(warning => warning.Contains(keyword, StringComparison.Ordinal));
+        var badEventOk = HasBadEventWarning("事件不支持") && HasBadEventWarning("脚本无效")
+                         && HasBadEventWarning("绑定属性不支持");
+        Check("事件绑定告警", badEventOk,
+            $"事件={HasBadEventWarning("事件不支持")}，脚本={HasBadEventWarning("脚本无效")}，" +
+            $"绑定={HasBadEventWarning("绑定属性不支持")}，共 {badEventWarnings.Count} 条");
+        foreach (var warning in badEventWarnings) W("  告警：" + warning);
+
+        var (validOk, validReason) = SkinRules.Validate(manifest);
+        var manifestWarnings = SkinRules.CollectWarnings(manifest, sheet);
+        Check("清单校验", validOk && manifestWarnings.Count == 0,
+            $"通过={validOk}，原因={(validOk ? "无" : validReason)}，告警={manifestWarnings.Count}");
+        foreach (var warning in manifestWarnings) W("  告警：" + warning);
+
+        var overLimit = new SkinManifest
+        {
+            Format = "dolskin/3",
+            Name = "超限测试",
+            DefaultTheme = "missing",
+            Themes =
+            {
+                new SkinTheme { Id = "dup" },
+                new SkinTheme { Id = "dup" },
+            },
+            Effects = new SkinEffectOptions { Ambient = new SkinAmbientOptions { Particles = 40 } },
+        };
+        var overWarnings = SkinRules.CollectWarnings(overLimit);
+        var particleWarn = overWarnings.Any(warning => warning.Contains("particles", StringComparison.OrdinalIgnoreCase));
+        var duplicateWarn = overWarnings.Any(warning => warning.Contains("重复", StringComparison.Ordinal));
+        Check("超限告警", particleWarn && duplicateWarn,
+            $"粒子告警={particleWarn}，主题重复告警={duplicateWarn}，共 {overWarnings.Count} 条");
+        foreach (var warning in overWarnings) W("  告警：" + warning);
+
+        var legacy = new SkinManifest { Format = "dolskin/1", Name = "旧版示例" };
+        var (legacyOk, legacyReason) = SkinRules.Validate(legacy);
+        var legacyWarnings = SkinRules.CollectWarnings(legacy);
+        var sampleSkinPath = FindSampleFile("samples/sample-skin/skin.json");
+        var sampleSkinOk = true;
+        var sampleSkinDetail = "未找到示例文件";
+        if (sampleSkinPath != null)
+        {
+            var oldManifest = JsonSerializer.Deserialize<SkinManifest>(File.ReadAllText(sampleSkinPath));
+            var (oldOk, oldReason) = SkinRules.Validate(oldManifest);
+            sampleSkinOk = oldOk;
+            sampleSkinDetail = oldOk ? "通过" : oldReason;
+        }
+        Check("旧包兼容", legacyOk && sampleSkinOk && legacy.Components.Count == 0 && legacyWarnings.Count == 0,
+            $"最小 dolskin/1 通过={legacyOk}，组件数={legacy.Components.Count}，告警={legacyWarnings.Count}，" +
+            $"sample-skin 通过={sampleSkinOk}（{sampleSkinDetail}）");
+        if (!legacyOk) W("  dolskin/1 校验原因：" + legacyReason);
+
+        if (failures.Count > 0)
+            throw new InvalidOperationException("美化包自检未通过：" + string.Join("、", failures));
+    }
+
+    /// <summary>从运行目录向上查找仓库 docs 下的示例美化包；发布目录里没有 docs 时返回 null。</summary>
+    private static string? FindSampleFile(string relative)
+    {
+        foreach (var start in new[] { Paths.Root, Environment.CurrentDirectory })
+        {
+            var dir = start.TrimEnd(Path.DirectorySeparatorChar);
+            for (var i = 0; i < 8 && dir.Length > 3; i++)
+            {
+                foreach (var prefix in new[] { "docs", Path.Combine("dev", "docs") })
+                {
+                    var candidate = Path.Combine(dir, prefix, relative.Replace('/', Path.DirectorySeparatorChar));
+                    if (File.Exists(candidate)) return candidate;
+                }
+
+                var parent = Path.GetDirectoryName(dir);
+                if (parent == null || parent.Length == 0 || parent == dir) break;
+                dir = parent;
+            }
+        }
+        return null;
+    }
+
+    private const string LanternCssFallback = """
+        :root { --accent: #ff35e8d5; }
+        @keyframes lantern-breathe {
+          from { opacity: 0.65; transform: scale(0.98); }
+          50% { opacity: 1; transform: scale(1.04); }
+          to { opacity: 0.65; transform: scale(0.98); }
+        }
+        .SectionTitle { color: var(--accent); animation: lantern-breathe 3.2s ease-in-out infinite; }
+        .PrimaryButton { transition: background 180ms ease-out, transform 120ms ease-out; }
+        .PrimaryButton:pressed { transform: scale(.96); }
+        """;
+
+    private const string LanternManifestFallback = """
+        {
+          "format": "dolskin/3",
+          "id": "lantern-skin",
+          "name": "灯台夜幕",
+          "styleSheet": "skin.css",
+          "defaultTheme": "cyberpunk",
+          "themes": [
+            { "id": "cyberpunk", "name": "赛博夜", "variables": { "accent": "#FF35E8D5" }, "ornament": "ornaments/lantern.png", "slice": 24 },
+            { "id": "amber", "name": "琥珀灯", "variables": { "accent": "#FFFFB74A" }, "ornament": "ornaments/lantern.png", "slice": 24 }
+          ],
+          "effects": {
+            "ambient": { "particles": 8, "veil": true, "sky": true, "opacity": 0.6 },
+            "motion": { "panelIn": true, "breathe": true, "hairline": true, "ripple": true }
+          },
+          "settings": [
+            { "key": "theme", "type": "select", "label": "主题", "default": "cyberpunk", "optionsFromThemes": true },
+            { "key": "motion", "type": "toggle", "label": "动效", "default": true },
+            { "key": "particles", "type": "select", "label": "环境粒子", "default": "8", "options": ["0", "4", "8"] },
+            { "key": "ornament", "type": "toggle", "label": "主题边饰", "default": true }
+          ],
+          "components": [
+            { "id": "lantern-badge", "host": "#LaunchBtn", "slot": "after", "widget": "Badge", "class": "skin-badge", "props": { "text": "灯台" } }
+          ]
+        }
+        """;
 
     private static void TestModsAndPack(string temp)
     {

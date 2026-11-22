@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using DoLLauncher.Core.Import;
 using DoLLauncher.Maui.Controls;
 using DoLLauncher.Models;
 using DoLLauncher.Platform;
@@ -32,6 +33,11 @@ public partial class DownloadPage : ContentView
     private readonly VersionInfo? _preferredTarget;
     private readonly List<VersionInfo> _versions = new();
     private bool _marketActive;
+    private bool _packActive;
+    private readonly ObservableCollection<PackOption> _packOptions = new();
+    private bool _packLoaded;
+    private bool _packLoading;
+    private bool _packInstalling;
     private bool _optionsExpanded = true;
     private bool _togglingOptions;
     private bool _activatingMarket;
@@ -46,6 +52,9 @@ public partial class DownloadPage : ContentView
 
         ReleaseList.ItemsSource = _rows;
         TaskList.ItemsSource = DownloadService.DownloadTasks;
+        PackList.ItemsSource = _packOptions;
+        PackTypePicker.ItemsSource = new[] { DownloadService.LyraSource };
+        PackTypePicker.SelectedIndex = 0;
 
         GameSourcePicker.ItemsSource = DownloadService.GameSources.ToList();
         GameSourcePicker.ItemDisplayBinding = new Binding(nameof(GameSource.Name));
@@ -77,6 +86,7 @@ public partial class DownloadPage : ContentView
         }
 
         if (_marketActive) await ActivateMarketAsync();
+        if (_packActive) await LoadPacksAsync();
     }
 
     /// <summary>切走或离开主界面时调用。</summary>
@@ -155,10 +165,18 @@ public partial class DownloadPage : ContentView
         await ActivateMarketAsync();
     }
 
+    private async void OnPackSegmentClicked(object? sender, EventArgs e)
+    {
+        ShowPackSegment();
+        await LoadPacksAsync();
+    }
+
     private void ShowSegment(bool game)
     {
-        if (_marketActive == !game) return;
+        if (!_packActive && _marketActive == !game) return;
+        _packActive = false;
         _marketActive = !game;
+        PackContent.IsVisible = false;
 
         var show = game ? (View)GameContent : MarketContent;
         var hide = game ? (View)MarketContent : GameContent;
@@ -177,6 +195,32 @@ public partial class DownloadPage : ContentView
         TargetPanel.IsVisible = !game;
         StyleNav(NavGame, game);
         StyleNav(NavMarket, !game);
+        StyleNav(NavPack, false);
+    }
+
+    private void ShowPackSegment()
+    {
+        if (_packActive) return;
+        _packActive = true;
+        _marketActive = false;
+
+        GameContent.IsVisible = false;
+        MarketContent.IsVisible = false;
+        PackContent.IsVisible = true;
+        if (UiMotion.Enabled)
+        {
+            PackContent.Opacity = 0;
+            _ = PackContent.FadeToAsync(1, 150, Easing.CubicOut);
+        }
+        else
+        {
+            PackContent.Opacity = 1;
+        }
+
+        TargetPanel.IsVisible = false;
+        StyleNav(NavGame, false);
+        StyleNav(NavMarket, false);
+        StyleNav(NavPack, true);
     }
 
     private static void StyleNav(IconActionView nav, bool active)
@@ -304,6 +348,7 @@ public partial class DownloadPage : ContentView
     private async void OnRefreshClicked(object? sender, EventArgs e)
     {
         if (_marketActive) await MarketContent.RefreshAsync();
+        else if (_packActive) await LoadPacksAsync(force: true);
         else await LoadAsync();
     }
 
@@ -314,6 +359,115 @@ public partial class DownloadPage : ContentView
         if (sender is not Button { BindingContext: DownloadRow row }) return;
         if (string.IsNullOrWhiteSpace(row.Release.Body)) return;
         await Navigation.PushAsync(new MarkdownPage(row.Title, row.Release.Body));
+    }
+
+    // ---------- 整合包 ----------
+
+    private async Task LoadPacksAsync(bool force = false)
+    {
+        if (_packLoading || (_packLoaded && !force)) return;
+        _packLoading = true;
+        PackStatusLabel.Text = "正在获取 Lyra 整合包列表…";
+        try
+        {
+            var releases = await DownloadService.FetchLyraReleasesAsync();
+            var release = releases.FirstOrDefault(r => r.Assets.Count > 0);
+            _packOptions.Clear();
+
+            if (release != null)
+            {
+                foreach (var asset in release.Assets.OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    var label = asset.Name;
+                    var detail = $"{asset.SizeText} · {release.Tag}";
+                    if (LyraPackName.TryParse(asset.Name, out var info))
+                    {
+                        label = $"Lyra {info.ComboLabel} · 游戏 {info.GameVersion} · 汉化 {info.ChsVersion}";
+                        detail = $"{asset.SizeText} · {asset.Name}";
+                    }
+
+                    _packOptions.Add(new PackOption
+                    {
+                        Label = label,
+                        Detail = detail,
+                        Asset = asset,
+                        Release = release,
+                    });
+                }
+            }
+
+            _packLoaded = true;
+            PackStatusLabel.Text = _packOptions.Count > 0
+                ? $"共 {_packOptions.Count} 个整合包"
+                : "没有找到 Lyra 整合包";
+            LogService.Append($"已获取 {_packOptions.Count} 个 Lyra 整合包（{release?.Tag ?? "无 Release"}）");
+        }
+        catch (Exception ex)
+        {
+            PackStatusLabel.Text = "获取失败：" + ex.Message;
+            LogService.Error("获取 Lyra 整合包列表失败", ex);
+        }
+        finally
+        {
+            _packLoading = false;
+        }
+    }
+
+    private async void OnInstallPackClicked(object? sender, EventArgs e)
+    {
+        if (_packInstalling) return;
+        if (sender is not Button { BindingContext: PackOption option }) return;
+
+        if (!await PlatformServices.Dialogs.ConfirmAsync(
+                $"将下载「{option.Label}」（{option.Asset.SizeText}）并安装为独立版本。\n\n" +
+                "安装后可以选择把普通模组解压到 mods/，ModLoader 必需组件会保留在内置。继续吗？",
+                "下载整合包")) return;
+
+        _packInstalling = true;
+        PackBusyPanel.IsVisible = true;
+        PackBusyIndicator.IsRunning = true;
+        PackBusyLabel.Text = "0%";
+        try
+        {
+            var folder = await DownloadService.InstallLyraAsync(option.Asset,
+                msg => LogService.Append(msg),
+                p => MainThread.BeginInvokeOnMainThread(() => PackBusyLabel.Text = $"{p:P0}"));
+            PackBusyLabel.Text = "安装完成";
+
+            var versionDir = Path.Combine(Paths.VersionsDir, folder);
+            var embedded = await Task.Run(() => LyraPackService.ReadEmbeddedMods(versionDir));
+            var extractable = embedded.Count(m => !m.IsBuiltin);
+
+            if (extractable > 0)
+            {
+                var choice = await DolDialog.ChooseAsync("解压内置模组",
+                    $"整合包已安装，其中 {extractable} 个普通模组可以解压到 mods/ 以便启停和排序。\n" +
+                    $"ModLoader 必需组件（{embedded.Count - extractable} 个）会保留在内置。现在解压吗？",
+                    new[] { "解压到 mods", "稍后" }, DolDialogKind.Info, primaryIndex: 0);
+                if (choice == 0)
+                {
+                    var result = await Task.Run(() => LyraPackService.ExtractToMods(versionDir, LogService.Append));
+                    LogService.Append($"内置模组已解压：{result.Extracted} 个；{result.Skipped} 个必需组件保留内置。");
+                }
+            }
+
+            await PlatformServices.Dialogs.InfoAsync(
+                $"整合包已安装为版本「{folder}」。" +
+                (extractable > 0 ? "" : "\n没有可解压的普通模组。") +
+                "\n请到版本页启动或管理它。",
+                "安装完成");
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("整合包下载/安装失败", ex);
+            await PlatformServices.Dialogs.ErrorAsync(ex.Message, "下载失败");
+        }
+        finally
+        {
+            _packInstalling = false;
+            PackBusyIndicator.IsRunning = false;
+            PackBusyPanel.IsVisible = false;
+        }
     }
 
     // ---------- 安装 ----------

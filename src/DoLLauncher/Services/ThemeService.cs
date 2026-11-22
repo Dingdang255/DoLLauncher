@@ -341,6 +341,9 @@ public static class ThemeService
     /// <summary>写入画刷颜色；画刷被冻结时替换为新画刷，DynamicResource 会自动重新取值。</summary>
     private static void SetBrushColor(ResourceDictionary resources, string key, Color color)
     {
+        // 卡片底图正在占用 CardBrush 时不要被主题调色覆盖，否则平铺纹理会被抹掉
+        if (key == "CardBrush" && SkinService.HasCardSurfaceImage) return;
+
         if (resources[key] is SolidColorBrush brush && !brush.IsFrozen)
         {
             brush.Color = color;

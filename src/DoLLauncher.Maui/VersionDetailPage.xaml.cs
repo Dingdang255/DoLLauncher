@@ -106,8 +106,23 @@ public partial class VersionDetailPage : ContentPage
 
         // 声明式冲突依赖市场索引；Android 端市场在后续阶段接入，
         // 此处与 WPF「索引尚未加载」时一致，不计入冲突。
-        foreach (var missing in ProblemService.MissingDependencies(mods))
+        var embeddedNames = mods.Count > 0 && LyraPackService.IsLyraPackName(_version.Folder)
+            ? LyraPackService.EmbeddedModNames(_version.FullPath)
+            : new List<string>();
+        foreach (var missing in ProblemService.MissingDependencies(mods, embeddedNames))
             result.Add(new ProblemItem(missing.Title, missing.Detail));
+
+        var embeddedKeys = embeddedNames
+            .Select(ModService.NormalizeModName)
+            .Where(k => k.Length > 0)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var mod in mods.Where(m => m.Enabled))
+        {
+            var key = ModService.NormalizeModName(mod.Name);
+            if (key.Length == 0 || !embeddedKeys.Contains(key)) continue;
+            result.Add(new ProblemItem("重复加载内置模组",
+                $"{mod.Name} 已内置在整合包 HTML 中，磁盘版会重复加载。"));
+        }
 
         var mismatches = ProblemService.VersionMismatches(mods, _version.GameVersion, threshold);
         foreach (var issue in RuntimeIssueScanner.Scan(_version.FullPath, mods, _version.GameVersion))
@@ -165,7 +180,8 @@ public partial class VersionDetailPage : ContentPage
 
     private async void OnLaunchClicked(object? sender, EventArgs e) => await LaunchAsync();
 
-    private async Task LaunchAsync()
+    /// <summary>启动当前版本（美化包脚本也会调用）。</summary>
+    internal async Task LaunchAsync()
     {
         if (_busy) return;
         SetBusy(true);

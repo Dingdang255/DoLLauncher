@@ -21,7 +21,7 @@
                 <VerticalStackLayout Spacing="4">
                     <Label Text="启动时预取索引" Style="{StaticResource SettingsItemTitle}" />
                     <Label Style="{StaticResource SettingsHint}"
-                           Text="游戏本体与模组市场索引在启动时于后台异步拉取，不阻塞界面；选择「不预取」则进下载中心再加载。" />
+                           Text="启动时同时拉取游戏本体与模组市场索引，不阻塞界面；选择「不预取」则进下载中心再加载。" />
                     <Picker x:Name="PrefetchPicker" FontSize="12" Margin="0,6,0,0"
                             SelectedIndexChanged="OnPrefetchChanged" />
                 </VerticalStackLayout>

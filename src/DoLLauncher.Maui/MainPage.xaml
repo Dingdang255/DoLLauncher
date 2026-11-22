@@ -53,6 +53,10 @@
                                         Text="诊断" Variant="plain" Tapped="OnDiagnosticNavClicked" />
                 </VerticalStackLayout>
 
+                <!-- 美化包声明式组件的固定插槽（默认空，不影响原有布局） -->
+                <VerticalStackLayout Grid.Row="2" x:Name="SkinHost" Spacing="8"
+                                     VerticalOptions="Start" />
+
                 <VerticalStackLayout Grid.Row="3" Spacing="8">
                     <ctl:IconActionView Glyph="{x:Static local:IconGlyph.Settings}"
                                         Text="设置" Tapped="OnSettingsClicked" />

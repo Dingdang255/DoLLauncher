@@ -150,6 +150,75 @@ public static class BrowserService
         return Path.Combine(baseDir, "dol");
     }
 
+    /// <summary>
+    /// 独立 Profile 下需要清理的扩展与同步残留（相对 Default 目录）。
+    /// 启动参数已经禁用扩展加载与同步，这里只清残留数据，
+    /// 绝不触碰 IndexedDB / Local Storage 等游戏存档与模组缓存。
+    /// </summary>
+    private static readonly string[] ProfileHardeningTargets =
+    {
+        "Extensions",
+        "Extension Rules",
+        "Extension Scripts",
+        "Extension State",
+        "Local Extension Settings",
+        "Managed Extension Settings",
+        "Sync Extension Settings",
+        "Sync Data",
+        "ExtensionActivityEdge",
+        "ExtensionActivityEdge-journal",
+    };
+
+    /// <summary>
+    /// 启动器启动时清理一次独立 Profile 的扩展与同步残留。
+    /// 已清理过（存在标记）或 Profile 不存在时直接跳过。
+    /// </summary>
+    public static void HardenProfileOnStartup()
+    {
+        try
+        {
+            var dir = ResolveProfileDir(AppConfig.Load().General);
+            if (Directory.Exists(dir)) HardenProfile(dir);
+        }
+        catch (Exception ex)
+        {
+            LogError("启动时清理浏览器 Profile 失败", ex);
+        }
+    }
+
+    /// <summary>清理指定 Profile 的扩展与同步残留；成功后写标记，之后不再重复清理。</summary>
+    public static void HardenProfile(string profileDir)
+    {
+        try
+        {
+            var marker = Path.Combine(profileDir, ".dol-hardened");
+            if (File.Exists(marker)) return;
+
+            var defaultDir = Path.Combine(profileDir, "Default");
+            foreach (var name in ProfileHardeningTargets)
+            {
+                var path = Path.Combine(defaultDir, name);
+                try
+                {
+                    if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
+                    else if (File.Exists(path)) File.Delete(path);
+                }
+                catch (Exception ex)
+                {
+                    // 目录可能被正在运行的浏览器占用，保留标记不写，下次启动继续尝试。
+                    LogError($"清理 Profile 残留失败（{path}）", ex);
+                    return;
+                }
+            }
+
+            File.WriteAllText(marker, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+        }
+        catch (Exception ex)
+        {
+            LogError("清理浏览器 Profile 失败", ex);
+        }
+    }
+
     private static BrowserLaunchMode NormalizeMode(string? mode) => (mode ?? string.Empty).Trim().ToLowerInvariant() switch
     {
         "default" => BrowserLaunchMode.Default,

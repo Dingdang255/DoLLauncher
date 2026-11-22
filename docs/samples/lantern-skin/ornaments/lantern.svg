@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <!-- 灯台示例：120×120 透明底，青色描边 + 四角菱形角饰，适合 slice=24 的九宫格 -->
+  <g fill="none" stroke="#35E8D5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="6" y="6" width="108" height="108" rx="12" ry="12"/>
+    <rect x="13" y="13" width="94" height="94" rx="8" ry="8" stroke-width="1" stroke-opacity="0.45"/>
+    <path d="M6 60 H13 M107 60 H114 M60 6 V13 M60 107 V114" stroke-width="2" stroke-opacity="0.55"/>
+  </g>
+  <g fill="#35E8D5" fill-opacity="0.8" stroke="none">
+    <polygon points="16,9 23,16 16,23 9,16"/>
+    <polygon points="104,9 111,16 104,23 97,16"/>
+    <polygon points="104,104 111,111 104,118 97,111"/>
+    <polygon points="16,104 23,111 16,118 9,111"/>
+  </g>
+  <g fill="#6CF3E4" fill-opacity="0.9" stroke="none">
+    <circle cx="16" cy="16" r="1.8"/>
+    <circle cx="104" cy="16" r="1.8"/>
+    <circle cx="104" cy="104" r="1.8"/>
+    <circle cx="16" cy="104" r="1.8"/>
+  </g>
+</svg>

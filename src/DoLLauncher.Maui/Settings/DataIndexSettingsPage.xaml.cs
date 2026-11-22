@@ -8,9 +8,9 @@ public partial class DataIndexSettingsPage : ContentPage
     private static readonly string[] MarketNames =
         { "自动（主源失败用备用）", "主源 dol.alseece.top", "备用源 workers.dev" };
 
-    private static readonly string[] PrefetchValues = { "parallel", "modFirst", "gameFirst", "none" };
-    private static readonly string[] PrefetchNames =
-        { "同时拉取（推荐）", "先模组市场，后游戏本体", "先游戏本体，后模组市场", "启动时不预取" };
+    // Android 端只提供「同时拉取 / 不预取」，自定义顺序是桌面端专属
+    private static readonly string[] PrefetchValues = { "parallel", "none" };
+    private static readonly string[] PrefetchNames = { "同时拉取（推荐）", "启动时不预取" };
 
     private LauncherConfig _config = new();
     private bool _loading;

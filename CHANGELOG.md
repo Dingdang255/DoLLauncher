@@ -1,5 +1,32 @@
 # 更新日志
 
+## v1.6.0 — 2026-11-22
+
+### 新增
+
+- **Lyra 整合包适配**：导入 `DoL-{游戏版本}-Lyra-{汉化版本}-{组合}-{日期}.zip` 时自动识别，版本列表显示组合与汉化版本（如 `DoL 0.5.12.13 · Lyra BESC+UCB (1.0.1a)`），不再弹单 HTML 确认。
+- **内置模组选择性解压**：Lyra 的 27 个内置条目中，ModLoader 必需组件（ModLoaderGui、ConflictChecker、TweeReplacer 系列等 23 个）保留在 HTML 里，只把 ModI18N、Cheat-Lyra、CombatStatusDisplay-Lyra、Lyra 信息 mod 等普通模组解压到 `mods/`；解压后可直接启停、排序和替换文件。
+- 模组页新增「内置」按钮（WPF / Android）：列出整合包 HTML 里的内置模组并标注 `[必需]` / `[可解压]`，可直接在弹窗内解压可解压模组，不必重新导入整合包；运行中的版本会拒绝操作。
+- 下载中心新增「整合包」栏（WPF / Android）：目前支持 Lyra，进入后选择最新 Release 中的组合包，下载完直接安装为独立版本，并询问是否解压普通模组到 `mods/`。
+- 内置模组参与前置与冲突检查：内置 mod 可满足磁盘模组的前置；磁盘模组与内置同名时提示“重复加载会冲突”；诊断包附带 `lyra-mod-cache.json`。
+- **UI 美化包（WPF，dolskin/1–3）**：设置页可导入本地 zip 美化包，支持主色 / 页面背景与底图 / CSS 子集 / 多主题切换 / 环境粒子与九宫格边饰 / SVG 边饰与图标 / 皮肤专属设置窗口；样式表支持 `@keyframes`、`transition`、`transform` 与 `:hover` / `:pressed` / `:disabled` 等状态伪类；`components[]` 可把 Label、Badge、Button、Toggle、Slider、Input、Select 等控件插入指定插槽，并支持 `events` 轻量脚本与 `bind` 数据绑定。
+- **UI 美化包（Android）**：与 WPF 共用同一份 `skin.json` / `skin.css` / `settings.json`，支持样式表、主题变量、关键帧与状态动画、声明式组件、事件脚本与数据绑定；主界面侧边栏新增 `#SkinHost` 固定插槽，组件插入后随页面切换自动重建。
+- 新增安卓美化包示例 `docs/samples/lantern-skin-android/`（数据绑定、按钮脚本、`bindTo` 回写、按压过渡与呼吸动画），WPF 示例同步提供 zip。
+
+### 变更
+
+- 导入 `.apk` 时直接提示“APK 是独立应用，请直接安装”，不再进入包识别流程。
+- Lyra 版本 `mods/` 为空时，导出对话框强制包含游戏本体，避免“仅导出模组”得到空包。
+- 下载中心侧栏提示补充整合包入口；「整合包」标签使用归档图标。
+- 启动预取索引支持整合包：时机设置改为「同时拉取 / 启动时不预取 / 自定义顺序」，选择自定义后可用上下箭头调整游戏本体、模组市场、整合包的拉取顺序。
+- Android 端预取时机只保留「同时拉取 / 不预取」，自定义顺序为桌面端专属。
+- 美化包格式文档补充 WPF / Android 平台差异与限制（虚拟化列表跳过插入、`particles` / `ornament` 只保存设置、Slider 无 `step`、非等比 `scale` 等）。
+
+### 修复
+
+- 独立 Profile（含自定义浏览器 + 独立 Profile）打开游戏页时固定禁用浏览器扩展与账号同步，并在启动器启动时清理一次已同步进来的扩展与同步残留（Extensions、Extension State、Sync Data 等），避免 Edge 跟随 Windows 账户自动登录后同步日常扩展并弹出一堆窗口。
+- Android 模组拖动浮层在 API 24/25 上不可用 PixelCopy 时直接回退视图位图，并消除对应的 CA1416 编译警告。
+
 ## v1.5.2 — 2026-11-21
 
 ### 新增

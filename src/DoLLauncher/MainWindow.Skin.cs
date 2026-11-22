@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using DoLLauncher.Controls;
 using DoLLauncher.Platform;
 using DoLLauncher.Services;
 
@@ -57,6 +58,18 @@ public partial class MainWindow
         SkinService.ApplyToWindow(this);
         UpdateSkinStatus();
         Log("设置：已卸载 UI 美化包");
+    }
+
+    private void SkinSettings_Click(object sender, RoutedEventArgs e)
+    {
+        if (SkinService.Current == null)
+        {
+            AppDialog.Info("请先加载美化包。", "UI 美化包");
+            return;
+        }
+
+        new SkinSettingsWindow { Owner = this }.ShowDialog();
+        UpdateSkinStatus();
     }
 
     private void SkinOpenFolder_Click(object sender, RoutedEventArgs e)

@@ -1,0 +1,99 @@
+{
+  "format": "dolskin/3",
+  "id": "lantern-skin-android",
+  "name": "灯台夜幕（安卓示例）",
+  "author": "DoL Launcher",
+  "version": "1.0.0",
+  "description": "dolskin/3 安卓示例：随深浅色变化的 CSS 变量、呼吸动画、按压状态、声明式组件、轻量脚本与数据绑定。组件插入主界面侧边栏的 #SkinHost 插槽。",
+  "styleSheet": "skin.css",
+  "accentColor": "#FF2BA79B",
+  "settings": [
+    {
+      "key": "motion",
+      "type": "toggle",
+      "label": "动效",
+      "default": true
+    },
+    {
+      "key": "particles",
+      "type": "select",
+      "label": "环境粒子",
+      "default": "8",
+      "options": ["0", "8", "16", "24"]
+    }
+  ],
+  "components": [
+    {
+      "id": "android-version-note",
+      "host": "#SkinHost",
+      "slot": "end",
+      "widget": "Label",
+      "class": "skin-note",
+      "bind": {
+        "text": "版本 {{ version.count }} 个 · 模组 {{ mods.enabled }}/{{ mods.total }}"
+      }
+    },
+    {
+      "id": "android-theme-switch",
+      "host": "#SkinHost",
+      "slot": "end",
+      "widget": "Button",
+      "class": "skin-action",
+      "props": {
+        "text": "切换深浅色"
+      },
+      "bind": {
+        "text": "主题：{{ theme.name }}"
+      },
+      "events": {
+        "click": "if (theme.id == 'dark') { setTheme('light'); } else { setTheme('dark'); } toast('已切换主题');"
+      }
+    },
+    {
+      "id": "android-motion-toggle",
+      "host": "#SkinHost",
+      "slot": "end",
+      "widget": "Toggle",
+      "props": {
+        "text": "动效",
+        "bindTo": "settings.motion"
+      },
+      "bind": {
+        "value": "{{ motion }}"
+      },
+      "events": {
+        "changed": "setMotion(settings.motion);"
+      }
+    },
+    {
+      "id": "android-particle-slider",
+      "host": "#SkinHost",
+      "slot": "end",
+      "widget": "Slider",
+      "props": {
+        "min": "0",
+        "max": "24",
+        "value": "8",
+        "bindTo": "settings.particles"
+      },
+      "bind": {
+        "value": "{{ particles }}"
+      },
+      "events": {
+        "changed": "setParticles(settings.particles);"
+      }
+    },
+    {
+      "id": "android-breath-badge",
+      "host": "#SkinHost",
+      "slot": "end",
+      "widget": "Badge",
+      "class": "skin-breath",
+      "props": {
+        "text": "灯台",
+        "background": "#FF13203A",
+        "foreground": "#FFE8FBFF"
+      }
+    }
+  ]
+}

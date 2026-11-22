@@ -268,6 +268,9 @@
                                         ToolTip="停用选中的所有模组" />
                                 <Button x:Name="RefreshModsBtn" Content="刷新" Style="{StaticResource TinyButton}" Width="52"
                                         Margin="6,0,0,0" Click="RefreshMods_Click" />
+                                <Button x:Name="EmbeddedModsBtn" Content="内置" Style="{StaticResource TinyButton}" Width="52"
+                                        Margin="6,0,0,0" Click="EmbeddedMods_Click"
+                                        ToolTip="查看整合包 HTML 内置的模组（只读）" />
                             </WrapPanel>
                             <TextBlock Text="模组" Style="{StaticResource SectionTitle}" VerticalAlignment="Center" />
                             <TextBlock x:Name="ModCountText" Style="{StaticResource MutedText}" Margin="10,0,0,0"
@@ -427,6 +430,9 @@
                             <RadioButton x:Name="DownloadNavMod" Style="{StaticResource NavSubItem}" GroupName="DlNav"
                                          Tag="&#xE7B8;" Content="模组市场"
                                          Checked="DownloadNav_Checked" />
+                            <RadioButton x:Name="DownloadNavPack" Style="{StaticResource NavSubItem}" GroupName="DlNav"
+                                         Tag="&#xE8F1;" Content="整合包"
+                                         Checked="DownloadNav_Checked" />
 
                             <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="0,12,0,12" />
 
@@ -450,7 +456,7 @@
 
                         <TextBlock DockPanel.Dock="Bottom" Style="{StaticResource MutedText}" FontSize="10"
                                    TextWrapping="Wrap" Margin="6,12,6,0"
-                                   Text="本体可选汉化整包或 ModLoader Neo 单文件，均来自 GitHub Release；模组索引来自 ModHub 市场。安装后会自动重建 modList.json。" />
+                                   Text="本体可选汉化整包或 ModLoader Neo 单文件，均来自 GitHub Release；整合包目前支持 Lyra；模组索引来自 ModHub 市场。安装后会自动重建 modList.json。" />
 
                         <!-- 分类底下的下载列表：一个文件一条任务，底部按钮取消选中的任务 -->
                         <Grid Margin="0,14,0,0">
@@ -766,6 +772,67 @@
 
                                 <ProgressBar x:Name="MarketProgress" Grid.Row="4" Style="{StaticResource ThinProgress}"
                                              Margin="0,8,0,0" Maximum="1" Visibility="Collapsed" />
+                            </Grid>
+
+                            <!-- 整合包 -->
+                            <Grid x:Name="PackPane" Visibility="Collapsed">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <StackPanel Grid.Row="0">
+                                    <TextBlock Text="整合包下载" FontSize="18" FontWeight="SemiBold" />
+                                    <TextBlock x:Name="PackHintText" Style="{StaticResource MutedText}" Margin="0,5,0,0"
+                                               TextWrapping="Wrap"
+                                               Text="目前支持 Lyra 整合包。下载后自动生成独立版本，可再选择把普通模组解压到 mods/ 以便启停和排序。" />
+                                </StackPanel>
+
+                                <StackPanel Grid.Row="1" Margin="0,14,0,10">
+                                    <WrapPanel>
+                                        <TextBlock Text="整合包类型" Style="{StaticResource MutedText}"
+                                                   VerticalAlignment="Center" Margin="0,0,10,0" />
+                                        <ComboBox x:Name="PackTypeBox" Width="220" Style="{StaticResource FlatCombo}"
+                                                  ItemContainerStyle="{StaticResource FlatComboItem}"
+                                                  SelectionChanged="PackType_Changed">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Name}" />
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                    </WrapPanel>
+                                </StackPanel>
+
+                                <ListBox x:Name="PackVariantList" Grid.Row="2" Background="Transparent"
+                                         BorderThickness="0" Padding="0" HorizontalContentAlignment="Stretch"
+                                         ScrollViewer.CanContentScroll="False"
+                                         ItemContainerStyle="{StaticResource DownloadItem}">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Margin="4,3">
+                                                <TextBlock Text="{Binding Label}" FontSize="13" FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource TextBrush}"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{Binding Detail}" Style="{StaticResource MutedText}"
+                                                           FontSize="10" TextWrapping="Wrap" Margin="0,2,0,0" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+
+                                <ProgressBar x:Name="PackProgress" Grid.Row="3" Style="{StaticResource ThinProgress}"
+                                             Margin="0,8,0,0" Maximum="1" Visibility="Collapsed" />
+                                <DockPanel Grid.Row="4" Margin="0,10,0,0">
+                                    <Button x:Name="PackDownloadBtn" DockPanel.Dock="Right" Content="下载整合包"
+                                            Tag="&#xE896;" Style="{StaticResource IconButton}"
+                                            Click="DownloadPack_Click" MinWidth="130" />
+                                    <TextBlock x:Name="PackStatusText" Style="{StaticResource MutedText}"
+                                               VerticalAlignment="Center" />
+                                </DockPanel>
                             </Grid>
                         </Grid>
 
@@ -1793,16 +1860,63 @@
                                             <TextBlock Text="启动时预取索引" FontWeight="SemiBold" />
                                             <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
                                                        Margin="0,4,0,9"
-                                                       Text="游戏本体与模组市场索引都在启动时于后台异步拉取，不阻塞界面；关掉后进下载中心再加载。" />
+                                                       Text="游戏本体、模组市场与整合包索引在启动时按所选时机于后台拉取，不阻塞界面；选「启动时不预取」后进下载中心再加载。" />
                                             <ComboBox x:Name="PrefetchBox" Style="{StaticResource FlatCombo}"
                                                       ItemContainerStyle="{StaticResource FlatComboItem}"
                                                       Width="236" HorizontalAlignment="Left"
                                                       SelectionChanged="Prefetch_Changed">
                                                 <ComboBoxItem Content="同时拉取（推荐）" Tag="parallel" />
-                                                <ComboBoxItem Content="先模组市场，后游戏本体" Tag="modFirst" />
-                                                <ComboBoxItem Content="先游戏本体，后模组市场" Tag="gameFirst" />
                                                 <ComboBoxItem Content="启动时不预取" Tag="none" />
+                                                <ComboBoxItem Content="自定义顺序" Tag="custom" />
                                             </ComboBox>
+
+                                            <Border x:Name="PrefetchOrderPanel" Visibility="Collapsed"
+                                                    Margin="0,10,0,0" Padding="10" MinWidth="260"
+                                                    HorizontalAlignment="Left"
+                                                    Background="{DynamicResource CardBrush}"
+                                                    BorderBrush="{DynamicResource BorderBrush}"
+                                                    BorderThickness="1" CornerRadius="8">
+                                                <StackPanel>
+                                                    <TextBlock Text="按从上到下的顺序依次拉取" Style="{StaticResource MutedText}"
+                                                               Margin="0,0,0,6" />
+                                                    <Grid Margin="0,2">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock x:Name="PrefetchOrderLabel0" VerticalAlignment="Center" />
+                                                        <Button Grid.Column="1" Content="↑" Style="{StaticResource TinyButton}"
+                                                                Tag="0" Click="PrefetchOrderUp_Click" ToolTip="提前" />
+                                                        <Button Grid.Column="2" Content="↓" Style="{StaticResource TinyButton}"
+                                                                Tag="0" Margin="6,0,0,0" Click="PrefetchOrderDown_Click" ToolTip="延后" />
+                                                    </Grid>
+                                                    <Grid Margin="0,2">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock x:Name="PrefetchOrderLabel1" VerticalAlignment="Center" />
+                                                        <Button Grid.Column="1" Content="↑" Style="{StaticResource TinyButton}"
+                                                                Tag="1" Click="PrefetchOrderUp_Click" ToolTip="提前" />
+                                                        <Button Grid.Column="2" Content="↓" Style="{StaticResource TinyButton}"
+                                                                Tag="1" Margin="6,0,0,0" Click="PrefetchOrderDown_Click" ToolTip="延后" />
+                                                    </Grid>
+                                                    <Grid Margin="0,2">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock x:Name="PrefetchOrderLabel2" VerticalAlignment="Center" />
+                                                        <Button Grid.Column="1" Content="↑" Style="{StaticResource TinyButton}"
+                                                                Tag="2" Click="PrefetchOrderUp_Click" ToolTip="提前" />
+                                                        <Button Grid.Column="2" Content="↓" Style="{StaticResource TinyButton}"
+                                                                Tag="2" Margin="6,0,0,0" Click="PrefetchOrderDown_Click" ToolTip="延后" />
+                                                    </Grid>
+                                                </StackPanel>
+                                            </Border>
                                         </StackPanel>
                                     </Border>
 
@@ -1884,6 +1998,9 @@
                                                 <ComboBoxItem Content="系统默认浏览器" Tag="default" />
                                                 <ComboBoxItem Content="自定义浏览器" Tag="custom" />
                                             </ComboBox>
+                                            <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap"
+                                                       Margin="0,6,0,0"
+                                                       Text="独立 Profile 固定禁用浏览器扩展与账号同步，避免 Edge 跟随 Windows 账户登录后同步插件并弹出窗口。" />
                                             <TextBlock Text="关闭游戏页面时" FontWeight="SemiBold"
                                                        Margin="0,14,0,0" />
                                             <ComboBox x:Name="ClosePageBox" Style="{StaticResource FlatCombo}"
@@ -2100,6 +2217,9 @@
                                                 <Button Content="打开目录" Tag="&#xE8B7;"
                                                         Style="{StaticResource IconButton}" Margin="8,0,0,0"
                                                         Click="SkinOpenFolder_Click" />
+                                                <Button Content="美化包设置" Tag="&#xE713;"
+                                                        Style="{StaticResource IconButton}" Margin="8,0,0,0"
+                                                        Click="SkinSettings_Click" />
                                             </StackPanel>
                                             <TextBlock x:Name="SkinStatusText" Style="{StaticResource MutedText}"
                                                        TextWrapping="Wrap" Margin="0,8,0,0" />

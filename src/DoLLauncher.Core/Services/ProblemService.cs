@@ -137,11 +137,18 @@ public static class ProblemService
     /// · 自依赖、空名字、只剩版本号的条目直接跳过。
     /// 未安装 / 已停用 / 版本不满足三种真实问题仍按原字段输出，窗口继续按红色问题展示。
     /// </summary>
-    public static List<ModMissingDependency> MissingDependencies(IEnumerable<ModInfo> mods)
+    public static List<ModMissingDependency> MissingDependencies(IEnumerable<ModInfo> mods,
+        IEnumerable<string>? extraBuiltin = null)
     {
         var all = mods.ToList();
         var result = new List<ModMissingDependency>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // 整合包 HTML 内置的模组不会出现在 mods/，但依赖检查必须认为它们已存在。
+        var extraKeys = extraBuiltin?
+            .Select(ModService.NormalizeModName)
+            .Where(k => k.Length > 0)
+            .ToHashSet(StringComparer.Ordinal);
 
         // 归一化名 → 本地模组。NameKeys 同时覆盖 boot name、包名主干、版本尾巴与英文单复数写法。
         var byKey = new Dictionary<string, List<ModInfo>>(StringComparer.Ordinal);
@@ -169,6 +176,7 @@ public static class ProblemService
                 var key = ModService.NormalizeModName(dependencyName);
                 if (key.Length == 0 || IsNonPrerequisiteName(dependencyName, key)) continue;
                 if (ModService.IsGameVersion(dependencyName) || ModService.IsBuiltin(dependencyName)) continue;
+                if (extraKeys != null && extraKeys.Contains(key)) continue;
                 if (selfKeys.Contains(key)) continue;
 
                 // 同一模组用不同写法重复声明同一个前置时只报一次。

@@ -28,7 +28,7 @@
                   IsChecked="True" Margin="0,18,0,0"
                   Content="包含游戏本体与版本文件（Degrees of Lewdity.html 约 62 MB）" />
 
-        <TextBlock Grid.Row="2" Style="{StaticResource MutedText}" Margin="27,44,0,0"
+        <TextBlock x:Name="IncludeGameHint" Grid.Row="2" Style="{StaticResource MutedText}" Margin="27,44,0,0"
                    TextWrapping="Wrap"
                    Text="不勾选时只打包模组清单，别人导入到已有版本里即可用。" />
 

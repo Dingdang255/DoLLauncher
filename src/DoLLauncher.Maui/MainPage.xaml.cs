@@ -27,12 +27,16 @@ public partial class MainPage : ContentPage
     public MainPage()
     {
         InitializeComponent();
+        Instance = this;
         // 主界面不需要再叠一条「DoL 启动器」应用栏，内容直接从屏幕顶部开始。
         NavigationPage.SetHasNavigationBar(this, false);
         VersionList.ItemsSource = _versions;
         RootLabel.Text = Paths.Root;
         Highlight(NavVersions);
     }
+
+    /// <summary>当前主界面实例，供美化包脚本读取版本 / 模组数据与切换页面。</summary>
+    internal static MainPage? Instance { get; private set; }
 
     private async Task ReloadAsync()
     {
@@ -453,6 +457,103 @@ public partial class MainPage : ContentPage
     {
         BusyOverlay.IsVisible = busy;
         Refresher.IsEnabled = !busy;
+    }
+
+    // ---------- 美化包轻量脚本入口 ----------
+
+    internal int SkinVersionCount => _versions.Count;
+
+    internal string SkinVersionName => _versions.FirstOrDefault()?.Version.DisplayName ?? string.Empty;
+
+    internal string SkinGameVersion => _versions.FirstOrDefault()?.Version.GameVersion ?? string.Empty;
+
+    internal bool SkinVersionRunning =>
+        _versions.Any(row => ServerManager.IsRunning(row.Version.Folder));
+
+    internal string SkinVersionFolder => _versions.FirstOrDefault()?.Version.FullPath ?? string.Empty;
+
+    internal int SkinModTotal => LoadMods().Count;
+
+    internal int SkinModEnabled => LoadMods().Count(mod => mod.Enabled);
+
+    private List<ModInfo> LoadMods()
+    {
+        var folder = SkinVersionFolder;
+        if (folder.Length == 0) return new List<ModInfo>();
+        try
+        {
+            return ModService.Load(folder);
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("美化包读取模组列表失败", ex);
+            return new List<ModInfo>();
+        }
+    }
+
+    /// <summary>按名字切换主界面；未知页面返回 false。</summary>
+    internal bool SkinOpenPage(string name)
+    {
+        switch ((name ?? string.Empty).Trim().ToLowerInvariant())
+        {
+            case "version":
+                ShowVersions();
+                return true;
+            case "download":
+                OnDownloadNavClicked(null, EventArgs.Empty);
+                return true;
+            case "backup":
+                OnBackupNavClicked(null, EventArgs.Empty);
+                return true;
+            case "story":
+                OnStoryNavClicked(null, EventArgs.Empty);
+                return true;
+            case "diagnostic":
+            case "diagnostics":
+                OnDiagnosticNavClicked(null, EventArgs.Empty);
+                return true;
+            case "settings":
+                SkinOpenSettings();
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>打开设置首页。</summary>
+    internal void SkinOpenSettings()
+    {
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            try
+            {
+                await Navigation.PushAsync(new SettingsPage());
+            }
+            catch (Exception ex)
+            {
+                LogService.Error("打开设置页失败", ex);
+            }
+        });
+    }
+
+    /// <summary>启动第一个版本（与详情页「启动游戏」一致）。</summary>
+    internal void SkinLaunch()
+    {
+        if (_versions.FirstOrDefault()?.Version is not { } version) return;
+
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            try
+            {
+                var page = new VersionDetailPage(version);
+                await Navigation.PushAsync(page);
+                await page.LaunchAsync();
+            }
+            catch (Exception ex)
+            {
+                LogService.Error("美化包启动版本失败", ex);
+            }
+        });
     }
 }
 

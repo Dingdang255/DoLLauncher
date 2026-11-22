@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using DoLLauncher.Core.Browser;
 using DoLLauncher.Platform.Abstractions;
 
 namespace DoLLauncher.Platform.Windows;
@@ -17,6 +18,18 @@ public sealed class WindowsBrowserHost : IBrowserHost
         BrowserCapabilities.ReliableCloseDetection |
         BrowserCapabilities.DiskDataStore |
         BrowserCapabilities.ProcessTracking;
+
+    /// <summary>
+    /// 独立 Profile 固定追加的硬化参数：不加载扩展、不参与账号同步，
+    /// 避免 Edge 跟随 Windows 账户自动登录后把日常扩展同步进来并弹出窗口。
+    /// </summary>
+    private static readonly string[] ProfileHardeningArgs =
+    {
+        "--disable-extensions",
+        "--disable-sync",
+        "--disable-component-extensions-with-background-pages",
+        "--no-service-autorun",
+    };
 
     private readonly Dictionary<string, TrackedSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
 
@@ -90,6 +103,10 @@ public sealed class WindowsBrowserHost : IBrowserHost
         args.Append(" --no-first-run");
         args.Append(" --no-default-browser-check");
         args.Append(" --disable-features=Translate");
+        foreach (var flag in ProfileHardeningArgs) args.Append(' ').Append(flag);
+
+        BrowserService.HardenProfile(profileDir);
+        Log($"独立 Profile 已禁用浏览器扩展与账号同步（{profileDir}）。");
 
         return StartTracked(request.VersionFolder, executable, args.ToString(), profileDir, ProfileCapabilities);
     }
@@ -126,7 +143,12 @@ public sealed class WindowsBrowserHost : IBrowserHost
         }
 
         var args = request.Arguments?.Trim() ?? string.Empty;
-        if (profileDir != null) args = AppendArg(args, "--user-data-dir=" + Quote(profileDir));
+        if (profileDir != null)
+        {
+            args = AppendArg(args, "--user-data-dir=" + Quote(profileDir));
+            args = AppendHardening(args);
+            BrowserService.HardenProfile(profileDir);
+        }
         args = args.Contains("{url}", StringComparison.Ordinal)
             ? args.Replace("{url}", request.Url, StringComparison.Ordinal)
             : AppendArg(args, Quote(request.Url));
@@ -411,6 +433,17 @@ public sealed class WindowsBrowserHost : IBrowserHost
 
     private static string AppendArg(string arguments, string extra) =>
         arguments.Length == 0 ? extra : arguments + " " + extra;
+
+    /// <summary>补齐硬化参数；用户自定义参数里已有的不重复追加。</summary>
+    private static string AppendHardening(string arguments)
+    {
+        foreach (var flag in ProfileHardeningArgs)
+        {
+            if (arguments.Contains(flag, StringComparison.OrdinalIgnoreCase)) continue;
+            arguments = AppendArg(arguments, flag);
+        }
+        return arguments;
+    }
 
     private static string Quote(string value) => "\"" + value.Replace("\"", "\\\"") + "\"";
 

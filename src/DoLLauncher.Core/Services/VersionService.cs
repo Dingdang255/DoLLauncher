@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
+using DoLLauncher.Core.Import;
 using DoLLauncher.Core.Versions;
 using DoLLauncher.Models;
 
@@ -194,6 +195,9 @@ public static class VersionService
 
     public static string Prettify(string folder, string? gameVersion)
     {
+        if (LyraPackName.TryParse(folder, out var lyra))
+            return $"DoL {lyra.GameVersion} · Lyra {lyra.ComboLabel} ({lyra.ChsVersion})";
+
         var neo = Regex.Match(folder, @"^Neo-(.+)$", RegexOptions.IgnoreCase);
         if (neo.Success)
         {

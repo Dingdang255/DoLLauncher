@@ -231,6 +231,9 @@ public static class AndroidSkinStore
 
         ClearCurrent();
         RestorePageBackground(Application.Current?.Resources);
+        MauiSkinComponentService.Unload();
+        AndroidSkinScriptHost.Clear();
+        MauiSkinAnimationRunner.StopAll();
         MauiSkinStyler.Unload();
 
         // 恢复用户在设置里选择的主题与主题色
@@ -247,6 +250,9 @@ public static class AndroidSkinStore
 
         if (Current == null)
         {
+            MauiSkinComponentService.Unload();
+            AndroidSkinScriptHost.Clear();
+            MauiSkinAnimationRunner.StopAll();
             MauiSkinStyler.Unload();
             RestorePageBackground(resources);
             return;
@@ -269,6 +275,10 @@ public static class AndroidSkinStore
 
         var folder = Path.Combine(SkinsRoot, CurrentFolder);
         MauiSkinStyler.Load(_sheet, folder, Variables, ThemeAccent.IsDark);
+
+        // 声明式组件：给当前打开的页面补插一次，并重新求值数据绑定
+        foreach (var page in OpenPages()) MauiSkinComponentService.Apply(page);
+        MauiSkinComponentService.RefreshBindings();
 
         // 主题 / 资源重建后 UI 密度可能退回系统值，这里静默补回缩放
         DoLLauncher.Maui.MainApplication.ReapplyUiScale();
@@ -342,6 +352,11 @@ public static class AndroidSkinStore
                 ClearCurrent();
                 return false;
             }
+
+            // 切换美化包：先清掉上一包的脚本变量、插入组件与动画
+            MauiSkinComponentService.Unload();
+            AndroidSkinScriptHost.Clear();
+            MauiSkinAnimationRunner.StopAll();
 
             Current = manifest;
             CurrentFolder = folder;

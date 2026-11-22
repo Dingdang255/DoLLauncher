@@ -25,6 +25,8 @@
                                         Text="检查" Tapped="OnCheckClicked" />
                     <ctl:IconActionView x:Name="RefreshButton" Glyph="{x:Static local:IconGlyph.ArrowClockwise}"
                                         Text="刷新" Tapped="OnRefreshClicked" />
+                    <ctl:IconActionView x:Name="EmbeddedButton" Glyph="{x:Static local:IconGlyph.Box}"
+                                        Text="内置" Tapped="OnEmbeddedClicked" />
                     <ctl:IconActionView x:Name="ProblemsButton" Glyph="{x:Static local:IconGlyph.Warning}"
                                         Text="问题" Tapped="OnProblemsClicked" />
                     <ctl:IconActionView x:Name="SelectButton" Glyph="{x:Static local:IconGlyph.List}"

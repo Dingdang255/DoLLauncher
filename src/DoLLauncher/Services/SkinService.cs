@@ -1,10 +1,14 @@
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
+using System.Runtime.CompilerServices;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using DoLLauncher.Controls;
 using DoLLauncher.Core.Skin;
 using DoLLauncher.Core.Theme;
 
@@ -26,6 +30,9 @@ public static class SkinService
 
     public static string SkinsRoot => Path.Combine(Paths.Root, "skins");
 
+    /// <summary>当前美化包目录（供声明式组件解析包内图片等相对路径）。</summary>
+    public static string SkinDirectory => _skinDir;
+
     /// <summary>当前生效的美化包清单；未启用时为 null。</summary>
     public static SkinManifest? Current { get; private set; }
 
@@ -43,6 +50,87 @@ public static class SkinService
 
     /// <summary>弹窗背景画刷（图片优先，其次底色）；没有配置时为 null。</summary>
     public static Brush? DialogBackgroundBrush { get; private set; }
+
+    /// <summary>当前美化包声明的可切换主题（已过滤空 id 与重复项）。</summary>
+    public static IReadOnlyList<SkinTheme> Themes => _themes;
+
+    /// <summary>当前生效的主题 id；没有主题时为空串。</summary>
+    public static string CurrentThemeId { get; private set; } = string.Empty;
+
+    /// <summary>当前生效的主题；没有主题时为 null。</summary>
+    public static SkinTheme? CurrentTheme
+    {
+        get
+        {
+            var id = CurrentThemeId;
+            if (id.Length == 0) return null;
+            foreach (var theme in _themes)
+                if (theme.Id.Equals(id, StringComparison.OrdinalIgnoreCase)) return theme;
+            return null;
+        }
+    }
+
+    /// <summary>当前环境层 / 动效配置；没有美化包时为全关。</summary>
+    public static SkinEffectOptions Effects { get; private set; } = CreateDisabledEffects();
+
+    /// <summary>主题边饰开关（供美化包设置页覆盖）。</summary>
+    public static bool OrnamentEnabled { get; set; } = true;
+
+    /// <summary>动效总开关：统一切换 panelIn / breathe / hairline / ripple；没有美化包时恒为 false。</summary>
+    public static bool MotionEnabled
+    {
+        get => Current != null && Effects.Motion is { } motion
+               && (motion.PanelIn || motion.Breathe || motion.Hairline || motion.Ripple);
+        set
+        {
+            if (Current == null) return;
+            var motion = Effects.Motion;
+            if (motion == null)
+            {
+                motion = new SkinMotionOptions();
+                Effects.Motion = motion;
+            }
+            motion.PanelIn = motion.Breathe = motion.Hairline = motion.Ripple = value;
+            RefreshEffects();
+        }
+    }
+
+    private static readonly Dictionary<string, string> NoVariables = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<string, string> _variableOverrides = new(StringComparer.OrdinalIgnoreCase);
+    private static List<SkinTheme> _themes = new();
+    private static Dictionary<string, string> _baseVariables = new(StringComparer.OrdinalIgnoreCase);
+    private static string _skinDir = string.Empty;
+    private const string AmbientBackTag = "skin-ambient-back";
+    private const string AmbientFrontTag = "skin-ambient-front";
+    private static string _ambientBackSignature = string.Empty;
+    private static string _ambientFrontSignature = string.Empty;
+    private static string _ornamentSignature = string.Empty;
+
+    private sealed class ButtonSurfaceOriginal
+    {
+        public Brush? Background { get; init; }
+        public bool HadLocalValue { get; init; }
+    }
+
+    private static ConditionalWeakTable<Button, ButtonSurfaceOriginal> _buttonOriginals = new();
+    private static readonly List<WeakReference<Button>> _buttonApplied = new();
+    private static ImageBrush? _windowSurfaceBrush;
+    private static ImageBrush? _buttonSurfaceBrush;
+    private static ImageBrush? _cardImageBrush;
+    private static Brush? _cardOriginalBrush;
+    private static bool _applyingSurfaces;
+
+    /// <summary>窗口背景底图覆盖（相对皮肤目录）；为空表示不覆盖。</summary>
+    public static string WindowImageOverride { get; private set; } = string.Empty;
+
+    /// <summary>按钮底图覆盖（相对皮肤目录）；为空表示不覆盖。</summary>
+    public static string ButtonImageOverride { get; private set; } = string.Empty;
+
+    /// <summary>卡片底图覆盖（相对皮肤目录）；为空表示不覆盖。</summary>
+    public static string CardImageOverride { get; private set; } = string.Empty;
+
+    /// <summary>卡片底图是否正在占用 <c>CardBrush</c> 资源（供主题调色时跳过该键）。</summary>
+    internal static bool HasCardSurfaceImage => _cardImageBrush != null;
 
     /// <summary>美化包主色；为空表示不覆盖主题色。</summary>
     public static string? AccentColor
@@ -157,8 +245,21 @@ public static class SkinService
 
             var folder = Sanitize(manifest.Id, manifest.Name, Path.GetFileNameWithoutExtension(zipPath));
             var dest = Path.Combine(SkinsRoot, folder);
-            if (Directory.Exists(dest)) Directory.Delete(dest, recursive: true);
+            string? backup = null;
+            if (Directory.Exists(dest))
+            {
+                // 重新安装同一皮肤时保留用户的 settings.json 与 custom 底图
+                backup = Path.Combine(SkinsRoot, ".bak-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(backup);
+                PreserveUserData(dest, backup);
+                Directory.Delete(dest, recursive: true);
+            }
             Directory.Move(temp, dest);
+            if (backup != null)
+            {
+                RestoreUserData(backup, dest);
+                try { Directory.Delete(backup, recursive: true); } catch { }
+            }
 
             if (!Activate(folder)) return (false, "美化包内容读取失败，请检查 skin.json。");
 
@@ -187,11 +288,42 @@ public static class SkinService
         }
     }
 
+    private static void PreserveUserData(string source, string backup)
+    {
+        var settings = Path.Combine(source, "settings.json");
+        if (File.Exists(settings)) File.Copy(settings, Path.Combine(backup, "settings.json"), true);
+
+        var custom = Path.Combine(source, "custom");
+        if (Directory.Exists(custom)) CopyDirectory(custom, Path.Combine(backup, "custom"));
+    }
+
+    private static void RestoreUserData(string backup, string dest)
+    {
+        var settings = Path.Combine(backup, "settings.json");
+        if (File.Exists(settings)) File.Copy(settings, Path.Combine(dest, "settings.json"), true);
+
+        var custom = Path.Combine(backup, "custom");
+        if (Directory.Exists(custom)) CopyDirectory(custom, Path.Combine(dest, "custom"));
+    }
+
+    private static void CopyDirectory(string source, string dest)
+    {
+        Directory.CreateDirectory(dest);
+        foreach (var file in Directory.GetFiles(source))
+            File.Copy(file, Path.Combine(dest, Path.GetFileName(file)), true);
+        foreach (var dir in Directory.GetDirectories(source))
+            CopyDirectory(dir, Path.Combine(dest, Path.GetFileName(dir)));
+    }
+
     /// <summary>启用已安装的美化包目录。</summary>
     public static bool Activate(string folder)
     {
         try
         {
+            SkinComponentService.Unload();
+            SkinScriptHost.Clear();
+            ClearSurfaceImages();
+
             var dir = Path.Combine(SkinsRoot, folder);
             var manifestPath = Path.Combine(dir, "skin.json");
             if (!File.Exists(manifestPath))
@@ -211,10 +343,24 @@ public static class SkinService
 
             Current = manifest;
             CurrentFolder = folder;
-            WindowBackdropBrush = BuildBrush(dir, manifest!.WindowBackgroundImage, manifest.WindowBackgroundColor, 0.85);
+            _skinDir = dir;
+            _ambientBackSignature = string.Empty;
+            _ambientFrontSignature = string.Empty;
+            _ornamentSignature = string.Empty;
+            Effects = manifest!.Effects ?? CreateDisabledEffects();
+            OrnamentEnabled = true;
+            PrepareThemes(manifest);
             DialogBackgroundBrush = BuildBrush(dir, manifest.DialogBackgroundImage, manifest.DialogBackgroundColor, 0.55);
             LoadStyleSheet(dir, manifest);
+            _baseVariables = new Dictionary<string, string>(
+                StyleSheet?.Variables ?? NoVariables, StringComparer.OrdinalIgnoreCase);
+            _variableOverrides.Clear();
+            ApplyThemeVariables(CurrentTheme);
+            RebuildBackdropBrush();
             SkinStyleApplier.Load(StyleSheet, dir);
+            ApplyStoredSettings();
+            var main = FindMainWindow();
+            if (main != null) ApplyToWindow(main);
             LogService.Append($"美化包「{manifest.Name}」已启用，主色：{AccentColor ?? "(未覆盖，沿用自定义主题色)"}"
                               + (StyleSheetPath.Length > 0 ? $"，样式表：{StyleSheetPath}" : string.Empty));
             return true;
@@ -230,6 +376,7 @@ public static class SkinService
     /// <summary>卸载美化包并清空配置。</summary>
     public static void Deactivate()
     {
+        SkinComponentService.Unload();
         SkinStyleApplier.Unload();
         try
         {
@@ -243,17 +390,485 @@ public static class SkinService
         }
 
         ClearCurrent();
+        RefreshEffects();
+    }
+
+    /// <summary>切换当前主题：重算变量、调色板与样式，并刷新背景纹理 / 环境层 / 边饰。</summary>
+    public static bool ApplyTheme(string id)
+    {
+        if (Current == null) return false;
+
+        var text = (id ?? string.Empty).Trim();
+        SkinTheme? theme = null;
+        foreach (var item in _themes)
+        {
+            if (!item.Id.Equals(text, StringComparison.OrdinalIgnoreCase)) continue;
+            theme = item;
+            break;
+        }
+        if (theme == null) return false;
+
+        CurrentThemeId = theme.Id;
+        ApplyThemeVariables(theme);
+        RebuildBackdropBrush();
+        ThemeService.Reapply();
+        SkinStyleApplier.Load(StyleSheet, _skinDir);
+
+        var window = FindMainWindow();
+        if (window != null) ApplyToWindow(window);
+        return true;
+    }
+
+    /// <summary>按当前 <see cref="Effects"/> 重建主窗口的环境层与边饰。</summary>
+    public static void RefreshEffects()
+    {
+        var window = FindMainWindow();
+        if (window == null) return;
+        UpdateSkinLayers(window);
+    }
+
+    /// <summary>把 <c>--xxx</c> 变量写入当前样式表变量并重新应用；key 不以 -- 开头时自动补。</summary>
+    public static void SetVariableOverride(string key, string value)
+    {
+        if (Current == null) return;
+
+        var name = (key ?? string.Empty).Trim();
+        if (name.Length == 0) return;
+        if (!name.StartsWith("--", StringComparison.Ordinal)) name = "--" + name.TrimStart('-');
+        if (name.Length <= 2) return;
+
+        var created = false;
+        if (StyleSheet == null)
+        {
+            StyleSheet = new SkinStyleSheet();
+            created = true;
+        }
+
+        _variableOverrides[name] = value ?? string.Empty;
+        ApplyThemeVariables(CurrentTheme);
+        if (created) SkinStyleApplier.Load(StyleSheet, _skinDir);
+        else SkinStyleApplier.Reapply();
+    }
+
+    /// <summary>
+    /// 供轻量脚本 / 交互组件写入设置项：应用后写入该皮肤的 settings.json，并刷新数据绑定。
+    /// 未知键按 <c>theme</c> / <c>motion</c> / <c>particle</c> / <c>ornament</c> 关键字兜底。
+    /// </summary>
+    public static bool SetSettingValue(string key, string value)
+    {
+        if (Current == null) return false;
+
+        var name = (key ?? string.Empty).Trim();
+        if (name.Length == 0) return false;
+
+        // theme 可能同时被 settings[] 声明为 select，先按主题处理，避免被当作普通设置项吞掉
+        if (name.Equals("theme", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!ApplyTheme(value)) return false;
+            var themeState = SkinSettingsStore.Load(_skinDir);
+            themeState.SetValue("theme", value);
+            SkinSettingsStore.Save(_skinDir, themeState);
+            NotifyBindingsChanged();
+            return true;
+        }
+
+        var definition = SettingsDefinitions().FirstOrDefault(item => IsSettingKey(item.Key, name));
+        if (definition != null) ApplySettingValue(definition, value);
+        else if (name.Contains("motion", StringComparison.OrdinalIgnoreCase)) MotionEnabled = ParseToggle(value, true);
+        else if (name.Contains("particle", StringComparison.OrdinalIgnoreCase))
+        {
+            var number = int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+                ? parsed
+                : 0;
+            var ambient = Effects.Ambient;
+            if (ambient == null)
+            {
+                ambient = new SkinAmbientOptions();
+                Effects.Ambient = ambient;
+            }
+            ambient.Particles = Math.Clamp(number, 0, SkinRules.MaxParticles);
+            RefreshEffects();
+        }
+        else if (name.Contains("ornament", StringComparison.OrdinalIgnoreCase))
+        {
+            OrnamentEnabled = ParseToggle(value, true);
+            RefreshEffects();
+        }
+        else if (name.StartsWith("--", StringComparison.Ordinal)) SetVariableOverride(name, value);
+        else return false;
+
+        var state = SkinSettingsStore.Load(_skinDir);
+        state.SetValue(name, value);
+        SkinSettingsStore.Save(_skinDir, state);
+        NotifyBindingsChanged();
+        return true;
+    }
+
+    /// <summary>通知所有数据绑定重新求值（变量、设置项或主题变化后调用）。</summary>
+    public static void NotifyBindingsChanged() => SkinComponentService.RefreshBindings();
+
+    /// <summary>恢复主题 / 皮肤的原始变量，清除设置页写入的变量覆盖。</summary>
+    public static void ClearVariableOverrides()
+    {
+        if (Current == null) return;
+        _variableOverrides.Clear();
+        ApplyThemeVariables(CurrentTheme);
+        SkinStyleApplier.Reapply();
+    }
+
+    /// <summary>设置 / 清除某类底图（<c>window</c> / <c>button</c> / <c>card</c>），并立即应用。</summary>
+    public static void SetSurfaceImage(string kind, string? relativePath)
+    {
+        if (Current == null) return;
+
+        var name = (kind ?? string.Empty).Trim().ToLowerInvariant();
+        if (name is not ("window" or "button" or "card")) return;
+
+        var text = (relativePath ?? string.Empty).Trim().Replace('\\', '/');
+        if (text.Length > 0 && !IsSafeSurfacePath(text))
+        {
+            LogService.Append($"底图路径不安全，已忽略：{text}");
+            return;
+        }
+
+        switch (name)
+        {
+            case "window": WindowImageOverride = text; break;
+            case "button": ButtonImageOverride = text; break;
+            default: CardImageOverride = text; break;
+        }
+        ApplySurfaceImages();
+    }
+
+    /// <summary>按当前覆盖重建窗口背景、全部按钮底图与卡片底图资源。</summary>
+    public static void ApplySurfaceImages()
+    {
+        if (Current == null)
+        {
+            ClearSurfaceImages();
+            return;
+        }
+        if (_applyingSurfaces) return;
+
+        _applyingSurfaces = true;
+        try
+        {
+            _windowSurfaceBrush = BuildSurfaceBrush(WindowImageOverride, "窗口底图");
+            var main = FindMainWindow();
+            if (main != null) ApplyWindowBackdrop(main);
+
+            if (ButtonImageOverride.Length > 0)
+            {
+                _buttonSurfaceBrush = BuildSurfaceBrush(ButtonImageOverride, "按钮底图");
+                if (_buttonSurfaceBrush != null) ApplyButtonSurfaces();
+                else RestoreButtonSurfaces();
+            }
+            else
+            {
+                _buttonSurfaceBrush = null;
+                RestoreButtonSurfaces();
+            }
+
+            if (CardImageOverride.Length > 0) ApplyCardSurface();
+            else RestoreCardBrush();
+        }
+        finally
+        {
+            _applyingSurfaces = false;
+        }
+    }
+
+    /// <summary>撤掉三类底图，恢复窗口背景、按钮 Background 与 CardBrush 资源。</summary>
+    public static void ClearSurfaceImages()
+    {
+        WindowImageOverride = string.Empty;
+        ButtonImageOverride = string.Empty;
+        CardImageOverride = string.Empty;
+        _windowSurfaceBrush = null;
+        _buttonSurfaceBrush = null;
+
+        var main = FindMainWindow();
+        if (main != null) ApplyWindowBackdrop(main);
+
+        RestoreButtonSurfaces();
+        RestoreCardBrush();
+    }
+
+    /// <summary>供 Loaded 钩子调用：仅当元素是 Button 且存在按钮底图时套用，幂等。</summary>
+    public static void ApplyButtonSurface(FrameworkElement element)
+    {
+        if (_buttonSurfaceBrush == null || element is not Button button) return;
+
+        try
+        {
+            if (_buttonOriginals.TryGetValue(button, out var original))
+            {
+                if (!ReferenceEquals(button.Background, _buttonSurfaceBrush)) button.Background = _buttonSurfaceBrush;
+                return;
+            }
+
+            original = new ButtonSurfaceOriginal
+            {
+                Background = button.Background,
+                HadLocalValue = !ReferenceEquals(button.ReadLocalValue(Control.BackgroundProperty),
+                    DependencyProperty.UnsetValue),
+            };
+            _buttonOriginals.Add(button, original);
+            _buttonApplied.Add(new WeakReference<Button>(button));
+            button.Background = _buttonSurfaceBrush;
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("应用按钮底图失败", ex);
+        }
+    }
+
+    private static void ApplyButtonSurfaces()
+    {
+        var app = Application.Current;
+        if (app == null || _buttonSurfaceBrush == null) return;
+
+        foreach (Window window in app.Windows)
+        {
+            if (window.Content is not DependencyObject root) continue;
+            WalkVisual(root, ApplyButtonSurface);
+        }
+    }
+
+    private static void WalkVisual(DependencyObject node, Action<FrameworkElement> apply)
+    {
+        if (node is FrameworkElement element) apply(element);
+
+        int count;
+        try
+        {
+            count = VisualTreeHelper.GetChildrenCount(node);
+        }
+        catch
+        {
+            return;
+        }
+
+        for (var i = 0; i < count; i++)
+            WalkVisual(VisualTreeHelper.GetChild(node, i), apply);
+    }
+
+    private static void RestoreButtonSurfaces()
+    {
+        foreach (var reference in _buttonApplied)
+        {
+            if (!reference.TryGetTarget(out var button)) continue;
+            if (!_buttonOriginals.TryGetValue(button, out var original)) continue;
+
+            try
+            {
+                if (original.HadLocalValue) button.Background = original.Background;
+                else button.ClearValue(Control.BackgroundProperty);
+            }
+            catch
+            {
+                // 元素已释放时忽略
+            }
+        }
+
+        _buttonApplied.Clear();
+        _buttonOriginals = new ConditionalWeakTable<Button, ButtonSurfaceOriginal>();
+    }
+
+    private static void ApplyCardSurface()
+    {
+        var resources = Application.Current?.Resources;
+        if (resources == null) return;
+
+        var image = LoadImage(_skinDir, CardImageOverride);
+        if (image == null)
+        {
+            LogService.Append("卡片底图加载失败，已跳过：" + CardImageOverride);
+            RestoreCardBrush();
+            return;
+        }
+
+        // 0.5 × 0.5 的相对视口形成平铺纹理；TileMode 让图案铺满卡片。
+        var brush = new ImageBrush(image)
+        {
+            Stretch = Stretch.Fill,
+            TileMode = TileMode.Tile,
+            ViewportUnits = BrushMappingMode.RelativeToBoundingBox,
+            Viewport = new Rect(0, 0, 0.5, 0.5),
+        };
+        brush.Freeze();
+
+        if (!ReferenceEquals(resources["CardBrush"], _cardImageBrush))
+            _cardOriginalBrush = resources["CardBrush"] as Brush ?? _cardOriginalBrush;
+
+        _cardImageBrush = brush;
+        resources["CardBrush"] = brush;
+    }
+
+    private static void RestoreCardBrush()
+    {
+        var resources = Application.Current?.Resources;
+        if (resources != null && _cardImageBrush != null
+            && ReferenceEquals(resources["CardBrush"], _cardImageBrush) && _cardOriginalBrush != null)
+        {
+            resources["CardBrush"] = _cardOriginalBrush;
+        }
+
+        _cardImageBrush = null;
+        _cardOriginalBrush = null;
+    }
+
+    private static ImageBrush? BuildSurfaceBrush(string relative, string label)
+    {
+        var text = (relative ?? string.Empty).Trim();
+        if (text.Length == 0 || !IsSafeSurfacePath(text)) return null;
+
+        var image = LoadImage(_skinDir, text);
+        if (image == null)
+        {
+            LogService.Append($"{label}加载失败，已跳过：{text}");
+            return null;
+        }
+
+        var brush = new ImageBrush(image) { Stretch = Stretch.UniformToFill };
+        brush.Freeze();
+        return brush;
+    }
+
+    private static bool IsSafeSurfacePath(string path)
+    {
+        var text = (path ?? string.Empty).Trim();
+        if (text.Length == 0) return false;
+        if (text.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+            || text.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+            || text.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) return false;
+        if (Path.IsPathRooted(text)) return false;
+        return SkinRules.IsSafeRelativePath(text);
+    }
+
+    /// <summary>读取该皮肤 settings.json 并应用主题、动效、粒子、边饰与变量覆盖；无皮肤时安全跳过。</summary>
+    public static void ApplyStoredSettings()
+    {
+        if (Current == null) return;
+
+        var state = SkinSettingsStore.Load(_skinDir);
+
+        var themeId = (state.Theme ?? string.Empty).Trim();
+        if (themeId.Length == 0)
+        {
+            foreach (var definition in SettingsDefinitions())
+            {
+                if (!IsSettingKey(definition.Key, "theme")) continue;
+                themeId = state.ValueOf(definition).Trim();
+                break;
+            }
+        }
+        if (themeId.Length > 0) ApplyTheme(themeId);
+
+        foreach (var definition in SettingsDefinitions())
+        {
+            if (IsSettingKey(definition.Key, "theme")) continue;
+            ApplySettingValue(definition, state.ValueOf(definition));
+        }
+
+        SetSurfaceImage("window", state.WindowImage);
+        SetSurfaceImage("button", state.ButtonImage);
+        SetSurfaceImage("card", state.CardImage);
+        ApplySurfaceImages();
+
+        RefreshEffects();
+    }
+
+    private static IEnumerable<SkinSettingDefinition> SettingsDefinitions()
+    {
+        var settings = Current?.Settings;
+        if (settings == null) yield break;
+
+        var count = 0;
+        foreach (var definition in settings)
+        {
+            if (definition == null) continue;
+            if (count++ >= SkinRules.MaxSettings) break;
+            yield return definition;
+        }
+    }
+
+    private static bool IsSettingKey(string? key, string expected) =>
+        (key ?? string.Empty).Trim().Equals(expected, StringComparison.OrdinalIgnoreCase);
+
+    private static void ApplySettingValue(SkinSettingDefinition definition, string value)
+    {
+        var key = (definition.Key ?? string.Empty).Trim();
+        if (key.Length == 0) return;
+
+        if (key.Contains("motion", StringComparison.OrdinalIgnoreCase))
+        {
+            MotionEnabled = ParseToggle(value, true);
+            return;
+        }
+
+        if (key.Contains("particle", StringComparison.OrdinalIgnoreCase))
+        {
+            var text = (value ?? string.Empty).Trim();
+            var number = int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+                ? parsed
+                : (int)Math.Round(definition.GetDefaultDouble(0));
+            var ambient = Effects.Ambient;
+            if (ambient == null)
+            {
+                ambient = new SkinAmbientOptions();
+                Effects.Ambient = ambient;
+            }
+            ambient.Particles = Math.Clamp(number, 0, SkinRules.MaxParticles);
+            RefreshEffects();
+            return;
+        }
+
+        if (key.Contains("ornament", StringComparison.OrdinalIgnoreCase))
+        {
+            OrnamentEnabled = ParseToggle(value, true);
+            RefreshEffects();
+            return;
+        }
+
+        var target = (definition.Target ?? string.Empty).Trim();
+        if (target.StartsWith("--", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(value))
+            SetVariableOverride(target, value);
+    }
+
+    private static bool ParseToggle(string? value, bool fallback)
+    {
+        var text = (value ?? string.Empty).Trim();
+        if (text.Length == 0) return fallback;
+        if (bool.TryParse(text, out var parsed)) return parsed;
+        return text.ToLowerInvariant() switch
+        {
+            "1" or "on" or "yes" => true,
+            "0" or "off" or "no" => false,
+            _ => fallback,
+        };
     }
 
     /// <summary>把当前美化包的背景与 CSS 样式应用到主窗口；没有配置时隐藏背景层。</summary>
     public static void ApplyToWindow(Window window)
     {
-        if (window.FindName("SkinBackdrop") is System.Windows.Controls.Border backdrop)
-        {
-            backdrop.Background = WindowBackdropBrush;
-            backdrop.Visibility = WindowBackdropBrush == null ? Visibility.Collapsed : Visibility.Visible;
-        }
+        ApplyWindowBackdrop(window);
         SkinStyleApplier.ApplyToWindow(window);
+        UpdateSkinLayers(window);
+        SkinComponentService.Apply(window);
+        ApplySurfaceImages();
+    }
+
+    /// <summary>窗口背景：底图覆盖优先，其次主题 / 美化包背景画刷。</summary>
+    private static void ApplyWindowBackdrop(Window window)
+    {
+        if (window.FindName("SkinBackdrop") is not Border backdrop) return;
+
+        var brush = _windowSurfaceBrush ?? WindowBackdropBrush;
+        backdrop.Background = brush;
+        backdrop.Visibility = brush == null ? Visibility.Collapsed : Visibility.Visible;
+        // 背景图在环境层之下、内容之上：环境层 ZIndex = -1
+        Panel.SetZIndex(backdrop, -2);
     }
 
     /// <summary>弹窗背景：有美化包弹窗背景时覆盖，否则沿用主题的 BgBrush。</summary>
@@ -265,13 +880,302 @@ public static class SkinService
 
     private static void ClearCurrent()
     {
+        SkinComponentService.Unload();
+        SkinScriptHost.Clear();
+
         Current = null;
         CurrentFolder = string.Empty;
         StyleSheet = null;
         StyleSheetPath = string.Empty;
         WindowBackdropBrush = null;
         DialogBackgroundBrush = null;
+        ClearSurfaceImages();
+        _themes = new List<SkinTheme>();
+        CurrentThemeId = string.Empty;
+        Effects = CreateDisabledEffects();
+        OrnamentEnabled = true;
+        _baseVariables = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        _variableOverrides.Clear();
+        _skinDir = string.Empty;
+        _ambientBackSignature = string.Empty;
+        _ambientFrontSignature = string.Empty;
+        _ornamentSignature = string.Empty;
     }
+
+    /// <summary>过滤主题列表并解析默认主题（defaultTheme → 第一个）。</summary>
+    private static void PrepareThemes(SkinManifest manifest)
+    {
+        _themes = new List<SkinTheme>();
+        foreach (var theme in manifest.Themes ?? new List<SkinTheme>())
+        {
+            if (theme == null) continue;
+            var id = (theme.Id ?? string.Empty).Trim();
+            if (id.Length == 0) continue;
+            if (_themes.Any(item => item.Id.Equals(id, StringComparison.OrdinalIgnoreCase))) continue;
+            if (_themes.Count >= SkinRules.MaxThemes) break;
+            theme.Id = id;
+            _themes.Add(theme);
+        }
+
+        CurrentThemeId = string.Empty;
+        if (_themes.Count == 0) return;
+
+        var wanted = (manifest.DefaultTheme ?? string.Empty).Trim();
+        SkinTheme? selected = null;
+        if (wanted.Length > 0 && !wanted.Equals("auto", StringComparison.OrdinalIgnoreCase))
+            selected = _themes.FirstOrDefault(item => item.Id.Equals(wanted, StringComparison.OrdinalIgnoreCase));
+        selected ??= _themes[0];
+        CurrentThemeId = selected.Id;
+    }
+
+    /// <summary>把主题变量叠加到样式表变量（在包原始变量之上），最后写入设置页的变量覆盖。</summary>
+    private static void ApplyThemeVariables(SkinTheme? theme)
+    {
+        if (StyleSheet == null)
+        {
+            if (theme?.Variables is not { Count: > 0 } && _variableOverrides.Count == 0) return;
+            StyleSheet = new SkinStyleSheet();
+        }
+
+        var variables = StyleSheet.Variables;
+        variables.Clear();
+        foreach (var pair in _baseVariables) variables[pair.Key] = pair.Value;
+        if (theme?.Variables != null)
+        {
+            foreach (var pair in theme.Variables)
+            {
+                if (string.IsNullOrWhiteSpace(pair.Key)) continue;
+                variables[pair.Key.Trim()] = pair.Value;
+            }
+        }
+        foreach (var pair in _variableOverrides) variables[pair.Key] = pair.Value;
+    }
+
+    /// <summary>主窗口背景：显式背景图优先，其次主题 texture，否则只剩底色。</summary>
+    private static void RebuildBackdropBrush()
+    {
+        if (Current == null)
+        {
+            WindowBackdropBrush = null;
+            return;
+        }
+
+        var image = (Current.WindowBackgroundImage ?? string.Empty).Trim();
+        if (image.Length == 0)
+        {
+            var texture = (CurrentTheme?.Texture ?? string.Empty).Trim();
+            if (texture.Length > 0)
+            {
+                if (SkinRules.IsSafeRelativePath(texture)) image = texture;
+                else LogService.Append("主题背景纹理路径不安全，已忽略：" + texture);
+            }
+        }
+
+        WindowBackdropBrush = BuildBrush(_skinDir, image, Current.WindowBackgroundColor, 0.85);
+    }
+
+    /// <summary>在主窗口根 Grid 中插入 / 更新 / 移除环境层与主题边饰。</summary>
+    private static void UpdateSkinLayers(Window window)
+    {
+        if (!IsMainWindow(window)) return;
+        if (window.Content is not Grid root)
+        {
+            LogService.Append("主窗口根容器不是 Grid，已跳过美化包环境层与边饰。");
+            return;
+        }
+
+        UpdateAmbientLayer(root);
+        UpdateOrnamentLayer(root);
+    }
+
+    private static void UpdateAmbientLayer(Grid root)
+    {
+        var back = root.Children.OfType<SkinAmbientLayer>()
+            .FirstOrDefault(layer => string.Equals(layer.Tag as string, AmbientBackTag, StringComparison.Ordinal));
+        var front = root.Children.OfType<SkinAmbientLayer>()
+            .FirstOrDefault(layer => string.Equals(layer.Tag as string, AmbientFrontTag, StringComparison.Ordinal));
+        var options = Effects?.Ambient;
+        var wanted = Current != null && options != null
+            && (options.Sky || options.Veil || options.Particles > 0);
+
+        if (!wanted)
+        {
+            if (back != null)
+            {
+                back.Stop();
+                root.Children.Remove(back);
+            }
+            if (front != null)
+            {
+                front.Stop();
+                root.Children.Remove(front);
+            }
+            _ambientBackSignature = string.Empty;
+            _ambientFrontSignature = string.Empty;
+            return;
+        }
+
+        var motion = UiAnimations.Active;
+        var signature = $"{CurrentFolder}|{CurrentThemeId}|{options!.Particles}|{options.Veil}|{options.Sky}|"
+                        + $"{options.Opacity:0.###}|{motion}";
+
+        if (back == null)
+        {
+            back = new SkinAmbientLayer { Tag = AmbientBackTag, BackgroundOnly = true };
+            root.Children.Insert(0, back);
+            AttachLayerToRoot(root, back);
+            Panel.SetZIndex(back, -1);
+            _ambientBackSignature = string.Empty;
+        }
+
+        if (front == null)
+        {
+            // 粒子单独放在内容上层，避免被不透明的面板完全遮住
+            front = new SkinAmbientLayer { Tag = AmbientFrontTag, ParticlesOnly = true };
+            root.Children.Add(front);
+            AttachLayerToRoot(root, front);
+            Panel.SetZIndex(front, 900);
+            _ambientFrontSignature = string.Empty;
+        }
+
+        var backSignature = signature + "|bg";
+        if (!backSignature.Equals(_ambientBackSignature, StringComparison.Ordinal))
+        {
+            back.Rebuild(options, CurrentTheme, motion);
+            _ambientBackSignature = backSignature;
+        }
+
+        var frontSignature = signature + "|front";
+        if (!frontSignature.Equals(_ambientFrontSignature, StringComparison.Ordinal))
+        {
+            front.Rebuild(options, CurrentTheme, motion);
+            _ambientFrontSignature = frontSignature;
+        }
+
+        LogService.Append($"环境层：粒子={options.Particles}，天空={options.Sky}，光带={options.Veil}，"
+                          + $"动效={motion}，前层子元素={front.Children.Count}，前层可见={front.Visibility}，"
+                          + $"前层Z={Panel.GetZIndex(front)}");
+    }
+
+    /// <summary>诊断用：采样前层第一个粒子的位置与透明度。</summary>
+    public static (double X, double Opacity) SampleAmbientParticle(Window window)
+    {
+        if (window.Content is Grid root)
+        {
+            foreach (var child in root.Children)
+            {
+                if (child is SkinAmbientLayer layer && layer.ParticlesOnly)
+                    return (layer.SampleParticleX, layer.SampleParticleOpacity);
+            }
+        }
+        return (0, 0);
+    }
+
+    private static void AttachLayerToRoot(Grid root, FrameworkElement layer)
+    {
+        Grid.SetColumnSpan(layer, Math.Max(1, root.ColumnDefinitions.Count));
+        Grid.SetRowSpan(layer, Math.Max(1, root.RowDefinitions.Count));
+    }
+
+    /// <summary>诊断用：输出当前皮肤环境层状态到 launcher.log。</summary>
+    public static void DumpAmbientDiagnostics(Window window)
+    {
+        var ambient = Effects?.Ambient;
+        LogService.Append($"DIAG 皮肤={Current?.Name ?? "(none)"}，主题={CurrentThemeId}，"
+                          + $"粒子={ambient?.Particles}，天空={ambient?.Sky}，光带={ambient?.Veil}，"
+                          + $"动效={MotionEnabled}，UiAnimations={UiAnimations.Active}");
+        if (window.Content is not Grid root)
+        {
+            LogService.Append("DIAG 主窗口根容器不是 Grid");
+            return;
+        }
+
+        var count = 0;
+        foreach (var child in root.Children)
+        {
+            if (child is not SkinAmbientLayer layer) continue;
+            count++;
+            LogService.Append($"DIAG 环境层 tag={layer.Tag}，可见={layer.Visibility}，Z={Panel.GetZIndex(layer)}，"
+                              + $"子元素={layer.Children.Count}，粒子={layer.ParticleCount}，"
+                              + $"尺寸={layer.ActualWidth:0}x{layer.ActualHeight:0}，透明度={layer.Opacity:0.##}");
+        }
+        LogService.Append($"DIAG 环境层数量={count}，根子元素={root.Children.Count}");
+    }
+
+    private static void UpdateOrnamentLayer(Grid root)
+    {
+        var ornament = root.Children.OfType<SkinOrnamentBorder>().FirstOrDefault();
+        var theme = CurrentTheme;
+        var relative = (theme?.Ornament ?? string.Empty).Trim();
+        var wanted = Current != null && OrnamentEnabled && theme != null && relative.Length > 0;
+
+        if (!wanted)
+        {
+            if (ornament != null)
+            {
+                ornament.Clear();
+                root.Children.Remove(ornament);
+            }
+            _ornamentSignature = string.Empty;
+            return;
+        }
+
+        if (!SkinRules.IsSafeRelativePath(relative))
+        {
+            LogService.Append("主题边饰路径不安全，已忽略：" + relative);
+            if (ornament != null)
+            {
+                ornament.Clear();
+                root.Children.Remove(ornament);
+            }
+            _ornamentSignature = string.Empty;
+            return;
+        }
+
+        ornament ??= InsertLayer(root, new SkinOrnamentBorder());
+        var slice = theme!.Slice > 0 ? theme.Slice : 24;
+        var signature = $"{theme.Id}|{relative}|{slice}";
+        if (signature.Equals(_ornamentSignature, StringComparison.Ordinal)) return;
+
+        var file = Path.Combine(_skinDir, relative.Replace('/', Path.DirectorySeparatorChar));
+        if (!ornament.Apply(file, slice))
+        {
+            LogService.Append("主题边饰加载失败，已跳过：" + relative);
+            ornament.Clear();
+            root.Children.Remove(ornament);
+            _ornamentSignature = string.Empty;
+            return;
+        }
+        _ornamentSignature = signature;
+    }
+
+    private static T InsertLayer<T>(Grid root, T layer) where T : FrameworkElement
+    {
+        if (layer is SkinAmbientLayer) root.Children.Insert(0, layer);
+        else root.Children.Add(layer);
+
+        Grid.SetColumnSpan(layer, Math.Max(1, root.ColumnDefinitions.Count));
+        Grid.SetRowSpan(layer, Math.Max(1, root.RowDefinitions.Count));
+        return layer;
+    }
+
+    private static bool IsMainWindow(Window window)
+        => window is MainWindow || ReferenceEquals(window, Application.Current?.MainWindow);
+
+    private static Window? FindMainWindow()
+    {
+        var app = Application.Current;
+        if (app == null) return null;
+        if (app.MainWindow is MainWindow main) return main;
+        foreach (Window window in app.Windows)
+            if (window is MainWindow) return window;
+        return app.MainWindow;
+    }
+
+    private static SkinEffectOptions CreateDisabledEffects() => new()
+    {
+        Ambient = new SkinAmbientOptions { Particles = 0, Veil = false, Sky = false },
+    };
 
     /// <summary>读取包内样式表与清单变量；没有任何样式内容时返回 null。</summary>
     private static void LoadStyleSheet(string dir, SkinManifest manifest)
@@ -407,6 +1311,9 @@ public static class SkinService
         {
             var file = Path.Combine(dir, text.Replace('/', Path.DirectorySeparatorChar));
             if (!File.Exists(file)) return null;
+            if (SkinSvgRenderer.IsSvg(file))
+                return SkinSvgRenderer.TryLoadImageSource(file, 512, out var svg) ? svg : null;
+
             var image = new BitmapImage();
             image.BeginInit();
             image.UriSource = new Uri(file);

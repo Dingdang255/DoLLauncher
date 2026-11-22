@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Globalization;
 using System.Reflection;
 using DoLLauncher.Core.Skin;
@@ -24,7 +25,119 @@ public static class MauiSkinStyler
     private sealed class ElementState
     {
         public List<ChangeMark> Changes { get; } = new();
+
+        /// <summary>命中的基础规则（不含状态伪类）。</summary>
+        public List<SkinStyleRule> BaseRules { get; } = new();
+
+        /// <summary>命中但带状态伪类的规则，只在状态成立时生效。</summary>
+        public List<SkinStyleRule> StateRules { get; } = new();
+
+        /// <summary>当前激活的状态集合（disabled / checked / pressed / selected）。</summary>
+        public HashSet<string> ActiveStates { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public bool StatesApplied { get; set; }
+
+        /// <summary>状态规则会触及的属性的基础快照。</summary>
+        public Dictionary<(BindableObject Target, BindableProperty Property), Baseline> Baselines { get; } = new();
+
+        public bool BaselinesCaptured { get; set; }
+
+        /// <summary>基础层的动画与 transform，状态退出时据此重播。</summary>
+        public SkinAnimationSpec? BaseAnimation { get; set; }
+
+        public bool HasBaseAnimation { get; set; }
+
+        public SkinTransformSpec? BaseTransform { get; set; }
+
+        public bool HasBaseTransform { get; set; }
+
+        /// <summary>上一次重算是否实际播放了状态动画。</summary>
+        public bool StateAnimationApplied { get; set; }
+
+        public bool Hooked { get; set; }
+
+        public EventHandler? PressedHandler { get; set; }
+        public EventHandler? ReleasedHandler { get; set; }
+        public EventHandler<ToggledEventArgs>? ToggledHandler { get; set; }
+        public EventHandler<CheckedChangedEventArgs>? CheckedHandler { get; set; }
+        public PropertyChangedEventHandler? PropertyHandler { get; set; }
     }
+
+    /// <summary>某个属性在状态应用前的值。</summary>
+    private readonly record struct Baseline(object? Value, bool WasSet);
+
+    /// <summary>收集 transition 声明，按属性名查询（后声明覆盖先声明）。</summary>
+    private sealed class TransitionMap
+    {
+        private readonly List<SkinTransitionSpec> _specs = new();
+
+        public bool IsEmpty => _specs.Count == 0;
+
+        public void Add(SkinTransitionSpec spec)
+        {
+            if (spec.DurationMs > 0) _specs.Add(spec);
+        }
+
+        public SkinTransitionSpec? For(string property)
+        {
+            SkinTransitionSpec? found = null;
+            foreach (var spec in _specs)
+            {
+                foreach (var name in spec.Properties)
+                {
+                    if (!name.Equals("all", StringComparison.OrdinalIgnoreCase)
+                        && !name.Equals(property, StringComparison.OrdinalIgnoreCase)) continue;
+                    found = spec;
+                    break;
+                }
+            }
+            return found;
+        }
+    }
+
+    /// <summary>按声明顺序累积 animation 简写与各长写属性。</summary>
+    private sealed class AnimationBuilder
+    {
+        public string Name = string.Empty;
+        public double DurationMs;
+        public double DelayMs;
+        public string Timing = "ease";
+        public double Iteration = 1;
+        public string Direction = "normal";
+        public string Fill = "none";
+
+        public bool HasValue => Name.Length > 0;
+
+        public void Apply(SkinAnimationSpec spec)
+        {
+            Name = spec.Name;
+            DurationMs = spec.DurationMs;
+            DelayMs = spec.DelayMs;
+            Timing = spec.TimingFunction;
+            Iteration = spec.IterationCount;
+            Direction = spec.Direction;
+            Fill = spec.FillMode;
+        }
+
+        public SkinAnimationSpec ToSpec() => new()
+        {
+            Name = Name,
+            DurationMs = DurationMs,
+            DelayMs = DelayMs,
+            TimingFunction = Timing,
+            IterationCount = Iteration,
+            Direction = Direction,
+            FillMode = Fill,
+        };
+    }
+
+    /// <summary>当前处于按下状态的按钮（供 :pressed 状态规则使用）。</summary>
+    private static readonly HashSet<VisualElement> PressedElements =
+        new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>当前处于选中状态的元素（供 :selected 状态规则使用）。</summary>
+    private static readonly HashSet<VisualElement> SelectedElements =
+        new(ReferenceEqualityComparer.Instance);
 
     private static readonly Dictionary<VisualElement, ElementState> Applied =
         new(ReferenceEqualityComparer.Instance);
@@ -132,26 +245,69 @@ public static class MauiSkinStyler
         var sheet = _sheet;
         if (sheet == null) return;
 
+        var baseRules = new List<SkinStyleRule>();
+        var stateRules = new List<SkinStyleRule>();
+
         foreach (var rule in sheet.Rules)
         {
             if (rule.Source.Length > 200) continue;
             if (rule.RequiresDark.HasValue && rule.RequiresDark.Value != _dark) continue;
 
-            var matched = false;
+            var hasBase = false;
+            var hasState = false;
             foreach (var selector in rule.Selectors)
             {
                 if (!MauiSkinSelector.Matches(selector, element)) continue;
-                matched = true;
-                break;
+                if (selector.HasStates) hasState = true;
+                else hasBase = true;
             }
-            if (!matched) continue;
 
-            foreach (var declaration in rule.Declarations)
-                ApplyDeclaration(element, declaration);
+            if (hasBase) baseRules.Add(rule);
+            if (hasState) stateRules.Add(rule);
         }
+
+        if (baseRules.Count == 0 && stateRules.Count == 0) return;
+
+        var state = GetState(element);
+        state.BaseRules.Clear();
+        state.BaseRules.AddRange(baseRules);
+        state.StateRules.Clear();
+        state.StateRules.AddRange(stateRules);
+
+        // 基础层：先应用普通规则，同时收集 animation / transform
+        var animations = new AnimationBuilder();
+        foreach (var rule in baseRules)
+            foreach (var declaration in rule.Declarations)
+                ApplyDeclaration(element, state, declaration, null, animations, false);
+
+        state.BaseAnimation = animations.HasValue ? animations.ToSpec() : null;
+        state.HasBaseAnimation = animations.HasValue;
+
+        if (stateRules.Count > 0)
+        {
+            EnsureStateHooks(element, state);
+            CaptureStateBaselines(element, state);
+            state.StatesApplied = false;
+            RecomputeStates(element);
+            return;
+        }
+
+        if (state.Hooked) UnhookState(element, state);
+        ClearStateBaselines(element, state);
+
+        if (state.HasBaseAnimation && state.BaseAnimation != null)
+            MauiSkinAnimationRunner.Attach(element, sheet, state.BaseAnimation);
+        else
+            MauiSkinAnimationRunner.StopKeyframes(element);
+
+        if (state.HasBaseTransform && state.BaseTransform != null)
+            MauiSkinAnimationRunner.SetTransform(element, state.BaseTransform, null);
+        else
+            MauiSkinAnimationRunner.ResetTransform(element);
     }
 
-    private static void ApplyDeclaration(VisualElement element, SkinDeclaration declaration)
+    private static void ApplyDeclaration(VisualElement element, ElementState state,
+        SkinDeclaration declaration, TransitionMap? transitions, AnimationBuilder? animations, bool stateLayer)
     {
         var property = declaration.Property.Trim().ToLowerInvariant();
         var value = declaration.Value.Trim();
@@ -160,7 +316,17 @@ public static class MauiSkinStyler
         {
             case "color":
             case "foreground":
-                if (TryParseColor(ResolveValue(value), out var textColor)) ApplyTextColor(element, textColor);
+                if (TryParseColor(ResolveValue(value), out var textColor))
+                {
+                    var colorSpec = transitions?.For("color") ?? transitions?.For("foreground");
+                    var colorProperty = TextColorProperty(element);
+                    if (colorProperty != null) Record(element, colorProperty);
+
+                    if (colorSpec == null || !MauiSkinAnimationRunner.AnimateColor(element,
+                            color => ApplyTextColor(element, color),
+                            CurrentTextColor(element), textColor, colorSpec))
+                        ApplyTextColor(element, textColor);
+                }
                 break;
 
             case "background":
@@ -168,7 +334,15 @@ public static class MauiSkinStyler
             case "bg":
                 if (TryReadUrl(value, out var backgroundPath)) ApplyBackgroundImage(element, backgroundPath);
                 else if (TryParseColor(ResolveValue(value), out var background))
-                    Set(element, VisualElement.BackgroundColorProperty, background);
+                {
+                    var backgroundSpec = transitions?.For("background") ?? transitions?.For("background-color");
+                    Record(element, VisualElement.BackgroundColorProperty);
+
+                    if (backgroundSpec == null || !MauiSkinAnimationRunner.AnimateColor(element,
+                            color => element.BackgroundColor = color,
+                            element.BackgroundColor ?? Colors.Transparent, background, backgroundSpec))
+                        Set(element, VisualElement.BackgroundColorProperty, background);
+                }
                 break;
 
             case "background-image":
@@ -192,7 +366,14 @@ public static class MauiSkinStyler
             case "border-radius":
             case "corner-radius":
             case "radius":
-                if (TryParseRadius(ResolveValue(value), out var radius)) ApplyCornerRadius(element, radius);
+                if (TryParseRadius(ResolveValue(value), out var radius))
+                {
+                    var radiusSpec = transitions?.For("border-radius") ?? transitions?.For("corner-radius");
+                    if (radiusSpec == null || !MauiSkinAnimationRunner.AnimateDouble(element,
+                            current => ApplyCornerRadius(element, current),
+                            CurrentRadius(element), radius, radiusSpec))
+                        ApplyCornerRadius(element, radius);
+                }
                 break;
 
             case "font-size":
@@ -224,7 +405,85 @@ public static class MauiSkinStyler
 
             case "opacity":
                 if (TryParseLength(ResolveValue(value), out var opacity))
-                    SetProperty(element, "Opacity", Math.Clamp(opacity, 0, 1));
+                {
+                    var opacityTarget = Math.Clamp(opacity, 0, 1);
+                    Record(element, VisualElement.OpacityProperty);
+                    var opacitySpec = transitions?.For("opacity");
+                    if (opacitySpec == null || !MauiSkinAnimationRunner.AnimateDouble(element,
+                            current => element.Opacity = current, element.Opacity, opacityTarget, opacitySpec))
+                        Set(element, VisualElement.OpacityProperty, opacityTarget);
+                }
+                break;
+
+            case "transform":
+                if (!SkinTransformSpec.TryParse(ResolveValue(value), out var transform)) break;
+                if (stateLayer)
+                {
+                    MauiSkinAnimationRunner.SetTransform(element, transform, transitions?.For("transform"));
+                    break;
+                }
+
+                state.HasBaseTransform = transform.Operations.Count > 0;
+                state.BaseTransform = state.HasBaseTransform ? transform : null;
+                if (state.HasBaseTransform)
+                    MauiSkinAnimationRunner.SetTransform(element, transform, null);
+                else
+                    MauiSkinAnimationRunner.ResetTransform(element);
+                break;
+
+            case "transition":
+                if (SkinTransitionSpec.TryParse(value, out var transition)) transitions?.Add(transition);
+                break;
+
+            case "transition-property":
+            case "transition-duration":
+            case "transition-delay":
+            case "transition-timing-function":
+                // 过渡声明在状态重算时统一收集，这里不需要直接应用
+                break;
+
+            case "animation":
+                if (SkinAnimationSpec.TryParse(value, out var animationSpec)) animations?.Apply(animationSpec);
+                break;
+
+            case "animation-name":
+                if (animations != null) animations.Name = value;
+                break;
+
+            case "animation-duration":
+                if (animations != null && TryParseTimeMs(value, out var animationDuration))
+                    animations.DurationMs = animationDuration;
+                break;
+
+            case "animation-delay":
+                if (animations != null && TryParseTimeMs(value, out var animationDelay))
+                    animations.DelayMs = animationDelay;
+                break;
+
+            case "animation-iteration-count":
+                if (animations != null)
+                {
+                    if (value.Equals("infinite", StringComparison.OrdinalIgnoreCase))
+                        animations.Iteration = double.PositiveInfinity;
+                    else if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture,
+                                 out var iteration) && iteration >= 0)
+                        animations.Iteration = iteration;
+                }
+                break;
+
+            case "animation-direction":
+                if (animations != null) animations.Direction = value.ToLowerInvariant();
+                break;
+
+            case "animation-fill-mode":
+                if (animations != null) animations.Fill = value.ToLowerInvariant();
+                break;
+
+            case "animation-timing-function":
+                if (animations != null) animations.Timing = value;
+                break;
+
+            case "animation-play-state":
                 break;
 
             case "width":
@@ -284,6 +543,376 @@ public static class MauiSkinStyler
                 Warn($"暂不支持样式属性：{property}");
                 break;
         }
+    }
+
+    // ---------- 状态伪类：hover / pressed / checked / selected / disabled ----------
+
+    /// <summary>按当前状态重算：还原基础快照 → 重应用基础层 → 应用激活的状态规则。</summary>
+    private static void RecomputeStates(VisualElement element)
+    {
+        var state = GetState(element);
+        if (state.StateRules.Count == 0) return;
+
+        var active = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!element.IsEnabled) active.Add("disabled");
+        if (element is Switch { IsToggled: true }) active.Add("checked");
+        if (element is CheckBox { IsChecked: true }) active.Add("checked");
+        if (PressedElements.Contains(element)) active.Add("pressed");
+        if (SelectedElements.Contains(element)) active.Add("selected");
+
+        if (state.StatesApplied && state.ActiveStates.SetEquals(active)) return;
+
+        state.StatesApplied = true;
+        state.ActiveStates.Clear();
+        foreach (var name in active) state.ActiveStates.Add(name);
+
+        var sheet = _sheet;
+        if (sheet == null) return;
+
+        // 只有本次状态涉及动画、或上次确实播放过状态动画时才动关键帧
+        var animationPath = state.StateAnimationApplied || ActiveStatesDeclareAnimation(state);
+
+        MauiSkinAnimationRunner.StopTransitions(element);
+        if (animationPath)
+        {
+            MauiSkinAnimationRunner.StopKeyframes(element);
+            ResetTransformToBase(element, state, true);
+        }
+        else
+        {
+            ResetTransformToBase(element, state, false);
+        }
+
+        RestoreStateBaselines(state);
+
+        // 恢复基础层（同时刷新基础动画快照）
+        var baseAnimations = new AnimationBuilder();
+        foreach (var rule in state.BaseRules)
+            foreach (var declaration in rule.Declarations)
+                ApplyDeclaration(element, state, declaration, null, baseAnimations, false);
+
+        state.BaseAnimation = baseAnimations.HasValue ? baseAnimations.ToSpec() : null;
+        state.HasBaseAnimation = baseAnimations.HasValue;
+
+        // 应用当前激活的状态规则
+        var transitions = BuildTransitions(state);
+        var stateAnimations = new AnimationBuilder();
+        foreach (var rule in state.StateRules)
+        {
+            if (!RuleActiveForStates(rule, state.ActiveStates)) continue;
+            foreach (var declaration in rule.Declarations)
+                ApplyDeclaration(element, state, declaration, transitions, stateAnimations, true);
+        }
+
+        if (!animationPath) return;
+
+        var spec = stateAnimations.HasValue ? stateAnimations.ToSpec() : null;
+        state.StateAnimationApplied = spec != null && sheet.Keyframes.ContainsKey(spec.Name);
+
+        if (state.StateAnimationApplied && spec != null)
+            MauiSkinAnimationRunner.Attach(element, sheet, spec);
+        else if (state.HasBaseAnimation && state.BaseAnimation != null)
+            MauiSkinAnimationRunner.Attach(element, sheet, state.BaseAnimation);
+    }
+
+    private static bool ActiveStatesDeclareAnimation(ElementState state)
+    {
+        foreach (var rule in state.StateRules)
+        {
+            if (!RuleActiveForStates(rule, state.ActiveStates)) continue;
+            foreach (var declaration in rule.Declarations)
+            {
+                var property = declaration.Property.Trim().ToLowerInvariant();
+                if (property is "animation" or "animation-name" or "animation-duration" or "animation-delay"
+                    or "animation-timing-function" or "animation-iteration-count"
+                    or "animation-direction" or "animation-fill-mode") return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool RuleActiveForStates(SkinStyleRule rule, HashSet<string> active)
+    {
+        foreach (var selector in rule.Selectors)
+        {
+            if (!selector.HasStates) return true;
+            if (selector.States.All(active.Contains)) return true;
+        }
+        return false;
+    }
+
+    private static TransitionMap BuildTransitions(ElementState state)
+    {
+        var map = new TransitionMap();
+
+        void Collect(List<SkinStyleRule> rules)
+        {
+            foreach (var rule in rules)
+            {
+                foreach (var declaration in rule.Declarations)
+                {
+                    var property = declaration.Property.Trim().ToLowerInvariant();
+                    if (property is not ("transition" or "transition-property" or "transition-duration"
+                        or "transition-delay" or "transition-timing-function")) continue;
+                    if (property == "transition" && SkinTransitionSpec.TryParse(declaration.Value, out var spec))
+                        map.Add(spec);
+                }
+            }
+        }
+
+        // 基础规则里声明的 transition 同样生效（常见写法：.btn { transition: background 160ms; }）
+        Collect(state.BaseRules);
+        Collect(state.StateRules);
+        return map;
+    }
+
+    private static void ResetTransformToBase(VisualElement element, ElementState state, bool resetWhenNoBase)
+    {
+        if (state.HasBaseTransform && state.BaseTransform != null)
+            MauiSkinAnimationRunner.SetTransform(element, state.BaseTransform, null);
+        else if (resetWhenNoBase || state.StateRules.Count > 0)
+            MauiSkinAnimationRunner.ResetTransform(element);
+    }
+
+    private static void EnsureStateHooks(VisualElement element, ElementState state)
+    {
+        if (state.Hooked) return;
+        state.Hooked = true;
+
+        switch (element)
+        {
+            case Button button:
+                state.PressedHandler = (_, _) =>
+                {
+                    PressedElements.Add(element);
+                    RecomputeStates(element);
+                };
+                state.ReleasedHandler = (_, _) =>
+                {
+                    PressedElements.Remove(element);
+                    RecomputeStates(element);
+                };
+                button.Pressed += state.PressedHandler;
+                button.Released += state.ReleasedHandler;
+                break;
+
+            case Switch toggle:
+                state.ToggledHandler = (_, _) => RecomputeStates(element);
+                toggle.Toggled += state.ToggledHandler;
+                break;
+
+            case CheckBox check:
+                state.CheckedHandler = (_, _) => RecomputeStates(element);
+                check.CheckedChanged += state.CheckedHandler;
+                break;
+        }
+
+        state.PropertyHandler = (_, e) =>
+        {
+            if (e.PropertyName == VisualElement.IsEnabledProperty.PropertyName) RecomputeStates(element);
+        };
+        element.PropertyChanged += state.PropertyHandler;
+    }
+
+    private static void UnhookState(VisualElement element, ElementState state)
+    {
+        if (!state.Hooked) return;
+        state.Hooked = false;
+
+        switch (element)
+        {
+            case Button button:
+                if (state.PressedHandler != null) button.Pressed -= state.PressedHandler;
+                if (state.ReleasedHandler != null) button.Released -= state.ReleasedHandler;
+                break;
+            case Switch toggle:
+                if (state.ToggledHandler != null) toggle.Toggled -= state.ToggledHandler;
+                break;
+            case CheckBox check:
+                if (state.CheckedHandler != null) check.CheckedChanged -= state.CheckedHandler;
+                break;
+        }
+
+        if (state.PropertyHandler != null) element.PropertyChanged -= state.PropertyHandler;
+
+        state.PressedHandler = null;
+        state.ReleasedHandler = null;
+        state.ToggledHandler = null;
+        state.CheckedHandler = null;
+        state.PropertyHandler = null;
+        PressedElements.Remove(element);
+    }
+
+    /// <summary>记录状态规则会触及的属性当前值（此时基础层已应用，等价于 WPF 的基础快照）。</summary>
+    private static void CaptureStateBaselines(VisualElement element, ElementState state)
+    {
+        if (state.BaselinesCaptured) return;
+        state.BaselinesCaptured = true;
+
+        foreach (var rule in state.StateRules)
+        {
+            foreach (var declaration in rule.Declarations)
+            {
+                var property = declaration.Property.Trim().ToLowerInvariant();
+                if (property is "transition" or "animation" or "animation-name" or "animation-duration"
+                    or "animation-delay" or "animation-timing-function" or "animation-iteration-count"
+                    or "animation-direction" or "animation-fill-mode" or "transition-property"
+                    or "transition-duration" or "transition-delay" or "transition-timing-function") continue;
+
+                foreach (var (target, propertyDefinition) in ResolveStateProperties(element, property))
+                {
+                    if (state.Baselines.ContainsKey((target, propertyDefinition))) continue;
+                    state.Baselines[(target, propertyDefinition)] =
+                        new Baseline(target.GetValue(propertyDefinition),
+                            target.IsSet(propertyDefinition));
+                }
+            }
+        }
+    }
+
+    private static void RestoreStateBaselines(ElementState state)
+    {
+        foreach (var pair in state.Baselines)
+        {
+            var (target, property) = pair.Key;
+            var baseline = pair.Value;
+
+            try
+            {
+                if (baseline.WasSet) target.SetValue(property, baseline.Value);
+                else target.ClearValue(property);
+            }
+            catch
+            {
+                // 少数属性只读或原值无法回写时忽略
+            }
+        }
+    }
+
+    private static void ClearStateBaselines(VisualElement element, ElementState state)
+    {
+        RestoreStateBaselines(state);
+        state.Baselines.Clear();
+        state.BaselinesCaptured = false;
+        state.ActiveStates.Clear();
+        state.StatesApplied = false;
+        state.StateAnimationApplied = false;
+        state.StateRules.Clear();
+    }
+
+    /// <summary>状态声明会触及的控件属性（用于基础快照与还原）。</summary>
+    private static List<(BindableObject Target, BindableProperty Property)> ResolveStateProperties(
+        VisualElement element, string property)
+    {
+        var result = new List<(BindableObject, BindableProperty)>();
+        void Add(string name)
+        {
+            var found = FindProperty(element.GetType(), name);
+            if (found != null) result.Add((element, found));
+        }
+
+        switch (property)
+        {
+            case "color":
+            case "foreground":
+                Add("TextColor");
+                break;
+            case "background":
+            case "background-color":
+            case "bg":
+                Add("BackgroundColor");
+                break;
+            case "border-color":
+                Add("Stroke");
+                Add("BorderColor");
+                break;
+            case "stroke":
+                Add("Stroke");
+                break;
+            case "border-width":
+            case "border":
+                Add("StrokeThickness");
+                Add("BorderWidth");
+                break;
+            case "border-radius":
+            case "corner-radius":
+            case "radius":
+                Add("StrokeShape");
+                Add("CornerRadius");
+                break;
+            case "font-size": Add("FontSize"); break;
+            case "font-family": Add("FontFamily"); break;
+            case "font-weight":
+            case "font-style": Add("FontAttributes"); break;
+            case "padding": Add("Padding"); break;
+            case "margin": Add("Margin"); break;
+            case "opacity": Add("Opacity"); break;
+            case "width": Add("WidthRequest"); break;
+            case "height": Add("HeightRequest"); break;
+            case "min-width": Add("MinimumWidthRequest"); break;
+            case "max-width": Add("MaximumWidthRequest"); break;
+            case "min-height": Add("MinimumHeightRequest"); break;
+            case "max-height": Add("MaximumHeightRequest"); break;
+            case "letter-spacing": Add("CharacterSpacing"); break;
+            case "text-align": Add("HorizontalTextAlignment"); break;
+        }
+
+        return result;
+    }
+
+    private static Color CurrentTextColor(VisualElement element) => element switch
+    {
+        Label label => label.TextColor ?? Colors.Transparent,
+        Button button => button.TextColor ?? Colors.Transparent,
+        Entry entry => entry.TextColor ?? Colors.Transparent,
+        Editor editor => editor.TextColor ?? Colors.Transparent,
+        Picker picker => picker.TextColor ?? Colors.Transparent,
+        _ => Colors.Transparent,
+    };
+
+    private static BindableProperty? TextColorProperty(VisualElement element) => element switch
+    {
+        Label => Label.TextColorProperty,
+        Button => Button.TextColorProperty,
+        Entry => Entry.TextColorProperty,
+        Editor => Editor.TextColorProperty,
+        Picker => Picker.TextColorProperty,
+        _ => null,
+    };
+
+    private static double CurrentRadius(VisualElement element) => element switch
+    {
+        Border { StrokeShape: RoundRectangle round } => round.CornerRadius.TopLeft,
+        Button button => button.CornerRadius,
+        _ => 0,
+    };
+
+    private static bool TryParseTimeMs(string raw, out double milliseconds)
+    {
+        milliseconds = 0;
+        var text = (raw ?? string.Empty).Trim().ToLowerInvariant();
+        if (text.Length == 0) return false;
+
+        double value;
+        if (text.EndsWith("ms", StringComparison.Ordinal))
+        {
+            if (!double.TryParse(text[..^2], NumberStyles.Float, CultureInfo.InvariantCulture, out value))
+                return false;
+        }
+        else if (text.EndsWith("s", StringComparison.Ordinal))
+        {
+            if (!double.TryParse(text[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out value))
+                return false;
+            value *= 1000;
+        }
+        else
+        {
+            return false;
+        }
+
+        if (!double.IsFinite(value) || value < 0) return false;
+        milliseconds = value;
+        return true;
     }
 
     private static void ApplyTextColor(VisualElement element, Color color)
@@ -442,6 +1071,20 @@ public static class MauiSkinStyler
     {
         if (value == null) return;
 
+        Record(element, property);
+
+        try
+        {
+            element.SetValue(property, value);
+        }
+        catch (Exception ex)
+        {
+            Warn($"应用 {property.PropertyName} 失败：{ex.Message}");
+        }
+    }
+
+    private static void Record(VisualElement element, BindableProperty property)
+    {
         var state = GetState(element);
         if (state.Changes.All(change => change.Property != property))
         {
@@ -453,15 +1096,6 @@ public static class MauiSkinStyler
                 DynamicKey = DynamicKeyOf(element, property),
                 Binding = BindingOf(element, property),
             });
-        }
-
-        try
-        {
-            element.SetValue(property, value);
-        }
-        catch (Exception ex)
-        {
-            Warn($"应用 {property.PropertyName} 失败：{ex.Message}");
         }
     }
 
@@ -475,6 +1109,9 @@ public static class MauiSkinStyler
 
     private static void RestoreAll()
     {
+        MauiSkinAnimationRunner.StopAll();
+        foreach (var element in PressedElements.ToArray()) PressedElements.Remove(element);
+
         foreach (var pair in Applied.ToArray()) RestoreState(pair.Key, pair.Value);
         Applied.Clear();
 
@@ -487,6 +1124,8 @@ public static class MauiSkinStyler
 
     private static void RestoreState(VisualElement element, ElementState state)
     {
+        UnhookState(element, state);
+
         for (var i = state.Changes.Count - 1; i >= 0; i--)
         {
             var change = state.Changes[i];
@@ -578,6 +1217,12 @@ public static class MauiSkinStyler
     }
 
     // ---------- 值解析 ----------
+
+    /// <summary>供组件 / 动画服务复用的变量解析入口。</summary>
+    internal static string ResolveSkinValue(string raw) => ResolveValue(raw);
+
+    /// <summary>供组件 / 动画服务复用的颜色解析入口。</summary>
+    internal static bool TryParseMauiColor(string raw, out Color color) => TryParseColor(raw, out color);
 
     private static string ResolveValue(string raw, int depth = 0)
     {
@@ -682,7 +1327,7 @@ public static class MauiSkinStyler
         return true;
     }
 
-    private static bool TryParseLength(string text, out double value)
+    internal static bool TryParseLength(string text, out double value)
     {
         value = 0;
         var raw = (text ?? string.Empty).Trim().ToLowerInvariant();
@@ -722,7 +1367,7 @@ public static class MauiSkinStyler
         return true;
     }
 
-    private static bool TryParseThickness(string text, out Thickness thickness)
+    internal static bool TryParseThickness(string text, out Thickness thickness)
     {
         thickness = default;
         var tokens = SplitTokens(text);

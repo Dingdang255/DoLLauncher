@@ -26,6 +26,9 @@ public partial class MainWindow
 {
     // ---------- 设置 ----------
 
+    /// <summary>自定义预取顺序：game / market / pack。</summary>
+    private readonly List<string> _prefetchOrder = new() { "game", "market", "pack" };
+
     private void LoadGeneralSettings()
     {
         _loadingGeneralSettings = true;
@@ -33,9 +36,27 @@ public partial class MainWindow
         {
             var cfg = AppConfig.Load();
             WriteModMetaCheck.IsChecked = cfg.General.WriteModMetadata;
+
+            // 旧值 modFirst / gameFirst 迁移到「自定义」并给出对应的初始顺序
+            var prefetch = cfg.General.Prefetch;
+            var orderText = cfg.General.PrefetchOrder;
+            if (prefetch == "modFirst")
+            {
+                prefetch = "custom";
+                orderText = "market,game,pack";
+            }
+            else if (prefetch == "gameFirst")
+            {
+                prefetch = "custom";
+                orderText = "game,market,pack";
+            }
+            LoadPrefetchOrder(orderText);
+
             PrefetchBox.SelectedItem = PrefetchBox.Items.OfType<ComboBoxItem>()
-                .FirstOrDefault(i => (i.Tag as string) == cfg.General.Prefetch);
+                .FirstOrDefault(i => (i.Tag as string) == prefetch);
             if (PrefetchBox.SelectedItem == null) PrefetchBox.SelectedIndex = 0;
+            PrefetchOrderPanel.Visibility = prefetch == "custom" ? Visibility.Visible : Visibility.Collapsed;
+            RefreshPrefetchOrderUi();
 
             MarketSourceBox.SelectedItem = MarketSourceBox.Items.OfType<ComboBoxItem>()
                 .FirstOrDefault(i => (i.Tag as string) == cfg.General.MarketSource);
@@ -136,19 +157,79 @@ public partial class MainWindow
     {
         if (_loadingGeneralSettings) return;
         var mode = (PrefetchBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "parallel";
+        PrefetchOrderPanel.Visibility = mode == "custom" ? Visibility.Visible : Visibility.Collapsed;
         try
         {
-            var cfg = AppConfig.Load();
-            cfg.General.Prefetch = mode;
-            AppConfig.Save(cfg);
-            Log("设置：启动时预取索引 = " +
-                ((PrefetchBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? mode));
+            SavePrefetchConfig(mode);
         }
         catch (Exception ex)
         {
             LogError("保存设置失败", ex);
         }
     }
+
+    private void SavePrefetchConfig(string mode)
+    {
+        var cfg = AppConfig.Load();
+        cfg.General.Prefetch = mode;
+        cfg.General.PrefetchOrder = string.Join(",", _prefetchOrder);
+        AppConfig.Save(cfg);
+        Log("设置：启动时预取索引 = " +
+            ((PrefetchBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? mode));
+    }
+
+    private void PrefetchOrderUp_Click(object sender, RoutedEventArgs e) => MovePrefetchOrder(sender, -1);
+
+    private void PrefetchOrderDown_Click(object sender, RoutedEventArgs e) => MovePrefetchOrder(sender, 1);
+
+    private void MovePrefetchOrder(object sender, int delta)
+    {
+        if (_loadingGeneralSettings) return;
+        if (sender is not Button { Tag: string tag } || !int.TryParse(tag, out var index)) return;
+        var target = index + delta;
+        if (target < 0 || target >= _prefetchOrder.Count) return;
+
+        (_prefetchOrder[index], _prefetchOrder[target]) = (_prefetchOrder[target], _prefetchOrder[index]);
+        RefreshPrefetchOrderUi();
+        try
+        {
+            SavePrefetchConfig("custom");
+        }
+        catch (Exception ex)
+        {
+            LogError("保存设置失败", ex);
+        }
+    }
+
+    private void LoadPrefetchOrder(string? value)
+    {
+        var known = new[] { "game", "market", "pack" };
+        var parsed = (value ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(known.Contains)
+            .Distinct()
+            .ToList();
+
+        foreach (var key in known)
+            if (!parsed.Contains(key)) parsed.Add(key);
+
+        _prefetchOrder.Clear();
+        _prefetchOrder.AddRange(parsed);
+    }
+
+    private void RefreshPrefetchOrderUi()
+    {
+        var labels = new[] { PrefetchOrderLabel0, PrefetchOrderLabel1, PrefetchOrderLabel2 };
+        for (var i = 0; i < labels.Length && i < _prefetchOrder.Count; i++)
+            labels[i].Text = PrefetchName(_prefetchOrder[i]);
+    }
+
+    private static string PrefetchName(string key) => key switch
+    {
+        "market" => "模组市场",
+        "pack" => "整合包",
+        _ => "游戏本体",
+    };
 
     private void MarketSource_Changed(object sender, SelectionChangedEventArgs e)
     {

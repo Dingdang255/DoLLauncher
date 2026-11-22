@@ -37,6 +37,18 @@ public static class DiagnosticService
         }
         lines.Add("");
 
+        lines.Add("");
+        var embedded = LyraPackService.IsLyraPackName(version.Folder)
+            ? LyraPackService.ReadEmbeddedMods(version.FullPath)
+            : new List<LyraEmbeddedMod>();
+        if (embedded.Count > 0)
+        {
+            lines.Add($"内置模组（整合包 HTML）：{embedded.Count} 个");
+            foreach (var mod in embedded)
+                lines.Add($"  · [{ (mod.IsBuiltin ? "必需" : "可解压") }] {mod.Name} {mod.Version}");
+            lines.Add("");
+        }
+
         lines.AddRange(ModService.Check(version));
 
         var invalid = mods.Count(m => !m.BootParsed);
@@ -93,6 +105,7 @@ public static class DiagnosticService
                 AddFileIfExists(zip, "launcher-versions.json", Paths.ConfigFile);
                 AddFileIfExists(zip, "mods-state.json", Path.Combine(version.FullPath, "mods-state.json"));
                 AddFileIfExists(zip, "modList.json", Path.Combine(version.FullPath, "modList.json"));
+                AddFileIfExists(zip, "lyra-mod-cache.json", Path.Combine(version.FullPath, "data", "lyra-mod-cache.json"));
                 AddSlotSaves(zip, version.FullPath);
                 AddFileIfExists(zip, "saves/idb-mirror.json", Path.Combine(version.FullPath, "data", "idb-mirror.json"));
                 AddFileIfExists(zip, "saves/idb-mirror.legacy.json", Path.Combine(version.FullPath, "data", "idb-mirror.legacy.json"));
