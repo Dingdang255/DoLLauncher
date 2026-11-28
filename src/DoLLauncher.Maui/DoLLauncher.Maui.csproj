@@ -18,8 +18,8 @@
 		<ApplicationId>com.dol.launcher</ApplicationId>
 
 		<!-- 版本 -->
-		<ApplicationDisplayVersion>1.7.1</ApplicationDisplayVersion>
-		<ApplicationVersion>8</ApplicationVersion>
+		<ApplicationDisplayVersion>1.7.2</ApplicationDisplayVersion>
+		<ApplicationVersion>9</ApplicationVersion>
 		<!-- 版本信息由构建注入为 tag|commit|时间，关闭 SDK 的默认生成以便自行写入 -->
 		<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
 		<GenerateAssemblyInformationalVersionAttribute>false</GenerateAssemblyInformationalVersionAttribute>

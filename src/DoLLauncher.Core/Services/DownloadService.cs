@@ -403,9 +403,17 @@ public static class DownloadService
             // 下载任务先不结束：解压期间继续用同一条任务显示阶段与百分比。
             task = await DownloadFileAsync(asset.Url, temp, progress, log, requireZip: true, holdTask: true);
             log("[安装] 正在解压游戏本体…");
+            // 解压跑在线程池上，进度回调必须投递回 UI 线程，否则任务列表的 PropertyChanged 会跨线程碰控件。
+            var sync = SynchronizationContext.Current;
+            void Report(double percent)
+            {
+                if (sync is null || ReferenceEquals(sync, SynchronizationContext.Current))
+                    task?.SetStageProgress("解压中", percent);
+                else
+                    sync.Post(_ => task?.SetStageProgress("解压中", percent), null);
+            }
             // 整包解压是同步重 I/O（上千个文件），必须离开 UI 线程，否则安装期间应用会无响应。
-            await Task.Run(() => ExtractZipWithProgress(temp, dest,
-                percent => task?.SetStageProgress("解压中", percent)));
+            await Task.Run(() => ExtractZipWithProgress(temp, dest, Report));
             task?.Complete();
         }
         catch (OperationCanceledException)

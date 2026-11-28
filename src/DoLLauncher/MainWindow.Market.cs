@@ -1962,7 +1962,14 @@ public partial class MainWindow
 
     private void Task_CanCancelChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(DownloadTaskVm.CanCancel)) UpdateCancelButton();
+        if (e.PropertyName != nameof(DownloadTaskVm.CanCancel)) return;
+        // 进度可能由线程池线程汇报，读取列表选中项必须回到 UI 线程
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(new Action(UpdateCancelButton));
+            return;
+        }
+        UpdateCancelButton();
     }
 
     /// <summary>完成或被取消的任务先留 3 秒，再移除条目。</summary>
