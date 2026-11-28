@@ -341,25 +341,8 @@
                         </CollectionView.ItemTemplate>
                     </CollectionView>
 
-                    <VerticalStackLayout x:Name="PackBusyPanel" IsVisible="False" Spacing="10"
-                                         VerticalOptions="Center" HorizontalOptions="Center"
-                                         BackgroundColor="{AppThemeBinding Light=#CCFFFFFF, Dark=#CC202020}"
-                                         Padding="20">
-                        <ActivityIndicator x:Name="PackBusyIndicator" IsRunning="False" />
-                        <Label x:Name="PackBusyLabel" Text="正在下载整合包…" FontSize="12" />
-                    </VerticalStackLayout>
                 </Grid>
             </Grid>
-        </Grid>
-
-        <!-- 下载 / 解压 / 安装期间盖住整页，避免 ANR 期间误触其它操作 -->
-        <Grid x:Name="BusyOverlay" Grid.ColumnSpan="2" IsVisible="False"
-              BackgroundColor="#80000000" InputTransparent="False">
-            <VerticalStackLayout Spacing="10" VerticalOptions="Center" HorizontalOptions="Center">
-                <ActivityIndicator IsRunning="True" Color="White" HorizontalOptions="Center" />
-                <Label x:Name="BusyLabel" Text="正在下载…" FontSize="12" TextColor="White"
-                       HorizontalTextAlignment="Center" />
-            </VerticalStackLayout>
         </Grid>
 
     </Grid>

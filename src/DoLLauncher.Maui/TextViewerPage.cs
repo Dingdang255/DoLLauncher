@@ -20,7 +20,9 @@ public sealed class TextViewerPage : ContentPage
             Text = _text.Length == 0 ? "（空）" : _text,
             FontSize = 12,
             FontFamily = "monospace",
-            LineBreakMode = LineBreakMode.NoWrap,
+            // 之前用 NoWrap：安卓上会被压成单行 TextView，整段日志只剩一行可见。
+            // 日志按原样换行即可，内容完整优先，超出宽度自动折行。
+            LineBreakMode = LineBreakMode.WordWrap,
             VerticalOptions = LayoutOptions.Start,
         };
 
@@ -60,7 +62,7 @@ public sealed class TextViewerPage : ContentPage
                 : Color.FromArgb("#F2F2F2"),
             Content = new ScrollView
             {
-                Orientation = ScrollOrientation.Both,
+                Orientation = ScrollOrientation.Vertical,
                 Content = body,
             },
         };

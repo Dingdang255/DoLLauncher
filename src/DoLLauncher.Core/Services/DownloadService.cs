@@ -396,18 +396,76 @@ public static class DownloadService
     {
         var asset = plan.Files[0];
         var temp = Path.Combine(Path.GetTempPath(), "dol-game-" + Guid.NewGuid().ToString("N") + ".zip");
+        DownloadTaskVm? task = null;
         try
         {
             log($"[下载] {Path.GetFileName(new Uri(asset.Url).AbsolutePath)}");
-            await DownloadFileAsync(asset.Url, temp, progress, log, requireZip: true);
+            // 下载任务先不结束：解压期间继续用同一条任务显示阶段与百分比。
+            task = await DownloadFileAsync(asset.Url, temp, progress, log, requireZip: true, holdTask: true);
             log("[安装] 正在解压游戏本体…");
             // 整包解压是同步重 I/O（上千个文件），必须离开 UI 线程，否则安装期间应用会无响应。
-            await Task.Run(() => ZipFile.ExtractToDirectory(temp, dest));
+            await Task.Run(() => ExtractZipWithProgress(temp, dest,
+                percent => task?.SetStageProgress("解压中", percent)));
+            task?.Complete();
+        }
+        catch (OperationCanceledException)
+        {
+            task?.MarkCanceled();
+            throw;
+        }
+        catch (Exception ex)
+        {
+            task?.MarkFailedAndFinish(ex.Message);
+            throw;
         }
         finally
         {
             await Task.Run(() => TryDelete(temp));
         }
+    }
+
+    /// <summary>
+    /// 逐项解压并汇报进度。不用 <see cref="ZipFile.ExtractToDirectory(string, string)"/>：
+    /// 它在目标文件已存在时直接抛 IO_FileExists_Name，而安卓外置存储大小写不敏感，
+    /// 压缩包里同时存在 <c>Acc.png</c> / <c>acc.png</c> 这类仅大小写不同的条目就会撞名，
+    /// 导致整个整合包安装回滚。这里统一按覆盖写入，撞名时保留后写入的那份。
+    /// </summary>
+    private static void ExtractZipWithProgress(string zipPath, string destDir, Action<double>? onProgress)
+    {
+        using var zip = ZipFile.OpenRead(zipPath);
+        var entries = zip.Entries;
+        var total = entries.Count;
+        var root = Path.GetFullPath(destDir) + Path.DirectorySeparatorChar;
+        Directory.CreateDirectory(destDir);
+        for (var i = 0; i < total; i++)
+        {
+            var entry = entries[i];
+            var relative = entry.FullName.Replace('\\', '/').TrimStart('/');
+            if (relative.Length == 0)
+            {
+                // 目录项或空名，跳过
+            }
+            else if (entry.Name.Length == 0)
+            {
+                Directory.CreateDirectory(Path.Combine(destDir, relative));
+            }
+            else
+            {
+                var target = Path.GetFullPath(Path.Combine(destDir, relative));
+                // 防目录穿越：压缩包里出现 ../ 时直接忽略
+                if (target.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                {
+                    var parent = Path.GetDirectoryName(target);
+                    if (!string.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
+                    entry.ExtractToFile(target, overwrite: true);
+                }
+            }
+
+            // 每 64 项汇报一次，避免上千个文件把主线程刷爆
+            if (onProgress != null && ((i & 0x3F) == 0 || i == total - 1))
+                onProgress(total <= 0 ? 1 : (i + 1) / (double)total);
+        }
+        onProgress?.Invoke(1);
     }
 
     private static async Task InstallFilesAsync(GameInstallPlan plan, string dest, Action<string> log,
@@ -1730,9 +1788,9 @@ public static class DownloadService
         }
     }
 
-    private static async Task DownloadFileAsync(string url, string destPath, Action<double> progress,
+    private static async Task<DownloadTaskVm?> DownloadFileAsync(string url, string destPath, Action<double> progress,
         Action<string>? log = null, string? taskName = null, bool track = true, bool requireZip = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, bool holdTask = false)
     {
         var task = track ? new DownloadTaskVm(taskName ?? FileNameFromUrl(url)) : null;
         if (task != null) DownloadTasks.Add(task);
@@ -1783,8 +1841,9 @@ public static class DownloadService
                 }, task, routeCts.Token);
                 if (requireZip) EnsureZip(destPath);
                 Report(log, $"[网络] {routes[i].Name} 下载成功");
-                task?.Complete();
-                return;
+                // holdTask：安装流程还要接着解压，任务条目由调用方收尾
+                if (!holdTask) task?.Complete();
+                return task;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -2228,6 +2287,15 @@ public sealed class DownloadTaskVm : INotifyPropertyChanged
         State = stage;
     }
 
+    /// <summary>下载完成后的安装阶段（解压等）：状态行显示「解压中 42%」，进度条同时前进。</summary>
+    internal void SetStageProgress(string stage, double value)
+    {
+        if (_state is "完成" or "已取消" || Cts.IsCancellationRequested) return;
+        value = Math.Clamp(value, 0, 1);
+        Progress = value;
+        State = $"{stage} {value * 100:0}%";
+    }
+
     internal void SetTotal(long total)
     {
         _total = total;
@@ -2310,6 +2378,13 @@ public sealed class DownloadTaskVm : INotifyPropertyChanged
     {
         _speed = 0;
         State = "失败：" + message;
+    }
+
+    /// <summary>安装阶段失败：写入失败原因并结束任务，界面按完成 / 取消同样延迟移除条目。</summary>
+    internal void MarkFailedAndFinish(string message)
+    {
+        MarkFailed(message);
+        RaiseFinished();
     }
 
     private static string FormatSize(long bytes) => bytes switch

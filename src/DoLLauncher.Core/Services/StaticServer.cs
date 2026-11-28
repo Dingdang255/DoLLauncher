@@ -2197,9 +2197,10 @@ public sealed class StaticServer : ILocalServer
           '.ball{position:fixed;display:flex;align-items:center;justify-content:center;color:#fff;' +
           'font:600 12px/1 "Microsoft YaHei UI",Segoe UI,sans-serif;cursor:pointer;user-select:none;' +
           'touch-action:none;pointer-events:auto;box-shadow:0 6px 18px rgba(0,0,0,.35);' +
-          'transition:width .18s ease-out,height .18s ease-out,left .18s ease-out,top .18s ease-out,background .25s ease;' +
+          'transition:width .18s ease-out,height .18s ease-out,left .18s ease-out,top .18s ease-out,background .25s ease,opacity .25s ease;' +
           'background:#3b82f6;width:46px;height:46px;border-radius:23px;}' +
-          '.ball.docked{width:28px;height:46px;border-radius:8px;}' +
+          // 收起状态半透明，避免挡住游戏画面
+          '.ball.docked{width:28px;height:46px;border-radius:8px;opacity:.3;}' +
           '.panel{position:fixed;display:none;flex-direction:column;width:390px;background:rgba(24,26,32,.97);' +
           'color:#e8eaf0;border:1px solid rgba(255,255,255,.14);border-radius:12px;overflow:hidden;' +
           'box-shadow:0 16px 48px rgba(0,0,0,.5);font:12px/1.5 "Microsoft YaHei UI",Segoe UI,sans-serif;' +
@@ -2256,6 +2257,8 @@ public sealed class StaticServer : ILocalServer
         document.documentElement.appendChild(host);
         placeBall();
         paintBall();
+        // 触屏没有 mouseleave：首次进入也要按超时自动收起，不能等到被拖动过一次才收起
+        startDockTimer();
       } catch (e) { }
     }
 
@@ -2351,6 +2354,7 @@ public sealed class StaticServer : ILocalServer
     function hidePanel() {
       panelOpen = false;
       if (panelEl) panelEl.className = 'panel';
+      startDockTimer();
     }
 
     function positionPanel() {

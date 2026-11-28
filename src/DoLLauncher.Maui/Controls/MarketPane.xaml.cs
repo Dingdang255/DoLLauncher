@@ -747,25 +747,9 @@ public partial class MarketPane : ContentView
             });
         }
 
-        var page = new InstallCheckPage(plans, target, ShowInstallProgress);
+        var page = new InstallCheckPage(plans, target);
         page.Completed += OnInstallCompleted;
         await Navigation.PushAsync(page);
-    }
-
-    /// <summary>安装进度覆盖层：市场面板本身不显示进度，安装时至少能看到百分比与当前模组。</summary>
-    private void ShowInstallProgress(double value, string stage)
-    {
-        MainThread.BeginInvokeOnMainThread(() =>
-        {
-            if (value < 0)
-            {
-                InstallOverlay.IsVisible = false;
-                return;
-            }
-            InstallOverlay.IsVisible = true;
-            InstallOverlayProgress.Progress = Math.Clamp(value, 0, 1);
-            InstallOverlayStage.Text = stage;
-        });
     }
 
     // ---------- 长按拖选（Android 原生触摸） ----------
@@ -1091,7 +1075,7 @@ public partial class MarketPane : ContentView
         }
 
         var page = new InstallCheckPage(row.Mod, target, check,
-            row.SelectedRelease, row.SelectedEdition, row.SelectedAssetName, ShowInstallProgress);
+            row.SelectedRelease, row.SelectedEdition, row.SelectedAssetName);
         page.Completed += OnInstallCompleted;
         await Navigation.PushAsync(page);
     }

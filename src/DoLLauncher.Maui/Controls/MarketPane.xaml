@@ -273,23 +273,6 @@
             </Grid>
         </Border>
 
-        <!-- 安装进度：没有总长度（chunked）的线路也能看到已下载字节与速度 -->
-        <Grid x:Name="InstallOverlay" Grid.Row="0" Grid.RowSpan="3" IsVisible="False"
-              BackgroundColor="#66000000" Padding="24">
-            <Border Padding="18" StrokeThickness="0" StrokeShape="RoundRectangle 14"
-                    VerticalOptions="Center" HorizontalOptions="Fill"
-                    BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#2A2A2A}">
-                <VerticalStackLayout Spacing="10">
-                    <Label x:Name="InstallOverlayTitle" FontSize="14" FontAttributes="Bold"
-                           Text="正在安装模组" />
-                    <Label x:Name="InstallOverlayStage" FontSize="12" LineBreakMode="TailTruncation"
-                           TextColor="{AppThemeBinding Light=#666666, Dark=#B0B0B0}" />
-                    <ProgressBar x:Name="InstallOverlayProgress" Progress="0" HeightRequest="6"
-                                 ProgressColor="{DynamicResource AccentColor}" />
-                </VerticalStackLayout>
-            </Border>
-        </Grid>
-
     </Grid>
 
 </ContentView>
