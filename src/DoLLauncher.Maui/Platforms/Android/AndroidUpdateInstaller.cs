@@ -17,16 +17,7 @@ public static class AndroidUpdateInstaller
     private const string ProviderSuffix = ".fileprovider";
     private const string ApkMime = "application/vnd.android.package-archive";
 
-    private static readonly HttpClient Http = CreateClient();
-
     public static string UpdateCacheDir => Path.Combine(FileSystem.CacheDirectory, "updates");
-
-    private static HttpClient CreateClient()
-    {
-        var client = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("DoLLauncher-Android");
-        return client;
-    }
 
     /// <summary>优先选名字里带 launcher 的 APK，其次任意 APK。</summary>
     public static LauncherAsset? FindApk(LauncherRelease release) =>
@@ -50,24 +41,9 @@ public static class AndroidUpdateInstaller
         {
             if (File.Exists(temp)) File.Delete(temp);
 
-            using var response = await Http.GetAsync(asset.DownloadUrl,
-                HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-            response.EnsureSuccessStatusCode();
-
-            var total = response.Content.Headers.ContentLength ?? asset.Size;
-            await using (var input = await response.Content.ReadAsStreamAsync(cancellationToken))
-            await using (var output = File.Create(temp))
-            {
-                var buffer = new byte[81920];
-                long read = 0;
-                int count;
-                while ((count = await input.ReadAsync(buffer, cancellationToken)) > 0)
-                {
-                    await output.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
-                    read += count;
-                    if (total > 0) progress(Math.Clamp((double)read / total, 0, 1));
-                }
-            }
+            // 交给 DownloadService：自动测速、选择镜像、分段并发下载，和模组下载同一套引擎。
+            await DownloadService.DownloadLauncherApkAsync(asset.DownloadUrl, temp, progress,
+                msg => LogService.Append("[更新] " + msg), cancellationToken);
 
             File.Move(temp, dest, overwrite: true);
             progress(1);

@@ -110,8 +110,8 @@ public partial class MarketPane : ContentView
 
         try
         {
-            var catalog = await DownloadService.FetchMarketAsync(
-                msg => LogService.Append("[市场] " + msg), forceRefresh);
+            var catalog = await IndexPrefetchService.GetMarketAsync(
+                forceRefresh, msg => LogService.Append("[市场] " + msg));
             _catalog = catalog;
             _all.Clear();
             _all.AddRange(catalog.Mods.OrderBy(m => m.Name, StringComparer.CurrentCultureIgnoreCase));

@@ -152,15 +152,16 @@ public class MainActivity : MauiAppCompatActivity
         ShareImportHelper.AcceptIntent(intent);
     }
 
-    // OnBackPressed 在新 API 上标记过时，但 MauiAppCompatActivity 仍会走这里，作为统一返回入口
-#pragma warning disable CS0612
+    // OnBackPressed 在新 API 上被标记过时（CS0612 编译器警告 + CA1422 分析器警告），
+    // 但 MauiAppCompatActivity 仍会走这里，作为统一返回入口；基类处理保持默认的 finish 行为。
+#pragma warning disable CS0612, CA1422
     public override void OnBackPressed()
     {
         // 页面注册了返回处理（例如游戏页先回退网页历史、再按策略关页）时由页面接管
         if (BackRouter.Handler?.Invoke() == true) return;
         base.OnBackPressed();
     }
-#pragma warning restore CS0612
+#pragma warning restore CS0612, CA1422
 
     /// <summary>外接键盘：先交给当前页面（Ctrl+A / Delete），输入框获得焦点时由路由放行。</summary>
     public override bool DispatchKeyEvent(KeyEvent? e)

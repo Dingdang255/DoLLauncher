@@ -27,6 +27,7 @@ public partial class MainPage : ContentPage
     public MainPage()
     {
         InitializeComponent();
+        ModalShield.BlockInput(BusyOverlay);
         Instance = this;
         // 主界面不需要再叠一条「DoL 启动器」应用栏，内容直接从屏幕顶部开始。
         NavigationPage.SetHasNavigationBar(this, false);
@@ -251,6 +252,9 @@ public partial class MainPage : ContentPage
             case StoryPage story:
                 story.Deactivate();
                 break;
+            case DiagnosticsPage diagnostics:
+                diagnostics.Deactivate();
+                break;
         }
     }
 
@@ -361,6 +365,8 @@ public partial class MainPage : ContentPage
     private async Task InitializeAsync()
     {
         await ReloadAsync();
+        // 按「启动时预取索引」设置预热下载中心的三份索引，不阻塞界面。
+        _ = IndexPrefetchService.StartAsync();
         await RunStartupBackupAsync();
     }
 

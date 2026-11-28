@@ -1,4 +1,8 @@
 using System.Text;
+using DoLLauncher.Core.Data;
+using DoLLauncher.Maui.Controls;
+using DoLLauncher.Maui.Platform;
+using Microsoft.Maui.Dispatching;
 using DoLLauncher.Models;
 using DoLLauncher.Platform;
 using DoLLauncher.Services;
@@ -19,22 +23,159 @@ public partial class DiagnosticsPage : ContentView
     private bool _loaded;
     private bool _exporting;
     private bool _analyzing;
+    private bool _active;
+    private bool _liveMode;
+    private bool _liveRefreshing;
+    private IDispatcherTimer? _liveTimer;
+    private string _gameLogPath = string.Empty;
 
     public DiagnosticsPage(VersionInfo version)
     {
         InitializeComponent();
+        ModalShield.BlockInput(BusyOverlay);
         _version = version;
         _preferredFolder = version.Folder;
         HeaderLabel.Text = version.DisplayName;
+        ModePicker.SelectedIndex = 0;
     }
 
     /// <summary>主界面切换到本面板时调用。</summary>
-    public void Activate() => _ = ActivateAsync();
+    public void Activate()
+    {
+        _active = true;
+        _ = ActivateAsync();
+    }
+
+    /// <summary>主界面切换到其它面板时停止实时诊断轮询。</summary>
+    public void Deactivate()
+    {
+        _active = false;
+        StopLiveTimer();
+    }
 
     private async Task ActivateAsync()
     {
         await LoadVersionsAsync();
         if (!_loaded) await LoadAsync();
+        if (_liveMode) StartLiveTimer();
+    }
+
+    // ---------- 诊断模式（手动 / 实时） ----------
+
+    private void OnModeChanged(object? sender, EventArgs e)
+    {
+        var live = ModePicker.SelectedIndex == 1;
+        if (live == _liveMode) return;
+        _liveMode = live;
+
+        AnalyzeButton.Text = live ? "立即刷新实时诊断" : "分析最近日志";
+        ModeHintLabel.Text = live
+            ? "实时诊断：每 2 秒统计当前游戏实例，不读取原始日志。"
+            : "手动诊断：分析最近一次游戏日志；实时诊断：每 2 秒统计当前游戏实例并给出诊断。";
+
+        if (live)
+        {
+            if (_active) StartLiveTimer();
+            _ = RefreshLiveAsync();
+        }
+        else
+        {
+            StopLiveTimer();
+        }
+    }
+
+    private void StartLiveTimer()
+    {
+        if (!_liveMode || !_active) return;
+        _liveTimer ??= CreateLiveTimer();
+        _liveTimer.Start();
+    }
+
+    private IDispatcherTimer CreateLiveTimer()
+    {
+        var timer = Dispatcher.CreateTimer();
+        timer.Interval = TimeSpan.FromSeconds(2);
+        timer.Tick += (_, _) => _ = RefreshLiveAsync();
+        return timer;
+    }
+
+    private void StopLiveTimer() => _liveTimer?.Stop();
+
+    private async Task RefreshLiveAsync()
+    {
+        if (!_liveMode || _liveRefreshing) return;
+        _liveRefreshing = true;
+        try
+        {
+            var text = await Task.Run(BuildLiveDiagnostics);
+            if (!_liveMode) return;
+            AnalysisView.Text = text;
+            AnalysisPanel.IsVisible = true;
+            LogStatusLabel.Text = GameLogService.StatusSummary(_version.FullPath);
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("实时诊断失败", ex);
+        }
+        finally
+        {
+            _liveRefreshing = false;
+        }
+    }
+
+    /// <summary>实时诊断内容：与 WPF 端一致，统计当前浏览器实例并列出异常分组。</summary>
+    private string BuildLiveDiagnostics()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("== 实时诊断 ==");
+        sb.AppendLine($"版本：{_version.DisplayName}（{_version.Folder}）");
+        sb.AppendLine();
+
+        if (!ServerManager.IsRunning(_version.Folder))
+        {
+            sb.AppendLine("状态：游戏未运行");
+            sb.AppendLine();
+            sb.AppendLine("启动该版本后，这里会自动统计当前浏览器实例的日志（每 2 秒刷新），");
+            sb.AppendLine("并针对 warning / error / fatal 级别的条目生成诊断分析。");
+            return sb.ToString();
+        }
+
+        var live = GameLogService.GetLive(_version.FullPath);
+        sb.AppendLine("状态：游戏运行中（只统计当前浏览器实例，不展示原始日志）");
+        sb.AppendLine();
+        if (live == null)
+        {
+            sb.AppendLine("当前浏览器实例还没有日志上报：游戏页刚打开或控制台暂无输出。");
+            return sb.ToString();
+        }
+
+        sb.AppendLine($"日志文件：{live.File}");
+        sb.AppendLine($"最近写入：{live.LastWriteAt?.ToString("HH:mm:ss") ?? "—"}");
+        if (live.Stopped) sb.AppendLine("注意：浏览器端已停止日志上报，统计可能不再增长。");
+        sb.AppendLine();
+        sb.AppendLine("== 统计 ==");
+        sb.AppendLine($"Information：{live.Information} 条");
+        sb.AppendLine($"Warning：{live.Warning} 条");
+        sb.AppendLine($"Error：{live.Error} 条");
+        sb.AppendLine($"Fatal：{live.Fatal} 条");
+        sb.AppendLine();
+        sb.AppendLine("== 诊断分析 ==");
+        if (live.Findings.Count == 0)
+        {
+            sb.AppendLine("当前实例没有 warning / error / fatal 级别的异常条目。");
+            return sb.ToString();
+        }
+
+        var index = 0;
+        foreach (var finding in live.Findings)
+        {
+            index++;
+            sb.AppendLine($"[{index}] {finding.Level} × {finding.Count}");
+            sb.AppendLine($"    首次：{finding.First:HH:mm:ss}　最近：{finding.Last:HH:mm:ss}");
+            foreach (var hint in finding.Hints) sb.AppendLine("    · " + hint);
+            sb.AppendLine();
+        }
+        return sb.ToString();
     }
 
     private async Task LoadVersionsAsync()
@@ -87,7 +228,10 @@ public partial class DiagnosticsPage : ContentView
         EnvList.Children.Clear();
         CompatList.Children.Clear();
         GameLogList.Children.Clear();
+        GameLogPanel.IsVisible = false;
+        _gameLogPath = string.Empty;
         _ = LoadAsync();
+        if (_liveMode) _ = RefreshLiveAsync();
     }
 
     private async Task LoadAsync()
@@ -140,6 +284,7 @@ public partial class DiagnosticsPage : ContentView
             $"启动器构建：{BuildInfo.Display}",
             $"启动器根目录：{Paths.Root}",
             $"ModLoader 版本：{modLoader ?? "未知"}",
+            $"WebView 版本：{RuntimeEnvironment.WebViewVersion ?? "未知"}",
             $"服务器：{(running ? "运行中" : "未运行")}（端口 {_version.Port}，模式 {_version.Mode}）",
             $"游戏版本：{_version.GameVersion ?? "未知"}",
         };
@@ -167,9 +312,10 @@ public partial class DiagnosticsPage : ContentView
     {
         try
         {
+            _gameLogPath = path;
             GameLogTitle.Text = $"{Path.GetFileName(path)}（末尾内容）";
             GameLogTitle.IsVisible = true;
-            GameLogContent.IsVisible = true;
+            GameLogPanel.IsVisible = true;
             GameLogContent.Text = "读取中…";
 
             var text = await Task.Run(() => ReadTail(path));
@@ -223,7 +369,7 @@ public partial class DiagnosticsPage : ContentView
     {
         if (_exporting) return;
         _exporting = true;
-        SetBusy(true);
+        SetBusy(true, "正在导出诊断包…");
         try
         {
             var dir = Path.Combine(FileSystem.CacheDirectory, "diagnostics");
@@ -235,11 +381,26 @@ public partial class DiagnosticsPage : ContentView
                 msg => LogService.Append("[诊断包] " + msg)));
 
             LogService.Append("[诊断包] 已导出：" + result);
-            await Share.RequestAsync(new ShareFileRequest
+
+            // 优先用系统「保存到文件」（SAF）落到用户选的位置；不支持时再退回分享面板。
+            var save = await SaveFileHelper.SaveAsync(result, Path.GetFileName(result));
+            switch (save)
             {
-                Title = "分享诊断包",
-                File = new ShareFile(result),
-            });
+                case SaveFileResult.Saved:
+                    await PlatformServices.Dialogs.InfoAsync("诊断包已保存。", "导出诊断包");
+                    break;
+                case SaveFileResult.Canceled:
+                    await PlatformServices.Dialogs.InfoAsync(
+                        "已取消保存。\n\n导出的缓存副本仍保留在：\n" + result, "导出诊断包");
+                    break;
+                default:
+                    await Share.RequestAsync(new ShareFileRequest
+                    {
+                        Title = "分享诊断包",
+                        File = new ShareFile(result),
+                    });
+                    break;
+            }
         }
         catch (Exception ex)
         {
@@ -255,10 +416,15 @@ public partial class DiagnosticsPage : ContentView
 
     private async void OnAnalyzeClicked(object? sender, EventArgs e)
     {
+        if (_liveMode)
+        {
+            await RefreshLiveAsync();
+            return;
+        }
         if (_analyzing) return;
         _analyzing = true;
-        SetBusy(true);
-        AnalysisView.IsVisible = true;
+        SetBusy(true, "正在分析最近日志…");
+        AnalysisPanel.IsVisible = true;
         AnalysisView.Text = "正在分析最近日志…";
         try
         {
@@ -278,11 +444,63 @@ public partial class DiagnosticsPage : ContentView
         }
     }
 
-    private void SetBusy(bool busy)
+    private void SetBusy(bool busy, string message = "处理中…")
     {
+        BusyLabel.Text = message;
         BusyOverlay.IsVisible = busy;
         ExportButton.IsEnabled = !busy;
         AnalyzeButton.IsEnabled = !busy;
+    }
+
+    private async void OnOpenGameLogViewer(object? sender, TappedEventArgs e)
+    {
+        var title = string.IsNullOrWhiteSpace(_gameLogPath)
+            ? "游戏日志"
+            : Path.GetFileName(_gameLogPath);
+        await TextViewerPage.ShowAsync(title, GameLogContent.Text, _gameLogPath);
+    }
+
+    private async void OnOpenAnalysisViewer(object? sender, TappedEventArgs e) =>
+        await TextViewerPage.ShowAsync(_liveMode ? "实时诊断" : "日志分析", AnalysisView.Text);
+
+    private async void OnOpenLauncherLogViewer(object? sender, TappedEventArgs e) =>
+        await TextViewerPage.ShowAsync("启动器日志", LauncherLogView.Text, LogService.FilePath);
+
+    /// <summary>清空 Mod 缓存（保留存档库）：与 WPF 诊断页的「存储维护」一致。</summary>
+    private async void OnClearModCacheClicked(object? sender, EventArgs e)
+    {
+        if (_version.Mode != "http")
+        {
+            await PlatformServices.Dialogs.WarnAsync("file 版本不支持清空 Mod 缓存。", "清空 Mod 缓存");
+            return;
+        }
+
+        if (!await PlatformServices.Dialogs.ConfirmAsync(
+                "将删除该版本除存档库（saves/details）以外的所有 IndexedDB：\n\n" +
+                "- Mod 图片缓存、翻译缓存、模组包缓存\n- Mod 的本地设置与缓存\n\n" +
+                "存档不会被删除，但此操作不可撤销。\n\n继续？",
+                "清空 Mod 缓存（第 1 次确认）", "继续", danger: true))
+            return;
+
+        if (!await PlatformServices.Dialogs.ConfirmAsync(
+                "再次确认：确定清空 Mod 缓存吗？\n\n清空会在下次启动该版本时自动执行，并自动重新加载一次页面。",
+                "清空 Mod 缓存（第 2 次确认）", "确认清空", danger: true))
+            return;
+
+        try
+        {
+            SlotSaveStore.RequestCacheClear(_version.FullPath);
+            LogService.Append("已登记清空 Mod 缓存（保留存档库）：" + _version.Folder);
+            await PlatformServices.Dialogs.InfoAsync(
+                "已登记。\n\n下次启动该版本时会先清空除存档库以外的 IndexedDB，然后自动重新加载页面。\n" +
+                "如果游戏正在运行，请先关闭再重新启动。",
+                "清空 Mod 缓存");
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("登记清空 Mod 缓存失败", ex);
+            await PlatformServices.Dialogs.ErrorAsync("登记失败：" + ex.Message, "清空 Mod 缓存");
+        }
     }
 
     /// <summary>读取文件末尾内容：限制行数与字符数，并允许日志被同时写入。</summary>

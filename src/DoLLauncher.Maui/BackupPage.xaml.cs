@@ -25,6 +25,7 @@ public partial class BackupPage : ContentView
     public BackupPage(VersionInfo? version = null)
     {
         InitializeComponent();
+        ModalShield.BlockInput(BusyOverlay);
         _preferredFolder = version?.Folder;
         BackupList.ItemsSource = _entries;
         VersionPicker.ItemDisplayBinding = new Binding(nameof(VersionInfo.DisplayName));
@@ -109,6 +110,7 @@ public partial class BackupPage : ContentView
         QuickSnapshotButton.IsEnabled = enabled;
         SnapshotGameCheck.IsEnabled = enabled;
         RefreshMirrorButton.IsEnabled = enabled;
+        OpenBackupFolderButton.IsEnabled = enabled;
     }
 
     // ---------- 列表 ----------
@@ -168,6 +170,23 @@ public partial class BackupPage : ContentView
     private async void OnRefreshing(object? sender, EventArgs e) => await ReloadAsync();
 
     private async void OnRetryClicked(object? sender, EventArgs e) => await ReloadAsync();
+
+    /// <summary>打开启动器 backups 目录（与 WPF 的「打开备份目录」一致）。</summary>
+    private async void OnOpenBackupFolderClicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            Directory.CreateDirectory(BackupService.Root);
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("创建备份目录失败", ex);
+        }
+
+        if (AndroidFolderOpener.TryOpen(BackupService.Root)) return;
+        await PlatformServices.Dialogs.InfoAsync(
+            "没有应用能打开这个文件夹。\n\n路径：\n" + BackupService.Root, "备份目录");
+    }
 
     private void ApplyFilter()
     {

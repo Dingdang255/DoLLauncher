@@ -119,6 +119,9 @@ public partial class SettingsPage : ContentPage
         }
     }
 
+    private async void OnOpenLogViewer(object? sender, EventArgs e) =>
+        await TextViewerPage.ShowAsync("运行记录", LogEditor.Text, "最近 200 行启动器日志");
+
     private void OnClearLog(object? sender, EventArgs e)
     {
         _logLines.Clear();

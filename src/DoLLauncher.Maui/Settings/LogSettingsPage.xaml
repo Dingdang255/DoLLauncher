@@ -61,18 +61,6 @@
                 </VerticalStackLayout>
             </Border>
 
-            <Border Style="{StaticResource SettingsCard}">
-                <VerticalStackLayout Spacing="4">
-                    <Label Text="存储维护" Style="{StaticResource SettingsItemTitle}" />
-                    <Label Style="{StaticResource SettingsHint}"
-                           Text="将清除 Mod 缓存与 Mod 本地设置，保留 saves/details 存档；下次启动该版本时自动执行并重新加载页面。建议先关闭正在运行的游戏页面。" />
-                    <Button Text="清空 Mod 缓存（保留存档）" FontSize="13" Margin="0,8,0,0"
-                            CornerRadius="8" HeightRequest="42" Clicked="OnClearCache"
-                            BackgroundColor="{AppThemeBinding Light=#D93B3B, Dark=#A32B2B}"
-                            TextColor="White" />
-                </VerticalStackLayout>
-            </Border>
-
         </VerticalStackLayout>
     </ScrollView>
 

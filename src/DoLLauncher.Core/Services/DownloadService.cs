@@ -328,12 +328,13 @@ public static class DownloadService
             foreach (var companion in plan.CompanionMods)
                 await InstallCompanionAsync(companion, dest, log, progress);
 
-            ModService.Apply(dest);
+            // 重建 modList 要读全部模组，放到线程池，避免装完最后一步卡住界面。
+            await Task.Run(() => ModService.Apply(dest));
             return plan.FolderName;
         }
         catch
         {
-            TryDelete(dest, recursive: true);
+            await Task.Run(() => TryDelete(dest, recursive: true));
             throw;
         }
     }
@@ -357,12 +358,12 @@ public static class DownloadService
             await InstallZipAsync(plan, dest, log, progress);
 
             Directory.CreateDirectory(Path.Combine(dest, "mods"));
-            ModService.Apply(dest);
+            await Task.Run(() => ModService.Apply(dest));
             return folder;
         }
         catch
         {
-            TryDelete(dest, recursive: true);
+            await Task.Run(() => TryDelete(dest, recursive: true));
             throw;
         }
     }
@@ -400,11 +401,12 @@ public static class DownloadService
             log($"[下载] {Path.GetFileName(new Uri(asset.Url).AbsolutePath)}");
             await DownloadFileAsync(asset.Url, temp, progress, log, requireZip: true);
             log("[安装] 正在解压游戏本体…");
-            ZipFile.ExtractToDirectory(temp, dest);
+            // 整包解压是同步重 I/O（上千个文件），必须离开 UI 线程，否则安装期间应用会无响应。
+            await Task.Run(() => ZipFile.ExtractToDirectory(temp, dest));
         }
         finally
         {
-            TryDelete(temp);
+            await Task.Run(() => TryDelete(temp));
         }
     }
 
@@ -1306,6 +1308,15 @@ public static class DownloadService
         Action<string>? log = null) =>
         DownloadFileAsync(url, destPath, progress, log, "启动器更新包", track: false, requireZip: true);
 
+    /// <summary>
+    /// 下载 Android 启动器 APK：与模组/游戏走同一套测速、镜像和分段并发下载，
+    /// 不再由 Android 端单独直连 GitHub（单连接在部分网络下会非常慢）。
+    /// </summary>
+    public static Task DownloadLauncherApkAsync(string url, string destPath, Action<double> progress,
+        Action<string>? log = null, CancellationToken cancellationToken = default) =>
+        DownloadFileAsync(url, destPath, progress, log, "启动器安装包", track: false,
+            requireZip: false, cancellationToken: cancellationToken);
+
     /// <summary>下载一个市场模组到指定版本的 mods 目录，返回写入的文件名。</summary>
     public static async Task<string> InstallModAsync(MarketMod mod, string versionDir, Action<string> log,
         Action<double> progress, string? preferredTag = null, MarketEdition? edition = null, string? assetName = null)
@@ -1326,18 +1337,18 @@ public static class DownloadService
             await DownloadFileAsync(asset.DownloadUrl, temp, progress, log, mod.Name,
                 requireZip: asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
 
-            var bootName = ReadBootName(temp);
+            var bootName = await Task.Run(() => ReadBootName(temp));
             if (bootName != null && !NamesMatch(mod, bootName))
                 log($"[提示] 包内 boot.json 的模组名是「{bootName}」，与市场条目「{mod.Name}」不完全一致，请留意。");
 
-            File.Copy(temp, dest, overwrite: true);
-            ModService.Apply(versionDir);
+            await Task.Run(() => File.Copy(temp, dest, overwrite: true));
+            await Task.Run(() => ModService.Apply(versionDir));
             log($"[完成] 已安装到 mods\\{asset.Name}");
             return asset.Name;
         }
         finally
         {
-            TryDelete(temp);
+            await Task.Run(() => TryDelete(temp));
         }
     }
 
@@ -1720,11 +1731,15 @@ public static class DownloadService
     }
 
     private static async Task DownloadFileAsync(string url, string destPath, Action<double> progress,
-        Action<string>? log = null, string? taskName = null, bool track = true, bool requireZip = false)
+        Action<string>? log = null, string? taskName = null, bool track = true, bool requireZip = false,
+        CancellationToken cancellationToken = default)
     {
         var task = track ? new DownloadTaskVm(taskName ?? FileNameFromUrl(url)) : null;
         if (task != null) DownloadTasks.Add(task);
-        var ct = task?.Token ?? CancellationToken.None;
+        // 外部取消（例如关闭更新弹窗）也要能中断下载线路与看门狗。
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+            task?.Token ?? CancellationToken.None, cancellationToken);
+        var ct = linkedCts.Token;
 
         var choice = AppConfig.Load().General.ModDownloadSource;
         List<MirrorOption> routes;

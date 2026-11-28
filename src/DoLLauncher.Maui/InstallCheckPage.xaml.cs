@@ -146,6 +146,13 @@ public partial class InstallCheckPage : ContentPage
             if (Completed != null)
                 await MainThread.InvokeOnMainThreadAsync(async () => await Completed(queue.Count));
         }
+        catch (OperationCanceledException)
+        {
+            LogService.Append("[市场] 安装已取消。");
+            _onProgress?.Invoke(-1, "");
+            await MainThread.InvokeOnMainThreadAsync(async () =>
+                await PlatformServices.Dialogs.InfoAsync("任务已取消。", "模组市场"));
+        }
         catch (Exception ex)
         {
             LogService.Error("安装市场模组失败", ex);

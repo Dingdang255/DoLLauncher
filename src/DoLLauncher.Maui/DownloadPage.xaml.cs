@@ -57,6 +57,7 @@ public partial class DownloadPage : ContentView
     public DownloadPage(bool startInMarket, VersionInfo? targetVersion = null)
     {
         InitializeComponent();
+        ModalShield.BlockInput(BusyOverlay);
         _preferredTarget = targetVersion;
 
         ReleaseList.ItemsSource = _rows;
@@ -97,7 +98,7 @@ public partial class DownloadPage : ContentView
         }
 
         if (_marketActive) await ActivateMarketAsync();
-        if (_packActive) await LoadPacksAsync();
+        if (_packActive) await LoadPacksAsync(page: _packPage);
     }
 
     /// <summary>切走或离开主界面时调用。</summary>
@@ -107,7 +108,7 @@ public partial class DownloadPage : ContentView
         DetachTaskEvents();
     }
 
-    private async Task LoadAsync(bool silent = false, int page = 1)
+    private async Task LoadAsync(bool silent = false, int page = 1, bool forceRefresh = false)
     {
         if (_loading) return;
         _loading = true;
@@ -134,7 +135,7 @@ public partial class DownloadPage : ContentView
             var requested = page;
             if (_gameAllReleases == null || _gameAllSourceId != source.Id)
             {
-                var all = await DownloadService.FetchAllGameReleasesAsync(source);
+                var all = await IndexPrefetchService.GetGameReleasesAsync(source, forceRefresh);
                 _gameAllReleases = all.Where(r => r.HasInstallableAsset).ToList();
                 _gameAllSourceId = source.Id;
             }
@@ -229,7 +230,7 @@ public partial class DownloadPage : ContentView
     private async void OnPackSegmentClicked(object? sender, EventArgs e)
     {
         ShowPackSegment();
-        await LoadPacksAsync();
+        await LoadPacksAsync(page: _packPage);
     }
 
     private void ShowSegment(bool game)
@@ -400,7 +401,7 @@ public partial class DownloadPage : ContentView
         ApplySourceUi(source);
         _gameAllReleases = null;
         LogService.Append($"[下载] 切换游戏源：{source.Name}");
-        await LoadAsync();
+        await LoadAsync(forceRefresh: true);
     }
 
     // ---------- Release 列表 ----------
@@ -408,7 +409,7 @@ public partial class DownloadPage : ContentView
     private async void OnRefreshing(object? sender, EventArgs e)
     {
         _gameAllReleases = null;
-        await LoadAsync(page: _gamePage);
+        await LoadAsync(page: _gamePage, forceRefresh: true);
     }
 
     private async void OnRefreshClicked(object? sender, EventArgs e)
@@ -418,11 +419,12 @@ public partial class DownloadPage : ContentView
         else
         {
             _gameAllReleases = null;
-            await LoadAsync(page: _gamePage);
+            await LoadAsync(page: _gamePage, forceRefresh: true);
         }
     }
 
-    private async void OnRetryClicked(object? sender, EventArgs e) => await LoadAsync();
+    private async void OnRetryClicked(object? sender, EventArgs e) =>
+        await LoadAsync(forceRefresh: true);
 
     private async void OnOpenBodyClicked(object? sender, EventArgs e)
     {
@@ -435,7 +437,7 @@ public partial class DownloadPage : ContentView
 
     private async Task LoadPacksAsync(bool force = false, int page = 1)
     {
-        if (_packLoading || (_packLoaded && !force)) return;
+        if (_packLoading || (_packLoaded && !force && page == _packPage)) return;
         _packLoading = true;
         PackStatusLabel.Text = "正在获取 Lyra 整合包列表…";
         try
@@ -446,7 +448,7 @@ public partial class DownloadPage : ContentView
             List<GameRelease> releases;
             while (true)
             {
-                var pageResult = await DownloadService.FetchLyraReleasesPageAsync(target);
+                var pageResult = await IndexPrefetchService.GetPackPageAsync(target, force);
                 apiLast = Math.Max(1, pageResult.LastPage);
                 releases = pageResult.Releases.Where(r => r.Assets.Count > 0).ToList();
                 // 这一页没有可用资产：可用页到此为止，回退一页继续找
@@ -546,13 +548,13 @@ public partial class DownloadPage : ContentView
     private async void OnPackPagePrevClicked(object? sender, EventArgs e)
     {
         if (_packLoading || _packPage <= 1) return;
-        await LoadPacksAsync(force: true, page: _packPage - 1);
+        await LoadPacksAsync(page: _packPage - 1);
     }
 
     private async void OnPackPageNextClicked(object? sender, EventArgs e)
     {
         if (_packLoading || _packPage >= _packLastPage) return;
-        await LoadPacksAsync(force: true, page: _packPage + 1);
+        await LoadPacksAsync(page: _packPage + 1);
     }
 
     private void OnPackPageBoxCompleted(object? sender, EventArgs e) => CommitPackPageInput();
@@ -573,7 +575,7 @@ public partial class DownloadPage : ContentView
             return;
         }
         if (page == _packPage) return;
-        _ = LoadPacksAsync(force: true, page: page);
+        _ = LoadPacksAsync(page: page);
     }
 
     private void OnPackReleaseChanged(object? sender, EventArgs e)
@@ -596,12 +598,22 @@ public partial class DownloadPage : ContentView
         PackBusyPanel.IsVisible = true;
         PackBusyIndicator.IsRunning = true;
         PackBusyLabel.Text = "0%";
+        SetBusy(true, "正在下载整合包…");
         try
         {
             var folder = await DownloadService.InstallLyraAsync(option.Asset,
-                msg => LogService.Append(msg),
-                p => MainThread.BeginInvokeOnMainThread(() => PackBusyLabel.Text = $"{p:P0}"));
+                msg =>
+                {
+                    LogService.Append(msg);
+                    if (msg.Contains("解压")) UpdateBusyText("正在解压整合包…");
+                },
+                p =>
+                {
+                    MainThread.BeginInvokeOnMainThread(() => PackBusyLabel.Text = $"{p:P0}");
+                    UpdateInstallProgress("正在下载整合包", p);
+                });
             PackBusyLabel.Text = "安装完成";
+            SetBusy(false);
 
             var versionDir = Path.Combine(Paths.VersionsDir, folder);
             var embedded = await Task.Run(() => LyraPackService.ReadEmbeddedMods(versionDir));
@@ -615,8 +627,10 @@ public partial class DownloadPage : ContentView
                     new[] { "解压到 mods", "稍后" }, DolDialogKind.Info, primaryIndex: 0);
                 if (choice == 0)
                 {
+                    SetBusy(true, "正在解压内置模组…");
                     var result = await Task.Run(() => LyraPackService.ExtractToMods(versionDir, LogService.Append));
                     LogService.Append($"内置模组已解压：{result.Extracted} 个；{result.Skipped} 个必需组件保留内置。");
+                    SetBusy(false);
                 }
             }
 
@@ -625,6 +639,11 @@ public partial class DownloadPage : ContentView
                 (extractable > 0 ? "" : "\n没有可解压的普通模组。") +
                 "\n请到版本页启动或管理它。",
                 "安装完成");
+        }
+        catch (OperationCanceledException)
+        {
+            LogService.Append("[下载] 整合包下载已取消。");
+            await PlatformServices.Dialogs.InfoAsync("任务已取消。", "下载整合包");
         }
         catch (Exception ex)
         {
@@ -636,6 +655,7 @@ public partial class DownloadPage : ContentView
             _packInstalling = false;
             PackBusyIndicator.IsRunning = false;
             PackBusyPanel.IsVisible = false;
+            SetBusy(false);
         }
     }
 
@@ -697,14 +717,15 @@ public partial class DownloadPage : ContentView
         _retryI18n = includeI18n;
         _retryImagePack = includeImagePack;
 
-        SetBusy(true);
+        SetBusy(true, "正在下载游戏本体…");
         RetryPanel.IsVisible = false;
 
         try
         {
             Task<string> RunInstall() => DownloadService.InstallGameAsync(release,
                 usePolyfill: usePolyfill, includeI18n: includeI18n, includeImagePack: includeImagePack,
-                log: OnInstallLog, progress: _ => { });
+                log: OnInstallLog,
+                progress: p => UpdateInstallProgress("正在下载游戏本体", p));
 
             string folder;
             try
@@ -730,6 +751,8 @@ public partial class DownloadPage : ContentView
 
             LogService.Append($"[下载] 安装完成：{folder}");
             _retryRelease = null;
+            // 安装阶段已结束，先收起遮罩再做后续确认 / 刷新。
+            SetBusy(false);
 
             await LoadAsync(silent: true);
 
@@ -741,7 +764,7 @@ public partial class DownloadPage : ContentView
         catch (OperationCanceledException)
         {
             LogService.Append("[下载] 安装已取消。");
-            await PlatformServices.Dialogs.InfoAsync("安装已取消。", "下载游戏");
+            await PlatformServices.Dialogs.InfoAsync("任务已取消。", "下载游戏");
         }
         catch (Exception ex)
         {
@@ -771,8 +794,14 @@ public partial class DownloadPage : ContentView
         await Navigation.PushAsync(new VersionDetailPage(info));
     }
 
-    /// <summary>安装日志写入日志文件；进度由左侧下载列表的任务条目实时展示。</summary>
-    private static void OnInstallLog(string message) => LogService.Append("[下载] " + message);
+    /// <summary>安装日志写入日志文件；进度由左侧下载列表的任务条目与全页遮罩实时展示。</summary>
+    private void OnInstallLog(string message)
+    {
+        LogService.Append("[下载] " + message);
+        if (message.Contains("解压")) UpdateBusyText("正在解压游戏本体…");
+        else if (message.Contains("附带模组")) UpdateBusyText("正在安装附带模组…");
+        else if (message.Contains("下载")) UpdateBusyText("正在下载游戏本体…");
+    }
 
     // ---------- 下载任务 ----------
 
@@ -871,8 +900,13 @@ public partial class DownloadPage : ContentView
     }
 
     /// <summary>遮罩上的取消已移除：下载进度改由左侧列表展示，取消在列表里选中任务后操作。</summary>
-    private void SetBusy(bool busy)
+    private int _lastBusyPercent = -1;
+
+    private void SetBusy(bool busy, string message = "处理中…")
     {
+        BusyLabel.Text = message;
+        BusyOverlay.IsVisible = busy;
+        if (busy) _lastBusyPercent = -1;
         Refresher.IsEnabled = !busy;
         RefreshButton.IsEnabled = !busy;
         GameSourcePicker.IsEnabled = !busy;
@@ -880,6 +914,21 @@ public partial class DownloadPage : ContentView
         NavMarket.IsEnabled = !busy;
         foreach (var row in _rows)
             row.CanInstall = !busy && row.Release.HasInstallableAsset;
+    }
+
+    /// <summary>下载 / 解压回调在后台线程，统一切回主线程更新遮罩文案。</summary>
+    private void UpdateBusyText(string text) => MainThread.BeginInvokeOnMainThread(() =>
+    {
+        if (BusyOverlay.IsVisible) BusyLabel.Text = text;
+    });
+
+    /// <summary>下载进度按整数百分比节流，避免高频回调把主线程刷爆。</summary>
+    private void UpdateInstallProgress(string prefix, double progress)
+    {
+        var percent = (int)Math.Round(Math.Clamp(progress, 0, 1) * 100);
+        if (percent == _lastBusyPercent) return;
+        _lastBusyPercent = percent;
+        UpdateBusyText($"{prefix} {percent}%");
     }
 }
 

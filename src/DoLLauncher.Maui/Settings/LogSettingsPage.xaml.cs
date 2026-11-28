@@ -1,5 +1,3 @@
-using DoLLauncher.Core.Data;
-using DoLLauncher.Maui.Controls;
 using DoLLauncher.Models;
 using DoLLauncher.Platform;
 using DoLLauncher.Services;
@@ -136,58 +134,4 @@ public partial class LogSettingsPage : ContentPage
         await SettingsStore.SaveAsync(_config, $"日志上报队列 {queue} KB / 合并间隔 {flush} ms");
     }
 
-    private async void OnClearCache(object? sender, EventArgs e)
-    {
-        List<VersionInfo> versions;
-        try
-        {
-            versions = (await Task.Run(VersionService.Scan)).Where(v => v.Mode == "http").ToList();
-        }
-        catch (Exception ex)
-        {
-            LogService.Error("扫描版本失败", ex);
-            await PlatformServices.Dialogs.ErrorAsync("扫描版本失败：" + ex.Message);
-            return;
-        }
-
-        if (versions.Count == 0)
-        {
-            await PlatformServices.Dialogs.WarnAsync("还没有可清理的 http 版本。", "清空 Mod 缓存");
-            return;
-        }
-
-        var target = versions[0];
-        if (versions.Count > 1)
-        {
-            var options = versions.Select(v => v.DisplayName).ToArray();
-            var choice = await DolDialog.ChooseAsync("清空 Mod 缓存",
-                "要清空哪个版本的 Mod 缓存？", options, DolDialogKind.Warning, primaryIndex: 0);
-            if (choice < 0) return;
-            target = versions[choice];
-        }
-
-        if (!await PlatformServices.Dialogs.ConfirmAsync(
-                "将删除该版本除存档库（saves/details）以外的所有 IndexedDB：\n\n- Mod 图片缓存、翻译缓存、模组包缓存\n- Mod 的本地设置与缓存\n\n存档不会被删除，但此操作不可撤销。\n\n继续？",
-                "清空 Mod 缓存（第 1 次确认）", "继续", danger: true))
-            return;
-
-        if (!await PlatformServices.Dialogs.ConfirmAsync(
-                "再次确认：确定清空 Mod 缓存吗？\n\n清空会在下次启动该版本时自动执行，并自动重新加载一次页面。",
-                "清空 Mod 缓存（第 2 次确认）", "确认清空", danger: true))
-            return;
-
-        try
-        {
-            SlotSaveStore.RequestCacheClear(target.FullPath);
-            LogService.Append("已登记清空 Mod 缓存（保留存档库）：" + target.Folder);
-            await PlatformServices.Dialogs.InfoAsync(
-                "已登记。\n\n下次启动该版本时会先清空除存档库以外的 IndexedDB，然后自动重新加载页面。\n如果游戏正在运行，请先关闭再重新启动。",
-                "清空 Mod 缓存");
-        }
-        catch (Exception ex)
-        {
-            LogService.Error("登记清空 Mod 缓存失败", ex);
-            await PlatformServices.Dialogs.ErrorAsync("登记失败：" + ex.Message, "清空 Mod 缓存");
-        }
-    }
 }

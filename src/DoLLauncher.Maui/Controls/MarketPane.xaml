@@ -2,6 +2,8 @@
 <ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:local="clr-namespace:DoLLauncher.Maui"
+             xmlns:controls="clr-namespace:DoLLauncher.Maui.Controls"
+             xmlns:models="clr-namespace:DoLLauncher.Models;assembly=DoLLauncher.Core"
              x:Class="DoLLauncher.Maui.Controls.MarketPane">
 
     <ContentView.Resources>
@@ -125,7 +127,7 @@
                     </VerticalStackLayout>
                 </CollectionView.EmptyView>
                 <CollectionView.ItemTemplate>
-                    <DataTemplate>
+                    <DataTemplate x:DataType="controls:MarketRow">
                         <Border Padding="12" Margin="0,0,0,10" StrokeThickness="0"
                                 StyleClass="card market-row"
                                 StrokeShape="RoundRectangle 12"
@@ -192,7 +194,7 @@
                                                 SelectedIndex="{Binding SelectedReleaseIndex, Mode=TwoWay}"
                                                 SelectedIndexChanged="OnRowReleaseChanged">
                                             <Picker.ItemDisplayBinding>
-                                                <Binding Path="DisplayName" />
+                                                <Binding Path="DisplayName" x:DataType="models:GameRelease" />
                                             </Picker.ItemDisplayBinding>
                                         </Picker>
                                     </Grid>
@@ -205,7 +207,7 @@
                                                 SelectedIndex="{Binding SelectedEditionIndex, Mode=TwoWay}"
                                                 SelectedIndexChanged="OnRowEditionChanged">
                                             <Picker.ItemDisplayBinding>
-                                                <Binding Path="Display" />
+                                                <Binding Path="Display" x:DataType="models:MarketEdition" />
                                             </Picker.ItemDisplayBinding>
                                         </Picker>
                                     </Grid>
@@ -216,7 +218,7 @@
                                                 ItemsSource="{Binding Assets}"
                                                 SelectedIndex="{Binding SelectedAssetIndex, Mode=TwoWay}">
                                             <Picker.ItemDisplayBinding>
-                                                <Binding Path="Display" />
+                                                <Binding Path="Display" x:DataType="models:ModAssetOption" />
                                             </Picker.ItemDisplayBinding>
                                         </Picker>
                                     </Grid>

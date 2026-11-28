@@ -44,6 +44,7 @@
 ├─ src/DoLLauncher.Core/    ← 跨平台业务逻辑与平台抽象
 ├─ src/DoLLauncher.Maui/    ← Android 启动器（MAUI，含 Platforms/Android）
 ├─ tools/                   ← icon/ 图标生成脚本与源图；scripts/ 分发用 DoL.bat、launcher.ps1
+├─ docs/                    ← 使用文档（DoLL-QA.md 常见问题、UI 美化包格式等）
 ├─ .github/workflows/       ← CI：WPF 构建（build.yml）、Android 构建（android.yml）
 ├─ build.ps1                ← 本地构建 / 打包（桌面端）
 ├─ build-android.ps1        ← 本地构建 Android APK（自动探测 SDK / JDK）
@@ -115,6 +116,10 @@ dotnet workload install maui-android
  > 其它：
  >
  > 数据目录位于 `手机存储根目录/Android/media/com.dol.launcher/DoL`，部分路径旁的「打开文件夹」按钮可直接用文件管理器定位
+
+## 常见问题
+
+使用中遇到问题，先查阅 [docs/DoLL-QA.md](docs/DoLL-QA.md)。文档按入门、安装更新、版本管理、下载、模组、存档备份、剧情、诊断、美化包、数据迁移等分类整理了常见问题；反馈故障时请按文档最后一节提供诊断包与日志。
 
 ## 说明与边界
 

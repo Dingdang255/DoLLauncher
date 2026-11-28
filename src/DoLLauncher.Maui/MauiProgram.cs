@@ -31,6 +31,7 @@ public static class MauiProgram
 		var root = ResolveRoot();
 		PlatformServices.Initialize(new AndroidPlatformBundle(root));
 		LogService.Configure(AppConfig.Load().General.LogVerbosity);
+		RuntimeEnvironment.WebViewVersion = DetectWebViewVersion();
 
 		// 界面缩放需要在任何页面创建前生效（OnCreate 里先按默认值套过一次）。
 		MainApplication.SetUiScale(AppConfig.Load().General.UiScale);
@@ -240,6 +241,27 @@ public static class MauiProgram
 		}
 #endif
 		return legacyRoots.FirstOrDefault(Directory.Exists) ?? legacyRoots[0];
+	}
+
+	/// <summary>从 WebView 默认 UA 中提取 Chromium 版本，供设置页/诊断页/诊断包展示。</summary>
+	private static string? DetectWebViewVersion()
+	{
+		try
+		{
+			var ua = Android.Webkit.WebSettings.GetDefaultUserAgent(Android.App.Application.Context) ?? string.Empty;
+			const string token = "Chrome/";
+			var start = ua.IndexOf(token, StringComparison.Ordinal);
+			if (start < 0) return null;
+			start += token.Length;
+			var end = start;
+			while (end < ua.Length && (char.IsDigit(ua[end]) || ua[end] == '.')) end++;
+			return end > start ? ua[start..end] : null;
+		}
+		catch (Exception ex)
+		{
+			LogService.Error("读取 WebView 版本失败", ex);
+			return null;
+		}
 	}
 
 	private static void CopyDirectory(string source, string target)

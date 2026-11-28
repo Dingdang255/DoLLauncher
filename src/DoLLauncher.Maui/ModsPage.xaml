@@ -63,7 +63,7 @@
                     </VerticalStackLayout>
                 </CollectionView.EmptyView>
                 <CollectionView.ItemTemplate>
-                    <DataTemplate>
+                    <DataTemplate x:DataType="local:ModsRow">
                         <Border x:Name="RowBorder" Padding="12" Margin="0,0,0,10"
                                 StrokeThickness="0"
                                 StyleClass="card mod-row"

@@ -3,12 +3,14 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:ctl="clr-namespace:DoLLauncher.Maui.Controls"
              xmlns:local="clr-namespace:DoLLauncher.Maui"
+             xmlns:models="clr-namespace:DoLLauncher.Models;assembly=DoLLauncher.Core"
+             xmlns:svc="clr-namespace:DoLLauncher.Services;assembly=DoLLauncher.Core"
              x:Class="DoLLauncher.Maui.DownloadPage">
 
     <Grid ColumnDefinitions="Auto,*" Padding="0,12,16,0" ColumnSpacing="12">
 
         <!-- ===== 左侧栏：子面板导航 + 安装目标 + 下载列表（可收起） ===== -->
-        <Border x:Name="SideBar" Grid.Column="0" WidthRequest="150" Padding="8"
+        <Border x:Name="SideBar" Grid.Column="0" WidthRequest="225" Padding="8"
                 StrokeThickness="0" StrokeShape="RoundRectangle 12"
                 BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
             <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" RowSpacing="8">
@@ -27,7 +29,7 @@
                         <Label Text="安装到版本" FontSize="10"
                                TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
                         <Picker x:Name="TargetVersionPicker" FontSize="11"
-                                ItemDisplayBinding="{Binding DisplayName}"
+                                ItemDisplayBinding="{Binding DisplayName, x:DataType=models:VersionInfo}"
                                 SelectedIndexChanged="OnTargetVersionChanged" />
                     </VerticalStackLayout>
 
@@ -47,7 +49,7 @@
                                TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
                     </CollectionView.EmptyView>
                     <CollectionView.ItemTemplate>
-                        <DataTemplate>
+                        <DataTemplate x:DataType="svc:DownloadTaskVm">
                             <VerticalStackLayout Padding="4,5" Spacing="4" StyleClass="download-task">
                                 <Label Text="{Binding Name}" FontSize="11" FontAttributes="Bold"
                                        LineBreakMode="TailTruncation" />
@@ -173,7 +175,7 @@
                                 </VerticalStackLayout>
                             </CollectionView.EmptyView>
                             <CollectionView.ItemTemplate>
-                                <DataTemplate>
+                                <DataTemplate x:DataType="local:DownloadRow">
                                     <Border Padding="14" Margin="0,0,0,10"
                                             StrokeThickness="0"
                                             StyleClass="card release-item"
@@ -261,7 +263,8 @@
                             <Label Grid.Column="0" Text="整合包类型" FontSize="13" VerticalOptions="Center"
                                    TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
                             <Picker x:Name="PackTypePicker" Grid.Column="1" FontSize="13"
-                                    VerticalOptions="Center" ItemDisplayBinding="{Binding Name}" />
+                                    VerticalOptions="Center"
+                                    ItemDisplayBinding="{Binding Name, x:DataType=models:GameSource}" />
                         </Grid>
                         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
                             <Label Grid.Column="0" Text="整合包版本" FontSize="13" VerticalOptions="Center"
@@ -306,7 +309,7 @@
                             </VerticalStackLayout>
                         </CollectionView.EmptyView>
                         <CollectionView.ItemTemplate>
-                            <DataTemplate>
+                            <DataTemplate x:DataType="models:PackOption">
                                 <Border Padding="14" Margin="0,0,0,10" StrokeThickness="0"
                                         StrokeShape="RoundRectangle 12"
                                         BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
@@ -347,6 +350,16 @@
                     </VerticalStackLayout>
                 </Grid>
             </Grid>
+        </Grid>
+
+        <!-- 下载 / 解压 / 安装期间盖住整页，避免 ANR 期间误触其它操作 -->
+        <Grid x:Name="BusyOverlay" Grid.ColumnSpan="2" IsVisible="False"
+              BackgroundColor="#80000000" InputTransparent="False">
+            <VerticalStackLayout Spacing="10" VerticalOptions="Center" HorizontalOptions="Center">
+                <ActivityIndicator IsRunning="True" Color="White" HorizontalOptions="Center" />
+                <Label x:Name="BusyLabel" Text="正在下载…" FontSize="12" TextColor="White"
+                       HorizontalTextAlignment="Center" />
+            </VerticalStackLayout>
         </Grid>
 
     </Grid>

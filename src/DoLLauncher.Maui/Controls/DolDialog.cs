@@ -191,13 +191,17 @@ internal static class DolDialog
 
         var dim = new BoxView
         {
-            // 页面里已经有半透明遮罩时不再叠一层，否则两层相乘会接近纯黑。
-            Color = HasExistingDimLayer(page.Content) ? Colors.Transparent : Color.FromArgb("#4D000000"),
+            // 页面里已经有半透明遮罩时不再叠一层，否则两层相乘会接近纯黑；
+            // 但必须保留 1/255 的不透明度，否则遮罩在 Android 上不可命中。
+            Color = HasExistingDimLayer(page.Content)
+                ? Color.FromArgb("#01000000")
+                : Color.FromArgb("#4D000000"),
             // 全局隐式 BoxView 样式会把 BackgroundColor 设成不透明近黑，盖住半透明的 Color，
             // 看起来就是纯黑遮罩；这里必须显式清成透明。
             BackgroundColor = Colors.Transparent,
+            InputTransparent = false,
         };
-        var overlay = new Grid { BackgroundColor = Colors.Transparent };
+        var overlay = new Grid { BackgroundColor = Colors.Transparent, InputTransparent = false };
         overlay.Children.Add(dim);
         overlay.Children.Add(card);
 
@@ -216,12 +220,14 @@ internal static class DolDialog
             return true;
         };
 
-        if (allowDismiss)
+        // 遮罩必须始终挂一个手势识别器：没有手势时 BoxView 不消费触摸，
+        // 点在卡片外会穿透到下层界面（allowDismiss=false 时尤其明显）。
+        var dimTap = new TapGestureRecognizer();
+        dimTap.Tapped += (_, _) =>
         {
-            var tap = new TapGestureRecognizer();
-            tap.Tapped += (_, _) => Close(-1);
-            dim.GestureRecognizers.Add(tap);
-        }
+            if (allowDismiss) Close(-1);
+        };
+        dim.GestureRecognizers.Add(dimTap);
 
         void Close(int index)
         {

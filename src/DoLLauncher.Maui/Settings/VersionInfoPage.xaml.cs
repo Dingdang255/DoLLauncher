@@ -12,6 +12,7 @@ public partial class VersionInfoPage : ContentPage
     {
         InitializeComponent();
         VersionLabel.Text = BuildInfo.Display;
+        WebViewLabel.Text = $"WebView 版本：{RuntimeEnvironment.WebViewVersion ?? "未知"}";
     }
 
     protected override void OnAppearing()
@@ -28,6 +29,7 @@ public partial class VersionInfoPage : ContentPage
         {
             AutoUpdateSwitch.IsToggled = _config.General.AutoCheckUpdate;
             VersionLabel.Text = BuildInfo.Display;
+            WebViewLabel.Text = $"WebView 版本：{RuntimeEnvironment.WebViewVersion ?? "未知"}";
             LoadCredits();
         }
         finally

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using DoLLauncher.Core.Story;
+using DoLLauncher.Maui.Controls;
 using DoLLauncher.Maui.Platform;
 using DoLLauncher.Maui.Services;
 using DoLLauncher.Models;
@@ -44,6 +45,7 @@ public partial class StoryPage : ContentView
     public StoryPage(VersionInfo version)
     {
         InitializeComponent();
+        ModalShield.BlockInput(BusyOverlay);
         _version = version;
         HeaderLabel.Text = version.DisplayName;
         VersionPicker.ItemDisplayBinding = new Binding(nameof(VersionInfo.DisplayName));

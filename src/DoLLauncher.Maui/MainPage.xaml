@@ -103,7 +103,7 @@
                             </VerticalStackLayout>
                         </CollectionView.EmptyView>
                         <CollectionView.ItemTemplate>
-                            <DataTemplate>
+                            <DataTemplate x:DataType="local:MainVersionRow">
                                 <Border Padding="12" Margin="0,0,0,8"
                                         StrokeThickness="0"
                                         StyleClass="card version-card"
@@ -156,9 +156,12 @@
         </Grid>
 
         <Grid x:Name="BusyOverlay" Grid.ColumnSpan="2" IsVisible="False"
-              BackgroundColor="#80000000">
-            <ActivityIndicator IsRunning="True" Color="White"
-                               VerticalOptions="Center" HorizontalOptions="Center" />
+              BackgroundColor="#80000000" InputTransparent="False">
+            <VerticalStackLayout Spacing="10" VerticalOptions="Center" HorizontalOptions="Center">
+                <ActivityIndicator IsRunning="True" Color="White" HorizontalOptions="Center" />
+                <Label x:Name="BusyLabel" Text="正在导入…" FontSize="12" TextColor="White"
+                       HorizontalTextAlignment="Center" />
+            </VerticalStackLayout>
         </Grid>
 
     </Grid>

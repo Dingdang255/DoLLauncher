@@ -11,6 +11,7 @@
                 <VerticalStackLayout Spacing="4">
                     <Label Text="启动器版本" Style="{StaticResource SettingsItemTitle}" />
                     <Label x:Name="VersionLabel" Style="{StaticResource SettingsHint}" />
+                    <Label x:Name="WebViewLabel" Style="{StaticResource SettingsHint}" Margin="0,4,0,0" />
                 </VerticalStackLayout>
             </Border>
 

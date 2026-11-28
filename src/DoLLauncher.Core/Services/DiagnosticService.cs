@@ -164,6 +164,8 @@ public static class DiagnosticService
         sb.AppendLine($"启动器版本：{BuildInfo.Display}");
         sb.AppendLine($"操作系统：{Environment.OSVersion}（64 位系统={Environment.Is64BitOperatingSystem}）");
         sb.AppendLine($"运行时：{Environment.Version}");
+        if (!string.IsNullOrWhiteSpace(RuntimeEnvironment.WebViewVersion))
+            sb.AppendLine($"WebView 版本：{RuntimeEnvironment.WebViewVersion}");
         sb.AppendLine($"机器名：{Environment.MachineName}，CPU 核数：{Environment.ProcessorCount}");
         sb.AppendLine();
         sb.AppendLine("== 当前版本 ==");

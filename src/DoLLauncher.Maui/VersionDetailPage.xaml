@@ -84,6 +84,30 @@
                         </VerticalStackLayout>
                     </Border>
 
+                    <!-- 运行记录：与 WPF 版本页底部日志一致，单击打开独立查看界面 -->
+                    <Border Style="{StaticResource SettingsCard}">
+                        <VerticalStackLayout Spacing="6">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <Label Grid.Column="0" Text="运行记录" Style="{StaticResource SettingsItemTitle}"
+                                       VerticalOptions="Center" />
+                                <Label Grid.Column="1" Text="点击查看" FontSize="10"
+                                       VerticalOptions="Center"
+                                       TextColor="{AppThemeBinding Light=#808080, Dark=#A0A0A0}" />
+                            </Grid>
+                            <Border Padding="10" StrokeThickness="0"
+                                    StrokeShape="RoundRectangle 8"
+                                    BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#1F1F1F}">
+                                <Border.GestureRecognizers>
+                                    <TapGestureRecognizer Tapped="OnOpenRunLogClicked" />
+                                </Border.GestureRecognizers>
+                                <Label x:Name="RunLogPreview" FontSize="11" FontFamily="monospace"
+                                       MaxLines="8" LineBreakMode="CharacterWrap"
+                                       Text="读取中…"
+                                       TextColor="{AppThemeBinding Light=#4A4A4A, Dark=#C8C8C8}" />
+                            </Border>
+                        </VerticalStackLayout>
+                    </Border>
+
                 </VerticalStackLayout>
 
                 <!-- 右列：操作 -->
@@ -137,6 +161,9 @@
 
         <!-- 导出选项 -->
         <Grid x:Name="ExportOverlay" IsVisible="False" BackgroundColor="#80000000">
+            <Grid.GestureRecognizers>
+                <TapGestureRecognizer Tapped="OnExportOverlayTapped" />
+            </Grid.GestureRecognizers>
             <Border Padding="18" Margin="24" StrokeThickness="0" StrokeShape="RoundRectangle 14"
                     VerticalOptions="Center" HorizontalOptions="Center" MaximumWidthRequest="460"
                     BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#2A2A2A}">
@@ -166,9 +193,13 @@
             </Border>
         </Grid>
 
-        <Grid x:Name="BusyOverlay" IsVisible="False" BackgroundColor="#80000000">
-            <ActivityIndicator IsRunning="True" Color="White"
-                               VerticalOptions="Center" HorizontalOptions="Center" />
+        <Grid x:Name="BusyOverlay" IsVisible="False" BackgroundColor="#80000000"
+              InputTransparent="False">
+            <VerticalStackLayout Spacing="10" VerticalOptions="Center" HorizontalOptions="Center">
+                <ActivityIndicator IsRunning="True" Color="White" HorizontalOptions="Center" />
+                <Label x:Name="BusyLabel" Text="处理中…" FontSize="12" TextColor="White"
+                       HorizontalTextAlignment="Center" />
+            </VerticalStackLayout>
         </Grid>
 
     </Grid>

@@ -14,10 +14,13 @@ public partial class VersionDetailPage : ContentPage
     private readonly List<ProblemItem> _problems = new();
     private bool _busy;
     private bool _checking;
+    private string _runLog = string.Empty;
 
     public VersionDetailPage(VersionInfo version)
     {
         InitializeComponent();
+        ModalShield.BlockInput(BusyOverlay);
+        ModalShield.BlockInput(ExportOverlay);
         _version = version;
         Title = version.DisplayName;
         NameLabel.Text = version.DisplayName;
@@ -31,6 +34,61 @@ public partial class VersionDetailPage : ContentPage
         // 从游戏页 / 存档助手返回后可能已停服或端口变化，重新取一次状态。
         RefreshStatus();
         _ = CheckProblemsAsync();
+        _ = LoadRunLogAsync();
+    }
+
+    /// <summary>读取启动器日志末尾作为「运行记录」预览，完整内容在独立查看界面打开。</summary>
+    private async Task LoadRunLogAsync()
+    {
+        try
+        {
+            _runLog = await Task.Run(() => ReadTail(LogService.FilePath, 200));
+            if (string.IsNullOrWhiteSpace(_runLog))
+            {
+                RunLogPreview.Text = "暂无运行记录。";
+                return;
+            }
+            // 预览只渲染末尾几行，完整内容在独立界面查看，避免大段文本拖慢详情页。
+            var lines = _runLog.Replace("\r\n", "\n").Split('\n');
+            RunLogPreview.Text = string.Join("\n", lines.TakeLast(8));
+        }
+        catch (Exception ex)
+        {
+            LogService.Error("读取运行记录失败", ex);
+            RunLogPreview.Text = "读取运行记录失败：" + ex.Message;
+        }
+    }
+
+    private async void OnOpenRunLogClicked(object? sender, TappedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_runLog)) await LoadRunLogAsync();
+        await TextViewerPage.ShowAsync("运行记录", _runLog, _version.DisplayName);
+    }
+
+    /// <summary>读取文件末尾内容，限制行数，避免大日志拖慢界面。</summary>
+    private static string ReadTail(string path, int maxLines)
+    {
+        if (!File.Exists(path)) return string.Empty;
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            var length = stream.Length;
+            if (length == 0) return string.Empty;
+            var window = (int)Math.Min(length, 256 * 1024);
+            stream.Position = length - window;
+            var buffer = new byte[window];
+            var read = stream.Read(buffer, 0, window);
+            var text = System.Text.Encoding.UTF8.GetString(buffer, 0, read);
+            var lines = text.Replace("\r\n", "\n").Split('\n');
+            if (window < length && lines.Length > 1) lines = lines[1..];
+            if (lines.Length > maxLines) lines = lines[^maxLines..];
+            return string.Join("\n", lines).TrimEnd();
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 
     /// <summary>供关页检测等外部动作刷新「运行中 / 未运行」状态。</summary>
@@ -186,7 +244,7 @@ public partial class VersionDetailPage : ContentPage
     internal async Task LaunchAsync()
     {
         if (_busy) return;
-        SetBusy(true);
+        SetBusy(true, "正在启动…");
         try
         {
             if (!File.Exists(_version.HtmlPath))
@@ -374,7 +432,7 @@ public partial class VersionDetailPage : ContentPage
     private async void OnIntegrityClicked(object? sender, EventArgs e)
     {
         if (_busy || _version.IsFileMode) return;
-        SetBusy(true);
+        SetBusy(true, "正在检查…");
         try
         {
             var lines = await Task.Run(() =>
@@ -407,7 +465,7 @@ public partial class VersionDetailPage : ContentPage
     private async void OnHelperClicked(object? sender, EventArgs e)
     {
         if (_busy) return;
-        SetBusy(true);
+        SetBusy(true, "正在打开存档助手…");
         try
         {
             var server = await Task.Run(() => ServerManager.EnsureStarted(_version, saveHelperOnly: true));
@@ -437,6 +495,11 @@ public partial class VersionDetailPage : ContentPage
 
     private void OnExportCancelClicked(object? sender, EventArgs e) => ExportOverlay.IsVisible = false;
 
+    /// <summary>点遮罩只消费触摸，不关闭导出选项，避免误触丢失已填备注。</summary>
+    private void OnExportOverlayTapped(object? sender, TappedEventArgs e)
+    {
+    }
+
     private async void OnExportConfirmClicked(object? sender, EventArgs e)
     {
         if (_busy) return;
@@ -453,7 +516,7 @@ public partial class VersionDetailPage : ContentPage
         var name = string.IsNullOrWhiteSpace(_version.Folder) ? _version.DisplayName : _version.Folder;
         var path = Path.Combine(dir, name + ".dolpack");
 
-        SetBusy(true);
+        SetBusy(true, "正在导出…");
         try
         {
             Directory.CreateDirectory(dir);
@@ -515,18 +578,22 @@ public partial class VersionDetailPage : ContentPage
                 "删除版本", "删除", danger: true))
             return;
 
-        SetBusy(true);
+        SetBusy(true, "正在删除版本…");
         try
         {
             GameSurface.CloseFor(_version.Folder);
             ServerManager.Stop(_version.Folder);
             // 与 WPF 删除流程一致：留下该端口的待清理标记，下次任何版本占用这个端口时
             // 先清空旧 origin 的 IndexedDB / localStorage / 缓存，避免新版本读到旧存档。
-            BrowserDataCleaner.CleanVersion(_version, msg => LogService.Append(msg));
-            LauncherStatusService.Sync();
+            // 删目录与写清理标记都是重 I/O，必须放到线程池，否则会触发系统「应用无响应」。
+            await Task.Run(() =>
+            {
+                BrowserDataCleaner.CleanVersion(_version, msg => LogService.Append(msg));
+                LauncherStatusService.Sync();
+            });
             try
             {
-                Directory.Delete(_version.FullPath, recursive: true);
+                await Task.Run(() => Directory.Delete(_version.FullPath, recursive: true));
             }
             catch (Exception ex)
             {
@@ -571,9 +638,10 @@ public partial class VersionDetailPage : ContentPage
             "打开文件夹");
     }
 
-    private void SetBusy(bool busy)
+    private void SetBusy(bool busy, string message = "处理中…")
     {
         _busy = busy;
+        BusyLabel.Text = message;
         BusyOverlay.IsVisible = busy;
         RefreshStatus();
         if (!busy) ApplyProblems(_problems);

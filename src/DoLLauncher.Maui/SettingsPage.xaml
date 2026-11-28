@@ -148,7 +148,7 @@
                     <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
                         <Label Text="日志与诊断" Style="{StaticResource SettingsItemTitle}" />
                         <Label Style="{StaticResource SettingsHint}"
-                               Text="日志详细度、游戏日志保留 / 上限 / 超限策略、上报队列与清空 Mod 缓存。" />
+                               Text="日志详细度、游戏日志保留 / 上限 / 超限策略与上报队列。" />
                     </VerticalStackLayout>
                     <Label Grid.Column="2" Text="{x:Static local:IconGlyph.ChevronRight}"
                            FontFamily="FluentIcons" FontSize="12" VerticalOptions="Center"
@@ -216,6 +216,10 @@
                             <Label Text="最近 200 行启动器日志，展开后可清屏。" Style="{StaticResource SettingsHint}" />
                         </VerticalStackLayout>
                         <HorizontalStackLayout Grid.Column="1" Spacing="8" VerticalOptions="Center">
+                            <Button Text="独立查看" FontSize="12" Padding="8,2" CornerRadius="8"
+                                    HeightRequest="30" Clicked="OnOpenLogViewer"
+                                    BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"
+                                    TextColor="{AppThemeBinding Light=#333333, Dark=#E8E8E8}" />
                             <Button Text="清屏" FontSize="12" Padding="8,2" CornerRadius="8"
                                     HeightRequest="30" Clicked="OnClearLog"
                                     BackgroundColor="{AppThemeBinding Light=#E0E0E0, Dark=#3C3C3C}"

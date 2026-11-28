@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:ctl="clr-namespace:DoLLauncher.Maui.Controls"
              xmlns:local="clr-namespace:DoLLauncher.Maui"
+             xmlns:models="clr-namespace:DoLLauncher.Models;assembly=DoLLauncher.Core"
              x:Class="DoLLauncher.Maui.BackupPage">
 
     <ContentView.Resources>
@@ -164,11 +165,15 @@
                                 BackgroundColor="{AppThemeBinding Light=#F2F2F2, Dark=#2A2A2A}">
                             <VerticalStackLayout Spacing="6">
                                 <Label Text="磁盘镜像" Style="{StaticResource SectionLabel}" />
-                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
                                     <Label x:Name="MirrorLabel" Grid.Column="0" Text="—" FontSize="12"
                                            LineBreakMode="WordWrap" VerticalOptions="Center"
                                            TextColor="{AppThemeBinding Light=#4A4A4A, Dark=#C8C8C8}" />
-                                    <ctl:IconActionView x:Name="RefreshMirrorButton" Grid.Column="1"
+                                    <ctl:IconActionView x:Name="OpenBackupFolderButton" Grid.Column="1"
+                                                        Glyph="{x:Static local:IconGlyph.FolderOpen}"
+                                                        Text="打开目录" IsCompact="True"
+                                                        Tapped="OnOpenBackupFolderClicked" />
+                                    <ctl:IconActionView x:Name="RefreshMirrorButton" Grid.Column="2"
                                                         Glyph="{x:Static local:IconGlyph.ArrowClockwise}"
                                                         IsCompact="True"
                                                         Tapped="OnRefreshMirrorClicked" />
@@ -225,7 +230,7 @@
                 </CollectionView.Footer>
 
                 <CollectionView.ItemTemplate>
-                    <DataTemplate>
+                    <DataTemplate x:DataType="models:BackupEntry">
                         <Border Padding="12" Margin="16,0,16,10"
                                 StrokeThickness="0"
                                 StrokeShape="RoundRectangle 12"
